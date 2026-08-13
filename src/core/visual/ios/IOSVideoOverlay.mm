@@ -10,6 +10,72 @@
 
 static __weak UIWindowScene *TVPIOSApplicationWindowScene;
 
+static BOOL TVPIOSIsSDLWindow(UIWindow *window)
+{
+    Class sdlWindowClass = NSClassFromString(@"SDL_uikitwindow");
+    return window && sdlWindowClass && [window isKindOfClass:sdlWindowClass];
+}
+
+static UIWindow *TVPIOSFindSDLWindow(UIWindowScene *scene)
+{
+    for(UIWindow *window in scene.windows) {
+        if(TVPIOSIsSDLWindow(window)) return window;
+    }
+    return nil;
+}
+
+static void TVPIOSRelayoutSDLWindow(UIWindowScene *scene)
+{
+    if(!scene) return;
+    if(!NSThread.isMainThread) {
+        __weak UIWindowScene *weakScene = scene;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            TVPIOSRelayoutSDLWindow(weakScene);
+        });
+        return;
+    }
+
+    UIWindow *window = TVPIOSFindSDLWindow(scene);
+    if(!window) return;
+
+    /*
+     * When another application is portrait-only, UIKit can temporarily lay
+     * out SDL's view using the portrait scene size while this application is
+     * in the background.  The old SDL UIKit backend does not always receive a
+     * final landscape layout pass on return, leaving its Metal drawable at the
+     * small portrait-derived size.  Reattach every level of the SDL view tree
+     * to the scene's current coordinate space and force that final pass.
+     */
+    CGRect sceneBounds = scene.coordinateSpace.bounds;
+    if(CGRectIsEmpty(sceneBounds)) return;
+
+    window.frame = sceneBounds;
+    UIView *contentView = window.rootViewController.view;
+    if(contentView) {
+        contentView.frame = window.bounds;
+        [contentView setNeedsLayout];
+        [contentView layoutIfNeeded];
+    }
+    [window setNeedsLayout];
+    [window layoutIfNeeded];
+}
+
+static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
+{
+    if(!scene) return;
+    TVPIOSRelayoutSDLWindow(scene);
+
+    /* Run once after UIKit has committed the foreground/orientation change. */
+    __weak UIWindowScene *weakScene = scene;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
+}
+
 @interface TVPIOSSceneDelegate : UIResponder <UIWindowSceneDelegate>
 @end
 
@@ -20,8 +86,33 @@ static __weak UIWindowScene *TVPIOSApplicationWindowScene;
 {
     (void)session;
     (void)connectionOptions;
-    if([scene isKindOfClass:UIWindowScene.class])
+    if([scene isKindOfClass:UIWindowScene.class]) {
         TVPIOSApplicationWindowScene = (UIWindowScene *)scene;
+        TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
+    }
+}
+
+- (void)sceneWillEnterForeground:(UIScene *)scene
+{
+    if([scene isKindOfClass:UIWindowScene.class])
+        TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
+}
+
+- (void)sceneDidBecomeActive:(UIScene *)scene
+{
+    if([scene isKindOfClass:UIWindowScene.class])
+        TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
+}
+
+- (void)windowScene:(UIWindowScene *)windowScene
+    didUpdateCoordinateSpace:(id<UICoordinateSpace>)previousCoordinateSpace
+          interfaceOrientation:(UIInterfaceOrientation)previousInterfaceOrientation
+             traitCollection:(UITraitCollection *)previousTraitCollection
+{
+    (void)previousCoordinateSpace;
+    (void)previousInterfaceOrientation;
+    (void)previousTraitCollection;
+    TVPIOSScheduleSDLWindowRelayout(windowScene);
 }
 @end
 
@@ -55,11 +146,14 @@ static __weak UIWindowScene *TVPIOSApplicationWindowScene;
 {
     if(@available(iOS 13.0, *)) {
         UIWindowScene *scene = TVPIOSApplicationWindowScene;
-        Class sdlWindowClass = NSClassFromString(@"SDL_uikitwindow");
-        if(!self.windowScene && scene && sdlWindowClass &&
-           [self isKindOfClass:sdlWindowClass]) self.windowScene = scene;
+        if(!self.windowScene && scene && TVPIOSIsSDLWindow(self))
+            self.windowScene = scene;
     }
     [self tvp_makeKeyAndVisible];
+    if(@available(iOS 13.0, *)) {
+        if(TVPIOSIsSDLWindow(self))
+            TVPIOSScheduleSDLWindowRelayout(self.windowScene);
+    }
 }
 @end
 

@@ -1,0 +1,241 @@
+name: Release macOS SDL2
+
+'on':
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - 'codex/feature-ios-macos-releases'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag, for example v0.1.0-test.1'
+        required: true
+        type: string
+      prerelease:
+        description: 'Publish as a prerelease'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build Apple Silicon DMG and publish
+    runs-on: macos-15
+    timeout-minutes: 150
+
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          lfs: false
+
+      - name: Select Xcode and reclaim runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          sudo rm -rf \
+            /Applications/Xcode_26.3.app \
+            /Applications/Xcode_26.2.app \
+            /Applications/Xcode_26.1.1.app \
+            /Applications/Xcode_26.0.1.app \
+            /Applications/Xcode_16.3.app \
+            /Applications/Xcode_16.2.app \
+            /Applications/Xcode_16.1.app \
+            /Applications/Xcode_16.app \
+            "$HOME/Library/Developer/CoreSimulator"
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          publish=true
+          if [[ "$EVENT_NAME" == 'push' && "$GITHUB_REF" == refs/tags/* ]]; then
+            release_tag="$REF_NAME"
+            [[ "$release_tag" == *-* ]] && is_prerelease=true || is_prerelease=false
+          elif [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            release_tag="${INPUT_RELEASE_TAG//[[:space:]]/}"
+            is_prerelease="$INPUT_PRERELEASE"
+          else
+            release_tag="v0.0.0-ci.${GITHUB_RUN_NUMBER}"
+            is_prerelease=true
+            publish=false
+          fi
+          if [[ ! "$release_tag" =~ ^v[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "Invalid release tag: $release_tag" >&2
+            exit 1
+          fi
+          {
+            echo "tag=$release_tag"
+            echo "version-name=${release_tag#v}"
+            echo "version-code=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
+            echo "prerelease=$is_prerelease"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify Git LFS content
+        shell: bash
+        run: |
+          set -euo pipefail
+          git lfs pull
+          git lfs fsck
+
+      - name: Generate complete content manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/generate_content_manifest.py \
+            --root data \
+            --output data/content-manifest.json \
+            --config content-packs.json \
+            --cache "$RUNNER_TEMP/content-manifest-cache.json" \
+            --full
+
+      - name: Build optimized macOS application bundle
+        shell: bash
+        env:
+          VERSION_NAME: ${{ steps.release.outputs.version-name }}
+          VERSION_CODE: ${{ steps.release.outputs.version-code }}
+        run: |
+          set -euo pipefail
+          cmake \
+            -S . \
+            -B build/release-macos \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DOPTION_BUILD_MACOS_BUNDLE=ON \
+            -DKRKRSDL2_GENERATE_CONTENT_MANIFEST=OFF \
+            -DKRKRSDL2_VERSION_NAME="$VERSION_NAME" \
+            -DKRKRSDL2_BUILD_NUMBER="$VERSION_CODE"
+          cmake --build build/release-macos --target krkrsdl2 --parallel
+
+      - name: Verify application and create DMG
+        id: package
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION_NAME: ${{ steps.release.outputs.version-name }}
+          VERSION_CODE: ${{ steps.release.outputs.version-code }}
+        run: |
+          set -euo pipefail
+          app='build/release-macos/YosugaNoSoraHD.app'
+          executable="$app/Contents/MacOS/YosugaNoSoraHD"
+          if [[ ! -x "$executable" || ! -f "$app/Contents/Resources/data/startup.tjs" ]]; then
+            echo 'The macOS application bundle is incomplete.' >&2
+            exit 1
+          fi
+          file "$executable" | grep -q 'arm64'
+          [[ "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" == \
+            'com.lightwinder.yosuganosora.hdremake' ]]
+          [[ "$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")" == \
+            "$VERSION_NAME" ]]
+          [[ "$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")" == \
+            "$VERSION_CODE" ]]
+
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+          staging="$RUNNER_TEMP/macos-dmg"
+          asset_dir="$RUNNER_TEMP/release-assets"
+          mkdir -p "$staging" "$asset_dir"
+          ditto "$app" "$staging/Yosuga no Sora HD Remake.app"
+          ln -s /Applications "$staging/Applications"
+          dmg_name="Yosuga-no-Sora-HD-Remake-macOS-arm64-$RELEASE_TAG.dmg"
+          dmg="$RUNNER_TEMP/$dmg_name"
+          hdiutil create -quiet -fs HFS+ -format UDZO -imagekey zlib-level=1 \
+            -volname 'Yosuga no Sora HD Remake' -srcfolder "$staging" "$dmg"
+          hdiutil verify "$dmg"
+
+          rm -rf build/release-macos data "$staging"
+          seven_zip=$(command -v 7zz || command -v 7z)
+          "$seven_zip" a -t7z -mx=0 -mmt=on -v1900m \
+            "$asset_dir/$dmg_name.7z" "$dmg"
+          shopt -s nullglob
+          volumes=("$asset_dir/$dmg_name.7z."*)
+          [[ "${#volumes[@]}" -gt 0 ]]
+          "$seven_zip" t "${volumes[0]}"
+          for volume in "${volumes[@]}"; do
+            [[ "$(stat -f '%z' "$volume")" -lt 2147483648 ]]
+          done
+          (
+            cd "$asset_dir"
+            shasum -a 256 "$dmg_name.7z."* > "$dmg_name-SHA256SUMS.txt"
+          )
+          cat > "$asset_dir/$dmg_name-BUILD-INFO.txt" <<EOF
+          Yosuga no Sora: HD Remake
+          Runtime: Kirikiri SDL2 for macOS (Apple Silicon)
+          Release: $RELEASE_TAG
+          Commit: $GITHUB_SHA
+          Signing: ad-hoc (not notarized)
+          Native optimization: Release
+          EOF
+          echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
+          ls -lh "$asset_dir"
+
+      - name: Create or update GitHub Release
+        if: steps.release.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          ASSET_DIRECTORY: ${{ steps.package.outputs.asset-directory }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=("$ASSET_DIRECTORY"/*)
+          [[ "${#assets[@]}" -gt 0 ]]
+          exists=false
+          is_draft=false
+          if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
+            --json isDraft 2>/dev/null); then
+            exists=true
+            is_draft=$(python3 -c \
+              'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' \
+              <<<"$json")
+          else
+            args=(release create "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft \
+              --title "$RELEASE_TAG" --generate-notes)
+            [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
+            [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
+            if ! gh "${args[@]}"; then
+              for ((attempt = 1; attempt <= 12; attempt++)); do
+                if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
+                  --json isDraft 2>/dev/null); then
+                  exists=true
+                  is_draft=$(python3 -c \
+                    'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' \
+                    <<<"$json")
+                  break
+                fi
+                echo "Waiting for another workflow to create the release ($attempt/12)."
+                sleep 5
+              done
+              [[ "$exists" == 'true' ]] || exit 1
+            fi
+          fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" \
+            --repo "$GH_REPOSITORY" --clobber
+          if [[ "$exists" == 'false' || "$is_draft" == 'true' ]]; then
+            gh release edit "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft=false
+          fi

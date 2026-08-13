@@ -1,0 +1,77 @@
+
+option(
+	'enable_async_image_load',
+	type: 'boolean',
+	value: true,
+	description: 'Enable async image load. Not applicable to Emscripten build.'
+)
+
+option(
+	'enable_canvas',
+	type: 'boolean',
+	value: false,
+	description: 'Enable Canvas interface. Requires OpenGL ES or ANGLE at runtime.'
+)
+
+option(
+	'enable_case_insensitivity',
+	type: 'boolean',
+	value: true,
+	description: 'Enable case insensitivity. May malfunction if directories in the path are not listable.'
+)
+
+option(
+	'enable_external_plugins',
+	type: 'boolean',
+	value: true,
+	description: 'Enable external plugins. This will make Plugins.link load a plugin instead of a no-op.'
+)
+
+option(
+	'enable_sdl_threads',
+	type: 'boolean',
+	value: false,
+	description: 'Enable SDL threads. May be more useful on platforms that do not have a good implementation of std::thread.'
+)
+
+option(
+	'emscripten_enable_js_fallback',
+	type: 'boolean',
+	value: false,
+	description: 'Enable JavaScript fallback for the Emscripten build.'
+)
+
+option(
+	'emscripten_enable_bigint',
+	type: 'boolean',
+	value: true,
+	description: 'Enable BigInt support for the Emscripten build.'
+)
+
+option(
+	'emscripten_enable_wasm_simd',
+	type: 'boolean',
+	value: false,
+	description: 'Enable WebAssembly SIMD for the Emscripten build.'
+)
+
+option(
+	'emscripten_enable_threads',
+	type: 'boolean',
+	value: false,
+	description: 'Enable threads for the Emscripten build.'
+)
+
+option(
+	'emscripten_enable_source_maps',
+	type: 'boolean',
+	value: false,
+	description: 'Enable source maps for the Emscripten build.'
+)
+
+option(
+	'emscripten_initial_memory',
+	type: 'integer',
+	value: 134217728,
+	description: 'Initial memory usage for the Emscripten build.'
+)

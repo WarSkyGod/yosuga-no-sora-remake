@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "defaultPack": "misc",
+  "exclude": [
+    ".DS_Store",
+    "**/.DS_Store",
+    "content-manifest.json",
+    "savedata/**"
+  ],
+  "packs": [
+    {
+      "id": "bootstrap",
+      "include": [
+        "system/**",
+        "plugin/**",
+        "k2compat/**",
+        "begin.tjs",
+        "startup.tjs",
+        "*.tjs",
+        "*.csv",
+        "*.cf"
+      ]
+    },
+    {
+      "id": "fonts",
+      "include": [
+        "font/**",
+        "*.ttf",
+        "*.otf",
+        "*.ttc"
+      ]
+    },
+    {
+      "id": "ui",
+      "include": [
+        "ui_1920/**",
+        "frame/**",
+        "frame_m2/**",
+        "rule/**",
+        "thumb/**"
+      ]
+    },
+    {
+      "id": "audio",
+      "include": [
+        "audio_ogg/**"
+      ]
+    },
+    {
+      "id": "backgrounds",
+      "include": [
+        "bg_1920/**"
+      ]
+    },
+    {
+      "id": "characters",
+      "include": [
+        "char/**",
+        "character_1920/**"
+      ]
+    },
+    {
+      "id": "events",
+      "include": [
+        "event_1920/**"
+      ]
+    },
+    {
+      "id": "video",
+      "include": [
+        "*.mp4",
+        "*.mpg",
+        "*.mpeg",
+        "*.webm"
+      ]
+    },
+    {
+      "id": "scenario",
+      "include": [
+        "scenario/**"
+      ]
+    }
+  ]
+}

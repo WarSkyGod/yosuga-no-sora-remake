@@ -1,0 +1,902 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) Kirikiri SDL2 Developers
+
+cmake_minimum_required(VERSION 3.12)
+
+if(IOS AND (NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET))
+set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0)
+endif()
+
+if((NOT IOS) AND (NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET))
+set(CMAKE_OSX_DEPLOYMENT_TARGET 10.14)
+endif()
+
+if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.12)
+endif()
+
+project(krkrsdl2)
+
+# Disable install for subprojects
+if(NOT DEFINED _DISABLE_INSTALLATION)
+set(_DISABLE_INSTALLATION FALSE)
+macro(install)
+if (NOT _DISABLE_INSTALLATION)
+_install(${ARGN})
+endif()
+endmacro()
+endif()
+
+if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13")
+cmake_policy(SET CMP0077 NEW)
+endif()
+option(OPTION_ENABLE_ASYNC_IMAGE_LOAD "Enable async image load. Not applicable to Emscripten build." ON)
+option(OPTION_ENABLE_CANVAS "Enable Canvas interface. Requires OpenGL ES or ANGLE at runtime." OFF)
+option(OPTION_ENABLE_CASEINSENSITIVITY "Enable case insensitivity. May malfunction if directories in the path are not listable." ON)
+option(OPTION_ENABLE_SDL_THREADS "Enable SDL threads. May be more useful on platforms that do not have a good implementation of std::thread." OFF)
+option(OPTION_ENABLE_EXTERNAL_PLUGINS "Enable external plugins. This will make Plugins.link load a plugin instead of a no-op." ON)
+option(OPTION_BUILD_MACOS_BUNDLE "Build an application bundle for macOS." ON)
+option(KRKRSDL2_GENERATE_CONTENT_MANIFEST "Generate the content manifest while building desktop targets." ON)
+option(KRKRSDL2_EMSCRIPTEN_ENABLE_JS_FALLBACK "Enable JavaScript fallback for the Emscripten build." OFF)
+option(KRKRSDL2_EMSCRIPTEN_ENABLE_BIGINT "Enable BigInt support for the Emscripten build." ON)
+option(KRKRSDL2_EMSCRIPTEN_ENABLE_WASM_SIMD "Enable WebAssembly SIMD for the Emscripten build." OFF)
+option(KRKRSDL2_EMSCRIPTEN_ENABLE_THREADS "Enable threads for the Emscripten build." OFF)
+option(KRKRSDL2_EMSCRIPTEN_ENABLE_SOURCE_MAPS "Enable threads for the Emscripten build." OFF)
+set(KRKRSDL2_EMSCRIPTEN_INITIAL_MEMORY "134217728" CACHE STRING "Initial memory usage for the Emscripten build.")
+option(KRKRSDL2_BUILD_ENABLE_WARNINGS "Enable warnings when building the project." OFF)
+set(KRKRSDL2_PRODUCT_NAME "Yosuga no Sora: HD Remake" CACHE STRING "Application display name.")
+set(KRKRSDL2_BUNDLE_OUTPUT_NAME "YosugaNoSoraHD" CACHE STRING "Application bundle filename without the extension.")
+set(KRKRSDL2_BUNDLE_IDENTIFIER "com.lightwinder.yosuganosora.hdremake" CACHE STRING "Apple bundle identifier.")
+set(KRKRSDL2_VERSION_NAME "0.0.0" CACHE STRING "Human-readable application version.")
+set(KRKRSDL2_BUILD_NUMBER "1" CACHE STRING "Monotonically increasing application build number.")
+
+if((NOT DEFINED CMAKE_BUILD_TYPE) OR (NOT CMAKE_BUILD_TYPE) OR (CMAKE_BUILD_TYPE STREQUAL ""))
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+set(CMAKE_BUILD_TYPE MinSizeRel)
+else()
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+endif()
+
+if(NOT DEFINED KRKRSDL2_REPO_DIR)
+set(KRKRSDL2_REPO_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+
+if((OPTION_ENABLE_ASYNC_IMAGE_LOAD) AND (NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")))
+set(EVAL_ENABLE_ASYNC_IMAGE_LOAD ON)
+else()
+set(EVAL_ENABLE_ASYNC_IMAGE_LOAD OFF)
+endif()
+
+# At the moment, iOS does not support case insensitivity properly with our code
+# due to the fact that some folders cannot be listed
+if((OPTION_ENABLE_CASEINSENSITIVITY) AND (NOT IOS))
+set(EVAL_ENABLE_CASEINSENSITIVITY ON)
+else()
+set(EVAL_ENABLE_CASEINSENSITIVITY OFF)
+endif()
+
+if((OPTION_ENABLE_SDL_THREADS) OR (VITA OR NINTENDO_SWITCH))
+set(EVAL_ENABLE_SDL_THREADS ON)
+else()
+set(EVAL_ENABLE_SDL_THREADS OFF)
+endif()
+
+if((OPTION_ENABLE_EXTERNAL_PLUGINS) AND (NOT (VITA OR NINTENDO_SWITCH OR IOS)))
+set(EVAL_ENABLE_EXTERNAL_PLUGINS ON)
+else()
+set(EVAL_ENABLE_EXTERNAL_PLUGINS OFF)
+endif()
+
+if(NOT KRKRSDL2_ENABLE_PRECOMPILED_HEADERS)
+if(WIN32)
+set(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS OFF)
+else()
+set(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS ON)
+endif()
+endif()
+
+# Local Xcode builds use automatic signing by default. CI can still override
+# these settings from the xcodebuild command line for unsigned or manually
+# signed release artifacts.
+set(KRKRSDL2_IOS_CODE_SIGN_IDENTITY "" CACHE STRING "The code sign identity to use when building the IPA.")
+set(KRKRSDL2_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple Development Team identifier.")
+set(KRKRSDL2_IOS_PROVISIONING_PROFILE "" CACHE STRING "Provisioning profile name or UUID.")
+
+set(KRKRSDL2_IOS_CODE_SIGN_STYLE Automatic)
+if(NOT KRKRSDL2_IOS_CODE_SIGN_IDENTITY STREQUAL "" OR
+   NOT KRKRSDL2_IOS_PROVISIONING_PROFILE STREQUAL "")
+set(KRKRSDL2_IOS_CODE_SIGN_STYLE Manual)
+endif()
+
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-fno-delete-null-pointer-checks KRKRSDL2_COMPILER_SUPPORTS_NO_DELETE_NULL_POINTER_CHECKS)
+
+if(IOS)
+set(CMAKE_XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2")
+endif()
+
+if(WIN32)
+set(WIN32_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/win32 CACHE FILEPATH "The path to the resources for Win32.")
+endif()
+
+if(APPLE AND IOS)
+enable_language(OBJC OBJCXX)
+set(IOS_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ios CACHE FILEPATH "The path to the resources for iOS.")
+list(APPEND KRKRSDL2_CFLAGS -Wno-declaration-after-statement)
+endif()
+
+if(APPLE AND NOT IOS)
+# SDL contains Objective-C (.m) sources, while the macOS overlay below uses
+# Objective-C++ (.mm). Enable both languages explicitly; enabling only OBJCXX
+# makes CMake classify SDL's .m files as Objective-C++ and pass -std=gnu++14
+# together with -x objective-c, which Apple Clang rejects.
+enable_language(OBJC OBJCXX)
+set(MACOS_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/macos CACHE FILEPATH "The path to the resources for macOS.")
+add_compile_options(-Wno-declaration-after-statement)
+list(APPEND KRKRSDL2_CFLAGS
+	-include
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/macos_zlib_byte.h
+)
+endif()
+
+if(VITA)
+include("${VITASDK}/share/vita.cmake" REQUIRED)
+
+set(VITA_APP_NAME "Kirikiri SDL2" CACHE STRING "The application name to use for the VPK.")
+set(VITA_TITLEID  "KRKR00001"     CACHE STRING "The title ID to use for the VPK.")
+set(VITA_VERSION  "02.00"         CACHE STRING "The version to use for the VPK.")
+set(VITA_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/vita CACHE FILEPATH "The path to the resources for Vita.")
+endif()
+
+if(NINTENDO_SWITCH)
+set(SWITCH_APP_NAME "Kirikiri SDL2" CACHE STRING "The application name to use for the NRO.")
+set(SWITCH_AUTHOR   "uyjulian"      CACHE STRING "The author to use for the NRO.")
+set(SWITCH_VERSION  "v2.0.0"        CACHE STRING "The version to use for the NRO.")
+set(SWITCH_RESOURCES_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/nswitch CACHE FILEPATH "The path to the resources for Switch.")
+endif()
+
+set(EMBED_DATA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/data CACHE FILEPATH "The path to the data file or directory.")
+get_filename_component(EMBED_DATA_PATH_BASENAME ${EMBED_DATA_PATH} NAME)
+
+set(KRKRSDL2_SRC "")
+set(KRKRSDL2_INCLUDES "")
+set(KRKRSDL2COMMON_SRC "")
+set(KRKRSDL2COMMON_INCLUDES "")
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/sources.txt
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/sources_sse2.txt
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/sources_avx2.txt
+	${CMAKE_CURRENT_SOURCE_DIR}/src/config/src_list/kirikirisdl2/includes.txt
+)
+
+file(STRINGS src/config/src_list/kirikirisdl2/sources.txt KIRIKIRISDL2_SRC)
+file(STRINGS src/config/src_list/kirikirisdl2/sources_sse2.txt KIRIKIRISDL2_SSE2_SRC)
+file(STRINGS src/config/src_list/kirikirisdl2/sources_avx2.txt KIRIKIRISDL2_AVX2_SRC)
+file(STRINGS src/config/src_list/kirikirisdl2/includes.txt KIRIKIRISDL2_INCLUDES)
+
+list(APPEND KRKRSDL2COMMON_SRC ${KIRIKIRISDL2_SRC})
+list(APPEND KRKRSDL2COMMON_SRC ${KIRIKIRISDL2_SSE2_SRC})
+list(APPEND KRKRSDL2COMMON_SRC ${KIRIKIRISDL2_AVX2_SRC})
+list(APPEND KRKRSDL2COMMON_INCLUDES ${KIRIKIRISDL2_INCLUDES})
+
+set(KRKRSDL2OPUS_SRC "")
+list(APPEND KRKRSDL2OPUS_SRC ${KRKRSDL2COMMON_SRC})
+list(FILTER KRKRSDL2OPUS_SRC INCLUDE REGEX "^external/krkrz/external/opus")
+set_source_files_properties(${KRKRSDL2OPUS_SRC} PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/external/krkrz/external/opus/silk;${CMAKE_CURRENT_SOURCE_DIR}/external/krkrz/external/opus/silk/fixed;${CMAKE_CURRENT_SOURCE_DIR}/external/krkrz/external/opus/silk/float")
+
+list(APPEND KRKRSDL2COMMON_SRC src/support/roundevenf.c)
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+list(APPEND KRKRSDL2COMMON_SRC src/plugins/kremscripten.cpp)
+endif()
+
+list(APPEND KRKRSDL2_DEFINITIONS
+	TVP_COMPILING_KRKRSDL2
+	TVP_OPUS_DECODER_IMPLEMENT
+	TVP_LOG_TO_COMMANDLINE_CONSOLE
+	HAVE_CONFIG_H
+	FT2_BUILD_LIBRARY
+	USE_ALLOCA
+	OPUS_BUILD
+	HAVE_LRINTF
+	HAVE_LRINT
+	FLOAT_APPROX
+	PNG_ARM_NEON_OPT=0
+)
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+list(APPEND KRKRSDL2_LDFLAGS
+	-sDISABLE_EXCEPTION_CATCHING=0
+	-sEXIT_RUNTIME=1
+	-sALLOW_MEMORY_GROWTH=1
+	-sINITIAL_MEMORY=${KRKRSDL2_EMSCRIPTEN_INITIAL_MEMORY}
+	-sFORCE_FILESYSTEM=1
+	-sASSERTIONS=0
+	-sSTACK_OVERFLOW_CHECK=0
+	-sMODULARIZE=1
+	-sEXPORT_NAME="instantiate_krkrsdl2_module"
+	-sEXPORTED_RUNTIME_METHODS=['FS','IDBFS']
+	-sUSE_SDL=2
+	-lidbfs.js
+	-lopenal
+	--bind
+	--no-heap-copy
+	-fPIC
+)
+list(APPEND KRKRSDL2_CFLAGS
+	-sDISABLE_EXCEPTION_CATCHING=0
+	-sUSE_SDL=2
+	-fPIC
+)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+list(APPEND KRKRSDL2_LDFLAGS
+	-O3
+)
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+list(APPEND KRKRSDL2_LDFLAGS
+	-O2
+)
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+list(APPEND KRKRSDL2_LDFLAGS
+	-Os
+)
+endif()
+if(EVAL_ENABLE_EXTERNAL_PLUGINS)
+list(APPEND KRKRSDL2_LDFLAGS
+	-sMAIN_MODULE=1
+)
+endif()
+if(${KRKRSDL2_EMSCRIPTEN_ENABLE_WASM_SIMD} EQUAL ON)
+list(APPEND KRKRSDL2_CFLAGS
+	-msimd128
+	-msse4.2
+)
+endif()
+if(${KRKRSDL2_EMSCRIPTEN_ENABLE_THREADS} EQUAL ON)
+list(APPEND KRKRSDL2_CFLAGS
+	-sUSE_PTHREADS=1
+	-sPROXY_TO_PTHREAD=1
+	-sOFFSCREEN_FRAMEBUFFER=1
+)
+endif()
+if(${KRKRSDL2_EMSCRIPTEN_ENABLE_JS_FALLBACK} EQUAL ON)
+list(APPEND KRKRSDL2_LDFLAGS
+	-sWASM=2
+)
+endif()
+if(${KRKRSDL2_EMSCRIPTEN_ENABLE_BIGINT} EQUAL ON)
+list(APPEND KRKRSDL2_LDFLAGS
+	-sWASM_BIGINT=1
+)
+endif()
+if(${KRKRSDL2_EMSCRIPTEN_ENABLE_THREADS} EQUAL ON)
+list(APPEND KRKRSDL2_LDFLAGS
+	-sUSE_PTHREADS=1
+	-sPROXY_TO_PTHREAD=1
+	-sOFFSCREEN_FRAMEBUFFER=1
+)
+endif()
+if(${KRKRSDL2_EMSCRIPTEN_ENABLE_SOURCE_MAPS} EQUAL ON)
+list(APPEND KRKRSDL2_LDFLAGS
+	-g4
+	--source-map-base http://127.0.0.1:8080/
+)
+endif()
+endif()
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+list(APPEND KRKRSDL2_LDFLAGS
+	-pthread
+)
+list(APPEND KRKRSDL2_CFLAGS
+	-pthread
+)
+list(APPEND KRKRSDL2_LIBS
+	pthread
+)
+endif()
+
+if(KRKRSDL2_BUILD_ENABLE_WARNINGS)
+list(APPEND KRKRSDL2_CFLAGS
+	-Wall
+)
+else()
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+list(APPEND KRKRSDL2_CFLAGS
+	-Wno-everything
+)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+list(APPEND KRKRSDL2_CFLAGS
+	-w
+)
+endif()
+endif()
+
+if(WIN32)
+list(APPEND KRKRSDL2_DEFINITIONS
+	UNICODE
+	_UNICODE
+)
+list(APPEND KRKRSDL2_LDFLAGS
+	-static
+	-static-libstdc++
+	-static-libgcc
+	-municode
+	-Wl,--subsystem,windows
+)
+list(APPEND KRKRSDL2_LIBS
+	uuid
+	mpr
+	dmoguids
+	mfplat
+	strmiids
+	mf
+	propsys
+	mfuuid
+	amstrmid
+	dxguid
+	windowscodecs
+)
+if((${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i686") OR (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "amd64"))
+list(APPEND KRKRSDL2_LIBS
+	quartz
+)
+endif()
+if((${CMAKE_SYSTEM_PROCESSOR} STREQUAL "i686") OR (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "amd64"))
+set_source_files_properties(${KIRIKIRISDL2_SSE2_SRC} PROPERTIES COMPILE_FLAGS -msse2)
+set_source_files_properties(${KIRIKIRISDL2_AVX2_SRC} PROPERTIES COMPILE_FLAGS -mavx2)
+endif()
+list(APPEND KRKRSDL2COMMON_SRC
+	src/core/sound/sdl2/tvpsnd.c
+
+	src/core/environ/win32/WindowsUtil.cpp
+
+	external/krkrz/movie/win32/TVPVideoOverlay.cpp
+
+	external/krkrz/movie/win32/BufferRenderer.cpp
+	external/krkrz/movie/win32/CDemuxOutputPin.cpp
+	external/krkrz/movie/win32/CDemuxSource.cpp
+	external/krkrz/movie/win32/CMediaSeekingProxy.cpp
+	external/krkrz/movie/win32/CVMRCustomAllocatorPresenter9.cpp
+	external/krkrz/movie/win32/CWMAllocator.cpp
+	external/krkrz/movie/win32/CWMBuffer.cpp
+	external/krkrz/movie/win32/CWMReader.cpp
+	external/krkrz/movie/win32/DShowException.cpp
+	external/krkrz/movie/win32/IBufferRenderer_i.c
+	external/krkrz/movie/win32/IRendererBufferAccess_i.c
+	external/krkrz/movie/win32/IRendererBufferVideo_i.c
+	external/krkrz/movie/win32/MFByteStream.cpp
+	external/krkrz/movie/win32/MFPlayer.cpp
+	external/krkrz/movie/win32/PlayWindow.cpp
+	external/krkrz/movie/win32/init_guid_movie.c
+	external/krkrz/movie/win32/asyncio.cpp
+	external/krkrz/movie/win32/asyncrdr.cpp
+	external/krkrz/movie/win32/dslayerd.cpp
+	external/krkrz/movie/win32/dsmixer.cpp
+	external/krkrz/movie/win32/dsmovie.cpp
+	external/krkrz/movie/win32/dsoverlay.cpp
+	external/krkrz/movie/win32/krlmovie.cpp
+	external/krkrz/movie/win32/krmmovie.cpp
+	external/krkrz/movie/win32/krmovie.cpp
+
+	external/krkrz/external/baseclasses/amextra.cpp
+	external/krkrz/external/baseclasses/amfilter.cpp
+	external/krkrz/external/baseclasses/amvideo.cpp
+	external/krkrz/external/baseclasses/arithutil.cpp
+	external/krkrz/external/baseclasses/combase.cpp
+	external/krkrz/external/baseclasses/cprop.cpp
+	external/krkrz/external/baseclasses/ctlutil.cpp
+	external/krkrz/external/baseclasses/ddmm.cpp
+	external/krkrz/external/baseclasses/dllentry.cpp
+	external/krkrz/external/baseclasses/dllsetup.cpp
+	external/krkrz/external/baseclasses/mtype.cpp
+	external/krkrz/external/baseclasses/outputq.cpp
+	external/krkrz/external/baseclasses/perflog.cpp
+	external/krkrz/external/baseclasses/pstream.cpp
+	external/krkrz/external/baseclasses/pullpin.cpp
+	external/krkrz/external/baseclasses/refclock.cpp
+	external/krkrz/external/baseclasses/renbase.cpp
+	external/krkrz/external/baseclasses/schedule.cpp
+	external/krkrz/external/baseclasses/seekpt.cpp
+	external/krkrz/external/baseclasses/source.cpp
+	external/krkrz/external/baseclasses/strmctl.cpp
+	external/krkrz/external/baseclasses/sysclock.cpp
+	external/krkrz/external/baseclasses/transfrm.cpp
+	external/krkrz/external/baseclasses/transip.cpp
+	external/krkrz/external/baseclasses/videoctl.cpp
+	external/krkrz/external/baseclasses/vtrans.cpp
+	external/krkrz/external/baseclasses/winctrl.cpp
+	external/krkrz/external/baseclasses/winutil.cpp
+	external/krkrz/external/baseclasses/wxdebug.cpp
+	external/krkrz/external/baseclasses/wxlist.cpp
+	external/krkrz/external/baseclasses/wxutil.cpp
+)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	src/core/visual/win32
+	src/core/environ/win32
+	external/krkrz/movie/win32
+	external/krkrz/external/baseclasses
+)
+endif()
+
+if(APPLE AND IOS)
+list(APPEND KRKRSDL2COMMON_SRC
+	src/core/visual/ios/IOSVideoOverlay.mm
+)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	src/core/visual/macos
+)
+set_source_files_properties(
+	src/core/visual/ios/IOSVideoOverlay.mm
+	PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+)
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
+set_source_files_properties(
+	src/core/visual/ios/IOSVideoOverlay.mm
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+)
+endif()
+list(APPEND KRKRSDL2_LIBS
+	"-framework AVFoundation"
+	"-framework CoreMedia"
+	"-framework QuartzCore"
+)
+endif()
+
+if(APPLE AND NOT IOS)
+list(APPEND KRKRSDL2COMMON_SRC
+	src/core/visual/macos/MacVideoOverlay.mm
+)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	src/core/visual/macos
+)
+set_source_files_properties(
+	src/core/visual/macos/MacVideoOverlay.mm
+	PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+)
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
+set_source_files_properties(
+	src/core/visual/macos/MacVideoOverlay.mm
+	PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+)
+endif()
+find_library(COCOA_FRAMEWORK Cocoa)
+find_library(AVFOUNDATION_FRAMEWORK AVFoundation)
+find_library(COREMEDIA_FRAMEWORK CoreMedia)
+find_library(QUARTZCORE_FRAMEWORK QuartzCore)
+list(APPEND KRKRSDL2_LIBS
+	${COCOA_FRAMEWORK}
+	${AVFOUNDATION_FRAMEWORK}
+	${COREMEDIA_FRAMEWORK}
+	${QUARTZCORE_FRAMEWORK}
+)
+endif()
+
+list(APPEND KRKRSDL2_CXXFLAGS ${KRKRSDL2_CFLAGS})
+
+list(APPEND KRKRSDL2_CXXFLAGS
+	-Wno-non-virtual-dtor
+)
+
+if(EVAL_ENABLE_ASYNC_IMAGE_LOAD)
+list(APPEND KRKRSDL2_DEFINITIONS
+	KRKRSDL2_ENABLE_ASYNC_IMAGE_LOAD
+)
+endif()
+
+if(OPTION_ENABLE_CANVAS)
+list(APPEND KRKRSDL2_DEFINITIONS
+	KRKRZ_ENABLE_CANVAS
+)
+list(APPEND KRKRSDL2COMMON_SRC
+	external/krkrz/visual/opengl/CanvasIntf.cpp
+	external/krkrz/visual/opengl/DrawCycleTimer.cpp
+	external/krkrz/visual/opengl/GLFrameBufferObject.cpp
+	external/krkrz/visual/opengl/GLShaderUtil.cpp
+	external/krkrz/visual/opengl/Matrix32Intf.cpp
+	external/krkrz/visual/opengl/Matrix44Intf.cpp
+	external/krkrz/visual/opengl/OffscreenIntf.cpp
+	external/krkrz/visual/opengl/ShaderProgramIntf.cpp
+	external/krkrz/visual/opengl/TextureIntf.cpp
+	external/krkrz/visual/opengl/VertexBinderIntf.cpp
+	external/krkrz/visual/opengl/VertexBufferIntf.cpp
+	src/core/visual/sdl2/opengl/OpenGLScreenSDL2.cpp
+)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	src/core/visual/sdl2/opengl
+	external/krkrz/external/angle/include
+	external/krkrz/external/glm
+)
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+list(APPEND KRKRSDL2_LDFLAGS
+	-sMAX_WEBGL_VERSION=2
+	-sFULL_ES3=1
+)
+endif()
+endif()
+
+if(EVAL_ENABLE_CASEINSENSITIVITY)
+list(APPEND KRKRSDL2_DEFINITIONS
+	KRKRZ_CASE_INSENSITIVE
+)
+endif()
+
+if(EVAL_ENABLE_SDL_THREADS)
+list(APPEND KRKRSDL2_DEFINITIONS
+	KRKRZ_USE_SDL_THREADS
+)
+endif()
+
+if(EVAL_ENABLE_EXTERNAL_PLUGINS)
+list(APPEND KRKRSDL2_DEFINITIONS
+	KRKRSDL2_ENABLE_PLUGINS
+)
+endif()
+
+if(KRKRSDL2_COMPILER_SUPPORTS_NO_DELETE_NULL_POINTER_CHECKS)
+list(APPEND KRKRSDL2_CXXFLAGS
+	-fno-delete-null-pointer-checks
+)
+endif()
+
+if(ANDROID)
+list(APPEND KRKRSDL2_LIBS
+	android
+)
+endif()
+
+if(IOS)
+set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
+set(SDL_SHARED OFF)
+set(HAVE_GCC_WDECLARATION_AFTER_STATEMENT OFF CACHE BOOL "Intentionally disabled for SDL on iOS: can declaration-after-statement warning be used" FORCE)
+set(HAVE_GCC_WERROR_DECLARATION_AFTER_STATEMENT OFF CACHE BOOL "Intentionally disabled for SDL on iOS: can declaration-after-statement error warning be used" FORCE)
+add_subdirectory(external/SDL)
+find_library(SDL2 NAMES SDL2-static SDL2main)
+list(APPEND KRKRSDL2_LIBS
+	SDL2-static
+	SDL2main
+)
+list(APPEND KRKRSDL2_DEFINITIONS
+	USE_SDL_MAIN
+)
+get_target_property(SDL2_INCLUDE_DIRS SDL2-static INCLUDE_DIRECTORIES)
+set(SDL2_LIBRARIES SDL2-static)
+elseif((APPLE AND NOT IOS) OR (${CMAKE_SYSTEM_NAME} STREQUAL "Linux"))
+set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/SDL)
+find_library(SDL2 NAMES SDL2-static)
+list(APPEND KRKRSDL2_LIBS
+	SDL2-static
+)
+get_target_property(SDL2_INCLUDE_DIRS SDL2-static INCLUDE_DIRECTORIES)
+set(SDL2_LIBRARIES SDL2-static)
+elseif(ANDROID)
+set(SDL_SHARED_ENABLED_BY_DEFAULT ON)
+set(SDL_STATIC_ENABLED_BY_DEFAULT OFF)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/SDL)
+find_library(SDL2 NAMES SDL2 SDL2main)
+list(APPEND KRKRSDL2_LIBS
+	SDL2
+	SDL2main
+)
+list(APPEND KRKRSDL2_DEFINITIONS
+	USE_SDL_MAIN
+)
+elseif(WIN32)
+set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
+set(SDL_SHARED OFF)
+set(HAVE_WINDOWS_GAMING_INPUT_H NO)
+add_subdirectory(external/SDL)
+find_library(SDL2 NAMES SDL2-static)
+list(APPEND KRKRSDL2_LIBS
+	SDL2-static
+)
+get_target_property(SDL2_INCLUDE_DIRS SDL2-static INCLUDE_DIRECTORIES)
+set(SDL2_LIBRARIES SDL2-static)
+elseif(VITA)
+set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/SDL)
+find_library(SDL2 NAMES SDL2-static)
+
+list(APPEND KRKRSDL2_LIBS
+	stdc++
+	pthread
+	stdc++
+
+	SDL2-static
+	SceAppUtil_stub
+	SceShellSvc_stub
+	m
+	z
+)
+get_target_property(SDL2_INCLUDE_DIRS SDL2-static INCLUDE_DIRECTORIES)
+set(SDL2_LIBRARIES SDL2-static)
+elseif(NINTENDO_SWITCH)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+
+list(APPEND KRKRSDL2_LIBS
+	PkgConfig::SDL2
+)
+else()
+find_package(SDL2 REQUIRED)
+include_directories(${SDL2_INCLUDE_DIRS})
+
+list(APPEND KRKRSDL2_LIBS
+	${SDL2_LIBRARIES}
+)
+endif()
+
+if(NOT (${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten"))
+set(XNASONG OFF CACHE BOOL "Intentionally disabled for FAudio: enable XNA_Song.c" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Intentionally disabled for FAudio: Build shared libraries" FORCE)
+set(_DISABLE_INSTALLATION_OLD ${_DISABLE_INSTALLATION})
+set(_DISABLE_INSTALLATION TRUE)
+add_subdirectory(external/FAudio)
+set(_DISABLE_INSTALLATION ${_DISABLE_INSTALLATION_OLD})
+if(IOS)
+set_target_properties(FAudio PROPERTIES
+	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
+)
+endif()
+list(APPEND KRKRSDL2_LIBS
+	FAudio
+)
+list(APPEND KRKRSDL2_DEFINITIONS
+	TVP_FAUDIO_IMPLEMENT
+)
+endif()
+
+if(VITA)
+list(APPEND KRKRSDL2_SRC
+	${KRKRSDL2COMMON_SRC}
+)
+list(APPEND KRKRSDL2_INCLUDES
+	${KRKRSDL2COMMON_INCLUDES}
+)
+else()
+set(KRKRSDL2COMMON_NAME krkrsdl2common)
+
+add_library(${KRKRSDL2COMMON_NAME} STATIC)
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+endif()
+set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES C_STANDARD 11)
+set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES CXX_STANDARD 14)
+if(APPLE)
+set_target_properties(${KRKRSDL2COMMON_NAME} PROPERTIES OBJCXX_STANDARD 14)
+endif()
+target_sources(${KRKRSDL2COMMON_NAME} PRIVATE ${KRKRSDL2COMMON_SRC})
+target_compile_definitions(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2_DEFINITIONS})
+target_compile_options(${KRKRSDL2COMMON_NAME} PUBLIC $<$<COMPILE_LANGUAGE:C>:${KRKRSDL2_CFLAGS}>)
+target_compile_options(${KRKRSDL2COMMON_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:${KRKRSDL2_CXXFLAGS}>)
+target_include_directories(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2COMMON_INCLUDES})
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13.0")
+target_link_options(${KRKRSDL2COMMON_NAME} PUBLIC ${KRKRSDL2_LDFLAGS})
+endif()
+target_link_libraries(${KRKRSDL2COMMON_NAME} ${KRKRSDL2_LIBS})
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
+if(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS)
+target_precompile_headers(${KRKRSDL2COMMON_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl2/SDLPrecompiledHeader.h)
+endif()
+endif()
+
+list(APPEND KRKRSDL2_LIBS
+	${KRKRSDL2COMMON_NAME}
+)
+endif()
+
+list(APPEND KRKRSDL2_SRC
+	src/core/sdl2/SDLEntrypoint.cpp
+)
+
+set(KRKRSDL2_NAME krkrsdl2)
+
+if(ANDROID)
+add_library(${KRKRSDL2_NAME} SHARED)
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "main")
+else()
+add_executable(${KRKRSDL2_NAME})
+if(WIN32)
+if("${CMAKE_SIZEOF_VOID_P}" STREQUAL "8")
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "tvpwin64")
+else()
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "tvpwin32")
+endif()
+else()
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "krkrsdl2")
+endif()
+endif()
+
+if(NOT ANDROID AND KRKRSDL2_GENERATE_CONTENT_MANIFEST)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(CONTENT_MANIFEST_TARGET krkrsdl2_content_manifest)
+add_custom_target(${CONTENT_MANIFEST_TARGET}
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_content_manifest.py
+		--root ${CMAKE_CURRENT_SOURCE_DIR}/data
+		--output ${CMAKE_CURRENT_SOURCE_DIR}/data/content-manifest.json
+		--config ${CMAKE_CURRENT_SOURCE_DIR}/content-packs.json
+		--cache ${CMAKE_CURRENT_BINARY_DIR}/content-manifest-cache.json
+		--quiet
+	DEPENDS
+		${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_content_manifest.py
+		${CMAKE_CURRENT_SOURCE_DIR}/content-packs.json
+	COMMENT "Generating incremental content manifest"
+	VERBATIM
+)
+add_dependencies(${KRKRSDL2_NAME} ${CONTENT_MANIFEST_TARGET})
+endif()
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+endif()
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES C_STANDARD 11)
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES CXX_STANDARD 14)
+target_sources(${KRKRSDL2_NAME} PRIVATE ${KRKRSDL2_SRC})
+target_compile_definitions(${KRKRSDL2_NAME} PUBLIC ${KRKRSDL2_DEFINITIONS})
+target_compile_options(${KRKRSDL2_NAME} PUBLIC $<$<COMPILE_LANGUAGE:C>:${KRKRSDL2_CFLAGS}>)
+target_compile_options(${KRKRSDL2_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:${KRKRSDL2_CXXFLAGS}>)
+target_include_directories(${KRKRSDL2_NAME} PUBLIC ${KRKRSDL2_INCLUDES})
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13.0")
+target_link_options(${KRKRSDL2_NAME} PUBLIC ${KRKRSDL2_LDFLAGS})
+endif()
+target_link_libraries(${KRKRSDL2_NAME} ${KRKRSDL2_LIBS})
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.16.0")
+if(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS)
+target_precompile_headers(${KRKRSDL2_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/core/sdl2/SDLPrecompiledHeader.h)
+endif()
+endif()
+
+if(WIN32)
+enable_language("RC")
+target_sources(${KRKRSDL2_NAME} PRIVATE
+	${WIN32_RESOURCES_ROOT}/krkrsdl2.rc
+)
+endif()
+
+if(IOS)
+set(KRKRSDL2_IOS_XCODE_SIGNING_PROPERTIES
+	XCODE_ATTRIBUTE_CODE_SIGN_STYLE "${KRKRSDL2_IOS_CODE_SIGN_STYLE}"
+	XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED YES
+	XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED YES
+)
+if(NOT KRKRSDL2_IOS_CODE_SIGN_IDENTITY STREQUAL "")
+list(APPEND KRKRSDL2_IOS_XCODE_SIGNING_PROPERTIES
+	XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "${KRKRSDL2_IOS_CODE_SIGN_IDENTITY}"
+)
+endif()
+if(NOT KRKRSDL2_IOS_DEVELOPMENT_TEAM STREQUAL "")
+list(APPEND KRKRSDL2_IOS_XCODE_SIGNING_PROPERTIES
+	XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${KRKRSDL2_IOS_DEVELOPMENT_TEAM}"
+)
+endif()
+if(NOT KRKRSDL2_IOS_PROVISIONING_PROFILE STREQUAL "")
+list(APPEND KRKRSDL2_IOS_XCODE_SIGNING_PROPERTIES
+	XCODE_ATTRIBUTE_PROVISIONING_PROFILE_SPECIFIER "${KRKRSDL2_IOS_PROVISIONING_PROFILE}"
+)
+endif()
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES
+	${KRKRSDL2_IOS_XCODE_SIGNING_PROPERTIES}
+	XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${KRKRSDL2_BUNDLE_IDENTIFIER}"
+	XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
+	XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST NO
+	XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/Frameworks"
+	BUNDLE TRUE
+	MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/config/iOSBundleInfo.plist.in
+	MACOSX_BUNDLE TRUE
+	MACOSX_BUNDLE_BUNDLE_NAME "${KRKRSDL2_PRODUCT_NAME}"
+	MACOSX_BUNDLE_BUNDLE_VERSION "${KRKRSDL2_BUILD_NUMBER}"
+	MACOSX_BUNDLE_COPYRIGHT "(KIRIKIRI core) (C) W.Dee and contributors All Rights Reserved. This software is based in part on the work of Independent JPEG Group. For details: Run this program with '-about' option."
+	MACOSX_BUNDLE_GUI_IDENTIFIER "${KRKRSDL2_BUNDLE_IDENTIFIER}"
+	MACOSX_BUNDLE_LONG_VERSION_STRING "${KRKRSDL2_VERSION_NAME}"
+	MACOSX_BUNDLE_SHORT_VERSION_STRING "${KRKRSDL2_VERSION_NAME}"
+	OUTPUT_NAME "${KRKRSDL2_BUNDLE_OUTPUT_NAME}"
+	XCODE_ATTRIBUTE_ENABLE_BITCODE NO
+	XCODE_ATTRIBUTE_SKIP_INSTALL NO
+	XCODE_ATTRIBUTE_INSTALL_PATH "$(LOCAL_APPS_DIR)"
+	XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+	XCODE_GENERATE_SCHEME TRUE
+)
+set_property(
+	SOURCE ${EMBED_DATA_PATH} ${IOS_RESOURCES_ROOT}/Images.xcassets ${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
+	PROPERTY MACOSX_PACKAGE_LOCATION "Resources"
+)
+target_sources(${KRKRSDL2_NAME} PRIVATE 
+	${EMBED_DATA_PATH}
+	${IOS_RESOURCES_ROOT}/Images.xcassets
+	${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
+)
+endif()
+
+if(OPTION_BUILD_MACOS_BUNDLE)
+if(APPLE AND NOT IOS)
+set_target_properties(${KRKRSDL2_NAME} PROPERTIES
+	BUNDLE TRUE
+	MACOSX_BUNDLE TRUE
+	MACOSX_BUNDLE_BUNDLE_NAME "${KRKRSDL2_PRODUCT_NAME}"
+	MACOSX_BUNDLE_BUNDLE_VERSION "${KRKRSDL2_BUILD_NUMBER}"
+	MACOSX_BUNDLE_COPYRIGHT "(KIRIKIRI core) (C) W.Dee and contributors All Rights Reserved. This software is based in part on the work of Independent JPEG Group. For details: Run this program with '-about' option."
+	MACOSX_BUNDLE_GUI_IDENTIFIER "${KRKRSDL2_BUNDLE_IDENTIFIER}"
+	MACOSX_BUNDLE_ICON_FILE "krkrsdl2.icns"
+	MACOSX_BUNDLE_LONG_VERSION_STRING "${KRKRSDL2_VERSION_NAME}"
+	MACOSX_BUNDLE_SHORT_VERSION_STRING "${KRKRSDL2_VERSION_NAME}"
+	OUTPUT_NAME "${KRKRSDL2_BUNDLE_OUTPUT_NAME}"
+	XCODE_ATTRIBUTE_SKIP_INSTALL NO
+	XCODE_ATTRIBUTE_INSTALL_PATH "/Applications"
+)
+set_property(
+	SOURCE ${EMBED_DATA_PATH} ${MACOS_RESOURCES_ROOT}/krkrsdl2.icns
+	PROPERTY MACOSX_PACKAGE_LOCATION "Resources"
+)
+target_sources(${KRKRSDL2_NAME} PRIVATE 
+	${EMBED_DATA_PATH}
+	${MACOS_RESOURCES_ROOT}/krkrsdl2.icns
+)
+endif()
+endif()
+
+if(VITA)
+vita_create_self(${KRKRSDL2_NAME}.self ${KRKRSDL2_NAME})
+
+set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -s CATEGORY=gdb -d ATTRIBUTE2=12")
+
+vita_create_vpk(${KRKRSDL2_NAME}.vpk ${VITA_TITLEID} ${KRKRSDL2_NAME}.self
+    VERSION ${VITA_VERSION}
+    NAME ${VITA_APP_NAME}
+    FILE ${VITA_RESOURCES_ROOT}/sce_sys/icon0.png sce_sys/icon0.png
+    FILE ${VITA_RESOURCES_ROOT}/sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
+    FILE ${VITA_RESOURCES_ROOT}/sce_sys/livearea/contents/icon.png sce_sys/livearea/contents/icon.png
+    FILE ${VITA_RESOURCES_ROOT}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+    FILE ${EMBED_DATA_PATH} ${EMBED_DATA_PATH_BASENAME}
+)
+endif()
+
+if(NINTENDO_SWITCH)
+add_custom_target(${KRKRSDL2_NAME}.nacp
+    COMMAND $ENV{DEVKITPRO}/tools/bin/nacptool
+        --create
+        ${SWITCH_APP_NAME}
+        ${SWITCH_AUTHOR}
+        ${SWITCH_VERSION}
+        ${KRKRSDL2_NAME}.nacp
+)
+add_custom_target(romfs ALL
+	COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/romfs
+	COMMAND ${CMAKE_COMMAND} -E create_symlink ${EMBED_DATA_PATH} ${CMAKE_CURRENT_BINARY_DIR}/romfs/${EMBED_DATA_PATH_BASENAME}
+)
+add_custom_target(${KRKRSDL2_NAME}.nro ALL
+    COMMAND $ENV{DEVKITPRO}/tools/bin/elf2nro
+        $<TARGET_FILE:${KRKRSDL2_NAME}>
+        ${KRKRSDL2_NAME}.nro
+        --icon=${SWITCH_RESOURCES_ROOT}/icon.jpg
+        --nacp=${KRKRSDL2_NAME}.nacp
+        --romfsdir=${CMAKE_CURRENT_BINARY_DIR}/romfs
+    DEPENDS ${KRKRSDL2_NAME}.nacp romfs ${SWITCH_RESOURCES_ROOT}/icon.jpg
+)
+add_dependencies(${KRKRSDL2_NAME}.nro ${KRKRSDL2_NAME})
+endif()
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+install(TARGETS ${KRKRSDL2_NAME} DESTINATION bin)
+endif()
+
+if(${CMAKE_SYSTEM_NAME} STREQUAL "Emscripten")
+configure_file(
+	src/config/index.html.in
+	index.html
+	@ONLY
+	NEWLINE_STYLE UNIX
+)
+endif()
+
+get_directory_property(HAS_PARENT_SCOPE PARENT_DIRECTORY)
+if(HAS_PARENT_SCOPE)
+# Share certain variables to projects that include this one
+set(KRKRSDL2_NAME ${KRKRSDL2_NAME} PARENT_SCOPE)
+set(KRKRSDL2_REPO_DIR ${KRKRSDL2_REPO_DIR} PARENT_SCOPE)
+endif()

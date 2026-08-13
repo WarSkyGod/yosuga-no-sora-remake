@@ -1,0 +1,18 @@
+[submodule "external/krkrz"]
+	path = external/krkrz
+	url = https://github.com/LightWinder/krkrz.git
+[submodule "external/simde"]
+	path = external/simde
+	url = https://github.com/simd-everywhere/simde.git
+[submodule "external/meson_toolchains"]
+	path = external/meson_toolchains
+	url = https://github.com/krkrsdl2/meson_toolchains.git
+[submodule "SDL-upstream"]
+	path = external/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "external/zlib"]
+	path = external/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "external/FAudio"]
+	path = external/FAudio
+	url = https://github.com/FNA-XNA/FAudio.git

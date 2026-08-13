@@ -1,0 +1,199 @@
+def buildAsLibrary = project.hasProperty('BUILD_AS_LIBRARY');
+def buildAsApplication = !buildAsLibrary
+if (buildAsApplication) {
+    apply plugin: 'com.android.application'
+}
+else {
+    apply plugin: 'com.android.library'
+}
+
+def get_abi_filters() {
+    def in_abi_filters = []
+    if (project.hasProperty("armeabi-v7a")) {
+        in_abi_filters.add('armeabi-v7a')
+    }
+    if (project.hasProperty("arm64-v8a")) {
+        in_abi_filters.add('arm64-v8a')
+    }
+    if (project.hasProperty("x86")) {
+        in_abi_filters.add('x86')
+    }
+    if (project.hasProperty("x86_64")) {
+        in_abi_filters.add('x86_64')
+    }
+    if (!project.hasProperty("armeabi-v7a") && !project.hasProperty("arm64-v8a") && !project.hasProperty("x86") && !project.hasProperty("x86_64")) {
+        in_abi_filters = ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64']
+    }
+    return in_abi_filters
+}
+
+def get_cmakelists_path() {
+    return rootProject.projectDir.getAbsolutePath() + '/../CMakeLists.txt'
+}
+
+def get_cmake_arguments() {
+    def in_cmake_arguments = []
+    in_cmake_arguments.add("-DANDROID_STL=c++_static")
+    return in_cmake_arguments
+}
+
+def releaseKeystorePath = providers.environmentVariable('ANDROID_KEYSTORE_PATH')
+def releaseKeystorePassword = providers.environmentVariable('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = providers.environmentVariable('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = providers.environmentVariable('ANDROID_KEY_PASSWORD')
+def hasReleaseSigning = releaseKeystorePath.isPresent() &&
+    releaseKeystorePassword.isPresent() && releaseKeyAlias.isPresent() &&
+    releaseKeyPassword.isPresent()
+def androidVersionCode = providers.gradleProperty('androidVersionCode')
+    .getOrElse('1').toInteger()
+def androidVersionName = providers.gradleProperty('androidVersionName')
+    .getOrElse('1.0')
+
+android {
+    namespace = "pw.uyjulian.krkrsdl2"
+    compileSdk = 37
+    ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        if (buildAsApplication) {
+            applicationId = "pw.uyjulian.krkrsdl2"
+        }
+        minSdk = 23
+        targetSdk = 37
+        versionCode = androidVersionCode
+        versionName = androidVersionName
+        externalNativeBuild {
+            cmake {
+                abiFilters = []
+                abiFilters.addAll(get_abi_filters())
+                arguments = []
+                arguments.addAll(get_cmake_arguments())
+                version = "3.22.1"
+            }
+        }
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile = file(releaseKeystorePath.get())
+                storePassword = releaseKeystorePassword.get()
+                keyAlias = releaseKeyAlias.get()
+                keyPassword = releaseKeyPassword.get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // Keep the Java shell small and make the native engine use the
+            // fastest production optimization level. NEON code paths still
+            // retain their runtime verification and fallback behavior.
+            debuggable = false
+            minifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.release
+            } else {
+                signingConfig = signingConfigs.debug
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            externalNativeBuild {
+                cmake {
+                    // AGP maps the Android release variant to CMake's
+                    // RelWithDebInfo configuration rather than Release.
+                    arguments '-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O3 -DNDEBUG',
+                        '-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O3 -DNDEBUG'
+                }
+            }
+        }
+        profile {
+            // Keep the debug signature/logging workflow, but optimize the
+            // native engine so performance tests on older devices are useful.
+            // The regular debug variant remains unoptimized for native
+            // breakpoints and predictable stepping.
+            initWith debug
+            signingConfig = signingConfigs.debug
+            debuggable = true
+            minifyEnabled = false
+            matchingFallbacks = ['debug']
+            externalNativeBuild {
+                cmake {
+                    arguments '-DCMAKE_C_FLAGS_DEBUG=-O2 -g -DNDEBUG',
+                        '-DCMAKE_CXX_FLAGS_DEBUG=-O2 -g -DNDEBUG'
+                }
+            }
+        }
+    }
+    if (!project.hasProperty('EXCLUDE_NATIVE_LIBS')) {
+        sourceSets.main {
+            jniLibs.srcDir 'libs'
+        }
+        externalNativeBuild {
+            // ndkBuild {
+            //     path 'jni/Android.mk'
+            // }
+            cmake {
+                path = get_cmakelists_path()
+            }
+        }
+       
+    }
+    lint {
+        abortOnError = false
+    }
+
+    androidResources {
+        noCompress += ['']
+    }
+}
+
+if (buildAsApplication) {
+    androidComponents {
+        onVariants(selector().all()) { variant ->
+            def architecture = "universal"
+            def abi_filters = get_abi_filters()
+            if (abi_filters.size() == 1) {
+                architecture = abi_filters[0]
+            }
+            variant.outputs.each { output ->
+                output.outputFileName.set("krkrsdl2_${architecture}.apk")
+            }
+        }
+    }
+} else {
+    base {
+        archivesName = "org.libsdl.app"
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+}
+
+def repositoryDirectory = rootProject.projectDir.parentFile
+def contentManifestGenerator = new File(repositoryDirectory, 'tools/generate_content_manifest.py')
+def contentPackConfig = new File(repositoryDirectory, 'content-packs.json')
+def contentDirectory = new File(repositoryDirectory, 'data')
+def contentManifest = new File(contentDirectory, 'content-manifest.json')
+def contentManifestCache = new File(repositoryDirectory, 'build/content-manifest-cache.json')
+
+def generateContentManifest = tasks.register('generateContentManifest', Exec) {
+    group = 'content'
+    description = 'Generates the deterministic cross-platform content manifest.'
+    workingDir repositoryDirectory
+    commandLine 'python3', contentManifestGenerator,
+        '--root', contentDirectory,
+        '--output', contentManifest,
+        '--config', contentPackConfig,
+        '--cache', contentManifestCache
+
+    inputs.file(contentManifestGenerator)
+    inputs.file(contentPackConfig)
+    outputs.file(contentManifest)
+
+    // The generator performs its own size/mtime based incremental hashing.
+    // Always invoke it so replacing an asset can never leave a stale manifest.
+    outputs.upToDateWhen { false }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn(generateContentManifest)
+}

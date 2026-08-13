@@ -1,0 +1,258 @@
+name: Release Windows KRKRZ
+
+'on':
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag, for example v0.1.0-test.1'
+        required: true
+        type: string
+      prerelease:
+        description: 'Publish as a prerelease'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-and-release:
+    name: Package and release
+    runs-on: windows-2025
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository and LFS content
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+
+      - name: Set up Python for the release manifest
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Resolve release metadata
+        id: release
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if ($env:EVENT_NAME -eq 'push') {
+            $releaseTag = $env:REF_NAME
+            $isPrerelease = $releaseTag.Contains('-')
+          } else {
+            $releaseTag = $env:INPUT_RELEASE_TAG.Trim()
+            $isPrerelease = $env:INPUT_PRERELEASE -eq 'true'
+          }
+
+          if ($releaseTag -notmatch '^v[0-9A-Za-z][0-9A-Za-z._-]*$') {
+            throw "Invalid release tag: $releaseTag"
+          }
+
+          "tag=$releaseTag" >> $env:GITHUB_OUTPUT
+          "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Verify Git LFS content
+        shell: pwsh
+        run: |
+          git lfs pull
+          if ($LASTEXITCODE -ne 0) { throw 'git lfs pull failed' }
+          git lfs fsck
+          if ($LASTEXITCODE -ne 0) { throw 'git lfs fsck failed' }
+
+      - name: Generate and validate the content manifest
+        shell: pwsh
+        run: |
+          python tools/generate_content_manifest.py `
+            --root data `
+            --output data/content-manifest.json `
+            --config content-packs.json `
+            --cache "$env:RUNNER_TEMP/content-manifest-cache.json" `
+            --full
+          if ($LASTEXITCODE -ne 0) { throw 'Content manifest generation failed' }
+
+      - name: Build multipart Windows KRKRZ archive
+        id: package
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          $sevenZip = Get-Command '7z' -ErrorAction Stop
+          $projectRoot = $env:GITHUB_WORKSPACE
+          $packageName = 'Yosuga-no-Sora-HD-Remake-Windows-KRKRZ'
+          $packageParent = Join-Path $projectRoot 'build/package/windows-krkrz'
+          $packageDirectory = Join-Path $packageParent $packageName
+          $runtimeDirectory = Join-Path $projectRoot 'platform/windows-krkrz'
+          $dataDirectory = Join-Path $projectRoot 'data'
+          $assetDirectory = Join-Path $env:RUNNER_TEMP 'release-assets'
+
+          $requiredFiles = @(
+            (Join-Path $runtimeDirectory 'tvpwin32.exe'),
+            (Join-Path $runtimeDirectory 'tvpwin32.cf'),
+            (Join-Path $runtimeDirectory 'startup.tjs'),
+            (Join-Path $dataDirectory 'startup.tjs'),
+            (Join-Path $dataDirectory 'content-manifest.json')
+          )
+          foreach ($requiredFile in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+              throw "Required package file is missing: $requiredFile"
+            }
+          }
+
+          New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
+          New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+
+          Copy-Item -Path (Join-Path $runtimeDirectory '*') `
+            -Destination $packageDirectory -Recurse -Force
+
+          # The checkout is disposable and both paths are on the runner's work
+          # drive. Moving data avoids creating a second 3.6 GB asset tree.
+          Move-Item -LiteralPath $dataDirectory `
+            -Destination (Join-Path $packageDirectory 'data')
+
+          @"
+          Yosuga no Sora: HD Remake
+          Runtime: Windows KRKRZ
+          Release: $env:RELEASE_TAG
+          Commit: $env:COMMIT_SHA
+
+          Run tvpwin32.exe to start the game.
+          "@ | Set-Content -LiteralPath (Join-Path $packageDirectory 'BUILD-INFO.txt') `
+            -Encoding utf8NoBOM
+
+          $archiveBase = Join-Path $assetDirectory "$packageName-$env:RELEASE_TAG.7z"
+          Push-Location $packageParent
+          try {
+            & $sevenZip.Path a -t7z -mx=1 -mmt=on -v1900m `
+              $archiveBase $packageName
+            if ($LASTEXITCODE -ne 0) { throw '7-Zip packaging failed' }
+          } finally {
+            Pop-Location
+          }
+
+          $volumes = @(Get-ChildItem -LiteralPath $assetDirectory `
+            -Filter "$packageName-$env:RELEASE_TAG.7z.*" -File | Sort-Object Name)
+          if ($volumes.Count -eq 0) {
+            throw 'No multipart archive volumes were generated'
+          }
+
+          & $sevenZip.Path t $volumes[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw '7-Zip archive verification failed' }
+
+          foreach ($volume in $volumes) {
+            if ($volume.Length -ge 2GB) {
+              throw "Release asset exceeds GitHub's 2 GiB limit: $($volume.Name)"
+            }
+          }
+
+          $checksumLines = foreach ($volume in $volumes) {
+            $hash = (Get-FileHash -LiteralPath $volume.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($volume.Name)"
+          }
+          $checksumFile = Join-Path $assetDirectory `
+            "$packageName-$env:RELEASE_TAG-SHA256SUMS.txt"
+          [System.IO.File]::WriteAllLines(
+            $checksumFile,
+            $checksumLines,
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          "asset-directory=$assetDirectory" >> $env:GITHUB_OUTPUT
+          Get-ChildItem -LiteralPath $assetDirectory -File |
+            Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          ASSET_DIRECTORY: ${{ steps.package.outputs.asset-directory }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          $assets = @(
+            Get-ChildItem -LiteralPath $env:ASSET_DIRECTORY -File |
+              Sort-Object Name |
+              ForEach-Object FullName
+          )
+          if ($assets.Count -eq 0) { throw 'No release assets were found' }
+
+          $notes = @'
+          Yosuga no Sora: HD Remake release packages.
+
+          For each package, download every `.7z.NNN` volume into the same
+          directory, then open `.7z.001` with 7-Zip. Verify the downloads with
+          the matching SHA-256 file.
+          '@
+
+          $existingReleaseJson = & gh release view $env:RELEASE_TAG `
+            --repo $env:GH_REPOSITORY --json isDraft 2>$null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
+            $existingRelease = $existingReleaseJson | ConvertFrom-Json
+          } else {
+            $createArguments = @(
+              'release', 'create', $env:RELEASE_TAG,
+              '--repo', $env:GH_REPOSITORY,
+              '--draft',
+              '--title', $env:RELEASE_TAG,
+              '--notes', $notes,
+              '--generate-notes'
+            )
+
+            if ($env:EVENT_NAME -eq 'push') {
+              $createArguments += '--verify-tag'
+            } else {
+              $createArguments += @('--target', $env:COMMIT_SHA)
+            }
+            if ($env:IS_PRERELEASE -eq 'true') {
+              $createArguments += '--prerelease'
+            }
+
+            & gh @createArguments
+            if ($LASTEXITCODE -ne 0) {
+              $releaseExists = $false
+              foreach ($attempt in 1..12) {
+                $existingReleaseJson = & gh release view $env:RELEASE_TAG `
+                  --repo $env:GH_REPOSITORY --json isDraft 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                  $existingRelease = $existingReleaseJson | ConvertFrom-Json
+                  $releaseExists = $true
+                  break
+                }
+                Start-Sleep -Seconds 5
+              }
+              if (-not $releaseExists) {
+                throw 'Draft GitHub Release creation failed'
+              }
+            }
+          }
+
+          $uploadArguments = @(
+            'release', 'upload', $env:RELEASE_TAG
+          ) + $assets + @(
+            '--repo', $env:GH_REPOSITORY,
+            '--clobber'
+          )
+          & gh @uploadArguments
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release asset upload failed' }
+
+          if (-not $releaseExists -or $existingRelease.isDraft) {
+            & gh release edit $env:RELEASE_TAG --repo $env:GH_REPOSITORY --draft=false
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed' }
+          }

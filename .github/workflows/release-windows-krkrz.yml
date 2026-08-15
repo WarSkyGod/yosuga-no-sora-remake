@@ -123,13 +123,9 @@ jobs:
           Copy-Item -Path (Join-Path $runtimeDirectory '*') `
             -Destination $packageDirectory -Recurse -Force
 
-          # The checkout is disposable and both paths are on the runner's work
-          # drive. Moving data avoids creating a second 3.6 GB asset tree.
-          Move-Item -LiteralPath $dataDirectory `
-            -Destination (Join-Path $packageDirectory 'data')
-
-          # Ship the prebuilt data.xp3 next to the executable so Kirikiroid2
-          # and other archive-first runtimes can load the game directly.
+          # Ship only the prebuilt data.xp3 next to the executable so
+          # Kirikiroid2 and other archive-first runtimes can load the game
+          # directly; the raw data directory stays out of the package.
           Move-Item -LiteralPath (Join-Path $projectRoot 'data.xp3') `
             -Destination (Join-Path $packageDirectory 'data.xp3')
 

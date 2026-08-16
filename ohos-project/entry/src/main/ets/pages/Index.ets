@@ -6,6 +6,7 @@ import zlib from '@ohos.zlib';
 import { util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction } from '@kit.ArkUI';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 /** data-assets.json entry. */
 interface DataAsset {
@@ -69,10 +70,16 @@ struct Index {
       // Never crash the app on the bootstrap path: show the error instead.
       this.bootState = 5;
       this.message = '初始化失败：' + JSON.stringify(e);
+      this.log('prepare failed: ' + JSON.stringify(e));
     }
   }
 
+  private log(msg: string): void {
+    hilog.info(0x0000, 'YosugaOHOS', '%{public}s', msg);
+  }
+
   async prepareInternal(): Promise<void> {
+    this.log('prepareInternal begin, api=' + (getContext(this) as common.UIAbilityContext).applicationInfo?.targetApiVersion);
     const context = getContext(this) as common.UIAbilityContext;
     const atManager = abilityAccessCtrl.createAtManager();
     const permissions: Array<Permissions> = [
@@ -86,19 +93,24 @@ struct Index {
     for (const perm of permissions) {
       try {
         const state: number = await atManager.checkAccessToken(context.applicationInfo.accessTokenId, perm);
+        this.log('checkAccessToken ' + perm + ' -> ' + state);
         if (state !== 0) {
           missing.push(perm);
         }
       } catch (e) {
+        this.log('checkAccessToken failed ' + perm + ': ' + JSON.stringify(e));
         missing.push(perm);
       }
     }
     if (missing.length > 0) {
+      this.log('requesting permissions: ' + JSON.stringify(missing));
       const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
+      this.log('permission result: ' + JSON.stringify(result));
       const granted = result.authResults.every((code: number) => code === 0);
       if (!granted) {
         this.bootState = 5;
         this.message = '未授予存储权限，无法在下载目录创建游戏文件夹';
+        this.log('permissions denied');
         return;
       }
     }
@@ -108,28 +120,34 @@ struct Index {
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
     try {
       fs.mkdirSync(this.appDir, true);
+      this.log('mkdir appDir ok: ' + this.appDir);
     } catch (e) {
-      // already exists
+      this.log('mkdir appDir failed: ' + JSON.stringify(e));
     }
     this.baseDir = this.appDir;
     this.saveDir = this.appDir + '/savedata';
     this.dataDir = this.appDir + '/data';
     try {
       fs.mkdirSync(this.saveDir, true);
+      this.log('mkdir saveDir ok');
     } catch (e) {
-      // already exists
+      this.log('mkdir saveDir failed: ' + JSON.stringify(e));
     }
     try {
       fs.mkdirSync(this.dataDir, true);
+      this.log('mkdir dataDir ok');
     } catch (e) {
-      // already exists
+      this.log('mkdir dataDir failed: ' + JSON.stringify(e));
     }
 
-    if (await this.dataReady()) {
+    const ready = await this.dataReady();
+    this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
+    if (ready) {
       this.startGame();
       return;
     }
     await this.loadManifest();
+    this.log('manifest loaded, assets=' + this.assets.length);
     this.bootState = 2;
     this.progressText = '需要下载或导入游戏数据';
   }

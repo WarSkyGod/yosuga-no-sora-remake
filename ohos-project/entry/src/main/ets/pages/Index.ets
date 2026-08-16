@@ -50,9 +50,11 @@ struct Index {
   }
 
   onPageShow(): void {
-    // Re-check on every page show: once the data exists the game starts
-    // automatically and this screen does not appear again.
-    this.prepare();
+    // Re-check on every page show (after the page is fully interactive,
+    // otherwise the permission dialog can race the page transition).
+    setTimeout(() => {
+      this.prepare();
+    }, 400);
   }
 
   async prepare(): Promise<void> {
@@ -61,27 +63,44 @@ struct Index {
     }
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
+    try {
+      await this.prepareInternal();
+    } catch (e) {
+      // Never crash the app on the bootstrap path: show the error instead.
+      this.bootState = 5;
+      this.message = '初始化失败：' + JSON.stringify(e);
+    }
+  }
 
-    // Ask for public Download access in-page so the folder checks below run
-    // after the user has granted (or denied) the permission.
+  async prepareInternal(): Promise<void> {
+    const context = getContext(this) as common.UIAbilityContext;
     const atManager = abilityAccessCtrl.createAtManager();
     const permissions: Array<Permissions> = [
       'ohos.permission.READ_MEDIA',
       'ohos.permission.WRITE_MEDIA'
     ];
-    try {
-      const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(
-        getContext(this) as common.UIAbilityContext, permissions);
+
+    // Only ask for what is still missing; requesting already-granted
+    // permissions again is unnecessary and can crash some system versions.
+    const missing: Array<Permissions> = [];
+    for (const perm of permissions) {
+      try {
+        const state: number = await atManager.checkAccessToken(context.applicationInfo.accessTokenId, perm);
+        if (state !== 0) {
+          missing.push(perm);
+        }
+      } catch (e) {
+        missing.push(perm);
+      }
+    }
+    if (missing.length > 0) {
+      const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
       const granted = result.authResults.every((code: number) => code === 0);
       if (!granted) {
         this.bootState = 5;
         this.message = '未授予存储权限，无法在下载目录创建游戏文件夹';
         return;
       }
-    } catch (e) {
-      this.bootState = 5;
-      this.message = '权限申请失败：' + JSON.stringify(e);
-      return;
     }
 
     // The game data and savedata live ONLY in the public Download folder so

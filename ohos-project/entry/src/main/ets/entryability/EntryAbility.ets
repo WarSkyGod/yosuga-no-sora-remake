@@ -1,5 +1,4 @@
-import { AbilityConstant, UIAbility, Want, abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import entryNapi from 'libentry.so';
@@ -13,20 +12,6 @@ export default class EntryAbility extends UIAbility {
     // Give the native side the ability context (rawfile access) and the
     // sandbox files directory before the game page appears.
     entryNapi.initResourceManager(this.context, this.context.filesDir);
-
-    // Ask for public Download access so the game data and savedata can live
-    // in a user-visible folder. The game works from the sandbox when the
-    // user declines.
-    const atManager = abilityAccessCtrl.createAtManager();
-    const permissions: Array<Permissions> = [
-      'ohos.permission.READ_MEDIA',
-      'ohos.permission.WRITE_MEDIA'
-    ];
-    atManager.requestPermissionsFromUser(this.context, permissions).then((result: PermissionRequestResult) => {
-      hilog.info(DOMAIN, TAG, 'permission request result: %{public}s', JSON.stringify(result));
-    }).catch((err: BusinessError) => {
-      hilog.warn(DOMAIN, TAG, 'permission request failed: %{public}s', JSON.stringify(err));
-    });
   }
 
   onDestroy(): void {

@@ -77,7 +77,7 @@ static std::string JoinPath(const std::string &base, const std::string &name)
 static bool ReadRawFileFully(NativeResourceManager *manager, const std::string &raw_path, std::string &out)
 {
 	out.clear();
-	RawFile *file = OH_ResourceManager_OpenRawFile(manager, raw_path.c_str(), nullptr);
+	RawFile *file = OH_ResourceManager_OpenRawFile(manager, raw_path.c_str());
 	if (file == nullptr)
 	{
 		return false;
@@ -152,7 +152,7 @@ static unsigned long long Fnv1a(const char *data, size_t size)
 static bool ExtractFile(NativeResourceManager *manager,
 	const std::string &raw_path, const std::string &dest_path)
 {
-	RawFile *file = OH_ResourceManager_OpenRawFile(manager, raw_path.c_str(), nullptr);
+	RawFile *file = OH_ResourceManager_OpenRawFile(manager, raw_path.c_str());
 	if (file == nullptr)
 	{
 		return false;
@@ -219,8 +219,7 @@ static bool ExtractDirectory(NativeResourceManager *manager,
 		std::string raw_path = JoinPath(raw_dir, name);
 		std::string dest_path = JoinPath(dest_dir, name);
 
-		RawFileErrorCode error = RAW_FILE_ERROR_CODE_OK;
-		RawFile *file = OH_ResourceManager_OpenRawFile(manager, raw_path.c_str(), &error);
+		RawFile *file = OH_ResourceManager_OpenRawFile(manager, raw_path.c_str());
 		if (file != nullptr)
 		{
 			OH_ResourceManager_CloseRawFile(file);

@@ -84,6 +84,10 @@ add_library(entry SHARED
 	napi_init.cpp
 	krkrsdl2_ohos_entry.cpp
 	ohos_data_extract.cpp
+	# Compiled here as well so the touch/surface bridge symbols are provided
+	# by libentry.so itself (the SDL static archive is consumed by the
+	# libkrkrsdl2.so link and its members are not pulled in a second time).
+	${SDL2_ROOT}/src/video/ohos/SDL_ohosevents.c
 )
 
 target_include_directories(entry PRIVATE
@@ -102,4 +106,7 @@ target_link_libraries(entry PUBLIC
 	libhilog_ndk.z.so
 	EGL
 	GLESv3
+	# Provides SDL's generated-config include paths and compile definitions
+	# for the SDL_ohosevents.c file compiled into this target above.
+	sdl-build-options
 )

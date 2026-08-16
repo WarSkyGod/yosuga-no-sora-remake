@@ -79,7 +79,7 @@ struct Index {
   }
 
   async prepareInternal(): Promise<void> {
-    this.log('prepareInternal begin, version=' + (getContext(this) as common.UIAbilityContext).applicationInfo.versionName);
+    this.log('prepareInternal begin, app=' + (getContext(this) as common.UIAbilityContext).applicationInfo.name);
     const context = getContext(this) as common.UIAbilityContext;
     const atManager = abilityAccessCtrl.createAtManager();
     const permissions: Array<Permissions> = [

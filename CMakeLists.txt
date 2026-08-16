@@ -607,6 +607,10 @@ endif()
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
 )
+# musl libc compatibility shims (e.g. pthread_setaffinity_np stub).
+list(APPEND KRKRSDL2_SRC
+	${KRKRSDL2_REPO_DIR}/ohos-project/entry/src/main/cpp/ohos_compat.c
+)
 elseif(WIN32)
 set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
 set(SDL_SHARED OFF)

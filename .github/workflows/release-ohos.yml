@@ -294,10 +294,22 @@ jobs:
             [[ -n "$value" ]] && configured=$((configured + 1))
           done
 
-          # OpenHarmony's signing tool (verified mirror location).
-          sign_tool="$RUNNER_TEMP/hap-sign-tool.jar"
-          sign_tool_url="${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
-          curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "$sign_tool_url"
+          # Prefer the official OpenHarmony signing tool shipped with the
+          # SDK toolchains; fall back to the verified mirror copy.
+          sign_tool=""
+          mapfile -t candidate_tools < <(find "$OHOS_SDK_ROOT" -name 'hap-sign-tool*.jar' -print 2>/dev/null || true)
+          if [[ "${#candidate_tools[@]}" -gt 0 ]]; then
+            sign_tool="${candidate_tools[0]}"
+            echo "Using SDK signing tool: $sign_tool"
+          else
+            sign_tool="$RUNNER_TEMP/hap-sign-tool.jar"
+            sign_tool_url="${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
+            curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "$sign_tool_url"
+          fi
+          if [[ ! -f "$sign_tool" ]]; then
+            echo "Signing tool not found: $sign_tool" >&2
+            exit 1
+          fi
 
           if [[ "$configured" -eq 6 ]]; then
             # User-provided materials (OpenHarmony or HarmonyOS/AGC).
@@ -344,11 +356,20 @@ jobs:
               '.validity = {"not-before": ($now | tonumber), "not-after": ($future | tonumber)} | .["bundle-info"]["bundle-name"] = "com.lightwinder.yosuganosora.hdremake" | .["bundle-info"]["app-feature"] = "hos_normal_app"' \
               UnsgnedReleasedProfileTemplate.json > profile.tmp.json
             mv profile.tmp.json UnsgnedReleasedProfileTemplate.json
-            python3 autosign.py createRootAndSubCert
-            python3 autosign.py createAppCertAndProfile
+            # The SDK-bundled tool prefers p12 keystores over jks.
+            sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createRootAndSubCert.config
+            run_autosign() {
+              python3 autosign.py "$1" || {
+                echo "---- error.txt ----"; cat error.txt 2>/dev/null || true
+                echo "---- log.txt ----"; cat log.txt 2>/dev/null || true
+                exit 1
+              }
+            }
+            run_autosign createRootAndSubCert
+            run_autosign createAppCertAndProfile
             cp "$HAP" "$sign_dir/app1-unsigned.hap"
             sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
-            python3 autosign.py signHap
+            run_autosign signHap
             signed="$sign_dir/result/app1-signed.hap"
             if [[ ! -f "$signed" ]]; then
               echo 'Community debug signing failed to produce a HAP.' >&2

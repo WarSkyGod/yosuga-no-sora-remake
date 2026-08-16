@@ -131,20 +131,19 @@ jobs:
             --cache "$RUNNER_TEMP/content-manifest-cache.json" \
             --full
 
-      - name: Install the OpenHarmony 5.0 SDK and command line tools
+      - name: Install the OpenHarmony 5.0 command line tools and SDK
         shell: bash
         env:
-          OHOS_SDK_URL: ${{ vars.OHOS_SDK_URL }}
           OHOS_COMMAND_LINE_TOOLS_URL: ${{ vars.OHOS_COMMAND_LINE_TOOLS_URL }}
         run: |
           set -euo pipefail
           sdk_root="$RUNNER_TEMP/ohos-sdk"
           mkdir -p "$sdk_root"
 
-          # Command line tools (hvigorw + ohpm + bundled node) for API 12.
-          # Defaults are pinned to the OpenHarmony 5.0.0 release; override
-          # the repository variables OHOS_COMMAND_LINE_TOOLS_URL /
-          # OHOS_SDK_URL when the mirrors publish newer packages:
+          # Command line tools for API 12. This bundle already contains the
+          # OpenHarmony SDK under command-line-tools/sdk/default/openharmony.
+          # Override the repository variable OHOS_COMMAND_LINE_TOOLS_URL when
+          # the mirror publishes a newer package:
           # https://gitee.com/openharmony/docs/blob/master/zh-cn/release-notes/OpenHarmony-v5.0.0-release.md
           cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
           echo "Downloading command line tools: $cli_url"
@@ -155,87 +154,30 @@ jobs:
             exit 1
           fi
 
-          # Public SDK for the standard system (Windows/Linux combined archive).
-          sdk_url="${OHOS_SDK_URL:-https://repo.huaweicloud.com/openharmony/os/5.0.0-Release/ohos-sdk-windows_linux-public.tar.gz}"
-          echo "Downloading SDK: $sdk_url"
-          curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/ohos-sdk-public.tar.gz" "$sdk_url"
-
-          # The archive ships the Windows and Linux SDKs together, and each
-          # platform payload is itself a set of nested zips (native/ets/js/
-          # toolchains). Extract only the Linux payload and unpack its zips
-          # so the runner keeps enough disk for the 3+ GiB game package.
-          unpack_dir="$RUNNER_TEMP/ohos-sdk-unpack"
-          rm -rf "$unpack_dir"; mkdir -p "$unpack_dir"
-
-          linux_dir=""
-          while IFS= read -r entry; do
-            clean="${entry#./}"
-            first="${clean%%/*}"
-            if [[ "$first" == *linux* ]]; then linux_dir="$first"; break; fi
-          done < <(tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null | head -n 200)
-          if [[ -z "$linux_dir" ]]; then
-            linux_dir=$(tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null \
-              | grep -m1 -oE '[^/]*linux[^/]*/' | head -1 | tr -d '/')
+          # The command line tools bundle already ships the OpenHarmony SDK in
+          # the current layout (command-line-tools/sdk/default/openharmony/);
+          # extracting the standalone public SDK next to it triggers hvigor's
+          # "SDK management mode has changed" error. Use the bundled SDK.
+          bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
+          if [[ ! -d "$bundled_sdk/native" || ! -d "$bundled_sdk/ets" ]]; then
+            echo 'The command line tools bundle did not include the OpenHarmony SDK.' >&2
+            echo "Expected SDK components under $bundled_sdk" >&2
+            exit 1
           fi
 
-          if [[ -n "$linux_dir" ]]; then
-            echo "Extracting Linux SDK payload: $linux_dir"
-            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir" "$linux_dir"
-            for entry in "$unpack_dir"/"$linux_dir"/*; do
-              name="$(basename "$entry")"
-              if [[ "$entry" == *.zip ]]; then
-                echo "Unpacking $name"
-                unzip -q -o "$entry" -d "$sdk_root/"
-              elif [[ ! -e "$sdk_root/$name" ]]; then
-                cp -n "$entry" "$sdk_root/$name"
-              fi
-            done
-          else
-            echo 'No Linux payload detected in the SDK archive; extracting everything.'
-            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir/"
-            find "$unpack_dir" -name '*.zip' -exec unzip -q -o {} -d "$sdk_root/" \;
-            find "$unpack_dir" -name 'oh-uni-package.json' -exec cp -n {} "$sdk_root/" \; || true
-          fi
-
-          # The uni-package metadata may live above the Linux payload.
-          if [[ ! -f "$sdk_root/oh-uni-package.json" ]]; then
-            find "$unpack_dir" -name 'oh-uni-package.json' -exec cp -n {} "$sdk_root/" \; || true
-          fi
-
-          # If a component zip expanded to a versioned directory
-          # (native-linux-x64-5.0.0.71-Release/), flatten it to the name
-          # DevEco expects (native/, ets/, ...).
-          for dir in "$sdk_root"/*/; do
-            base="$(basename "$dir")"
-            case "$base" in
-              native-*) target="native";;
-              ets-*) target="ets";;
-              toolchains-*) target="toolchains";;
-              js-*) target="js";;
-              *) continue;;
-            esac
-            if [[ ! -e "$sdk_root/$target" ]]; then
-              echo "Flattening $base -> $target"
-              mv "$dir" "$sdk_root/$target"
-            fi
-          done
-
-          # Free the downloaded archives before the multi-GiB build.
-          rm -f "$RUNNER_TEMP/ohos-sdk-public.tar.gz" "$RUNNER_TEMP/commandline-tools.zip"
+          # Free the downloaded archive before the multi-GiB build.
+          rm -f "$RUNNER_TEMP/commandline-tools.zip"
 
           chmod +x "$sdk_root"/command-line-tools/bin/* 2>/dev/null || true
           if [[ ! -x "$sdk_root/command-line-tools/bin/hvigorw" ]]; then
             echo 'hvigorw was not found under command-line-tools/bin.' >&2
             exit 1
           fi
-          if [[ ! -d "$sdk_root/native" ]]; then
-            echo 'The OpenHarmony SDK native/ directory is missing.' >&2
-            exit 1
-          fi
 
           echo "DEVECO_SDK_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "OHOS_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
           ls "$sdk_root"
+          ls "$bundled_sdk"
 
       - name: Prepare the OpenHarmony project
         shell: bash

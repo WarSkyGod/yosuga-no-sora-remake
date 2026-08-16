@@ -2,7 +2,7 @@ import entryNapi from 'libentry.so';
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
-import { zlib } from '@ohos.zlib';
+import zlib from '@ohos.zlib';
 import { util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction } from '@kit.ArkUI';
@@ -138,49 +138,45 @@ struct Index {
   }
 
   async downloadFile(url: string, dest: string): Promise<void> {
-    const httpRequest = http.createHttp();
-    let file: fs.File | null = null;
+    // Range-chunked download: @ohos.net.http has no streaming end event on
+    // this SDK, and buffering multi-GiB files in memory is not an option.
+    const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    const chunkSize = 8 * 1024 * 1024;
+    let offset = 0;
     try {
-      file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
-      await new Promise<void>((resolve, reject) => {
-        httpRequest.on('dataReceive', (data: ArrayBuffer) => {
-          try {
-            if (file !== null) {
-              fs.writeSync(file.fd, data);
-            }
-          } catch (e) {
-            reject(e);
-          }
-        });
-        httpRequest.on('dataReceiveError', () => {
-          reject(new Error('http receive error'));
-        });
-        httpRequest.on('dataReceiveEnd', () => {
-          resolve();
-        });
-        httpRequest.request(url, {
-          method: http.RequestMethod.GET,
-          expectDataType: http.HttpDataType.ARRAY_BUFFER,
-          connectTimeout: 600000,
-          readTimeout: 600000
-        }).then((response: http.HttpResponse) => {
-          if (response.responseCode !== 200) {
-            reject(new Error('HTTP ' + response.responseCode));
-          }
-        }).catch((err: Error) => {
-          reject(err);
-        });
-      });
-    } finally {
-      if (file !== null) {
+      while (true) {
+        const end = offset + chunkSize - 1;
+        const httpRequest = http.createHttp();
         try {
-          fs.closeSync(file);
-        } catch (e) {
-          // ignore
+          const response: http.HttpResponse = await httpRequest.request(url, {
+            method: http.RequestMethod.GET,
+            header: { 'Range': 'bytes=' + offset + '-' + end },
+            expectDataType: http.HttpDataType.ARRAY_BUFFER,
+            connectTimeout: 60000,
+            readTimeout: 180000
+          });
+          if (response.responseCode === 416) {
+            break;
+          }
+          if (response.responseCode !== 206 && response.responseCode !== 200) {
+            throw new Error('HTTP ' + response.responseCode);
+          }
+          const data = response.result as ArrayBuffer;
+          const length = data.byteLength;
+          if (length === 0) {
+            break;
+          }
+          fs.writeSync(file.fd, data);
+          offset += length;
+          if (length < chunkSize) {
+            break;
+          }
+        } finally {
+          httpRequest.destroy();
         }
       }
-      httpRequest.off('dataReceive');
-      httpRequest.destroy();
+    } finally {
+      fs.closeSync(file);
     }
   }
 

@@ -1,4 +1,4 @@
-import { AbilityConstant, UIAbility, Want, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
+import { AbilityConstant, UIAbility, Want, abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
@@ -22,7 +22,7 @@ export default class EntryAbility extends UIAbility {
       'ohos.permission.READ_MEDIA',
       'ohos.permission.WRITE_MEDIA'
     ];
-    atManager.requestPermissionsFromUser(this.context, permissions).then((result: abilityAccessCtrl.PermissionRequestResult) => {
+    atManager.requestPermissionsFromUser(this.context, permissions).then((result: PermissionRequestResult) => {
       hilog.info(DOMAIN, TAG, 'permission request result: %{public}s', JSON.stringify(result));
     }).catch((err: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'permission request failed: %{public}s', JSON.stringify(err));

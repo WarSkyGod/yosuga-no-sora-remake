@@ -157,17 +157,7 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
 }
 @end
 
-@interface TVPIOSMovieView : UIView
-@property(nonatomic, strong) AVPlayerLayer *movieLayer;
-@end
-
-@implementation TVPIOSMovieView
-- (void)layoutSubviews
-{
-    [super layoutSubviews];
-    self.movieLayer.frame = self.bounds;
-}
-@end
+@class TVPIOSMovieController;
 
 @interface TVPIOSMovieController : NSObject
 - (instancetype)initWithPath:(NSString *)path
@@ -180,6 +170,8 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
 - (void)stop;
 - (void)rewind;
 - (void)setMovieBoundsLeft:(int)left top:(int)top width:(int)width height:(int)height;
+- (void)setScreenGeometryWidth:(int)width height:(int)height;
+- (void)movieViewDidLayout;
 - (void)setMovieVisible:(BOOL)visible;
 - (void)setMovieVolume:(float)volume;
 - (void)setMovieRate:(float)rate;
@@ -192,6 +184,20 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
 - (double)frameRate;
 - (double)duration;
 - (double)currentTime;
+@end
+
+@interface TVPIOSMovieView : UIView
+@property(nonatomic, strong) AVPlayerLayer *movieLayer;
+@property(nonatomic, weak) TVPIOSMovieController *controller;
+@end
+
+@implementation TVPIOSMovieView
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    self.movieLayer.frame = self.bounds;
+    [self.controller movieViewDidLayout];
+}
 @end
 
 @implementation TVPIOSMovieController {
@@ -210,6 +216,13 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     BOOL _hasAudio;
     float _volume;
     float _rate;
+    int _gameWidth;
+    int _gameHeight;
+    int _left;
+    int _top;
+    int _width;
+    int _height;
+    BOOL _hasBounds;
 }
 
 - (instancetype)initWithPath:(NSString *)path
@@ -229,6 +242,13 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     _finished = finished;
     _volume = 1.0f;
     _rate = 1.0f;
+    _gameWidth = 0;
+    _gameHeight = 0;
+    _left = 0;
+    _top = 0;
+    _width = 0;
+    _height = 0;
+    _hasBounds = NO;
     _item = [AVPlayerItem playerItemWithAsset:_asset];
     _player = [AVPlayer playerWithPlayerItem:_item];
     _player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
@@ -243,12 +263,14 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     _view.autoresizingMask = UIViewAutoresizingFlexibleWidth |
         UIViewAutoresizingFlexibleHeight;
     _view.backgroundColor = UIColor.blackColor;
+    _view.opaque = YES;
     _view.userInteractionEnabled = NO;
 
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
     _playerLayer.frame = _view.bounds;
     _playerLayer.videoGravity = AVLayerVideoGravityResizeAspect;
     _view.movieLayer = _playerLayer;
+    _view.controller = self;
     [_view.layer addSublayer:_playerLayer];
     [_contentView addSubview:_view];
 
@@ -319,11 +341,64 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
 
 - (void)setMovieBoundsLeft:(int)left top:(int)top width:(int)width height:(int)height
 {
-    CGFloat scale = UIScreen.mainScreen.scale;
-    if(scale <= 0.0) scale = 1.0;
+    _left = left;
+    _top = top;
+    _width = std::max(width, 0);
+    _height = std::max(height, 0);
+    _hasBounds = YES;
     _view.autoresizingMask = UIViewAutoresizingNone;
-    _view.frame = CGRectMake(left / scale, top / scale,
-        std::max(width, 0) / scale, std::max(height, 0) / scale);
+    [self updateMovieFrame];
+}
+
+- (void)setScreenGeometryWidth:(int)width height:(int)height
+{
+    _gameWidth = width;
+    _gameHeight = height;
+    if(_hasBounds) [self updateMovieFrame];
+}
+
+- (void)movieViewDidLayout
+{
+    if(_hasBounds) [self updateMovieFrame];
+}
+
+- (void)updateMovieFrame
+{
+    if(!_view || !_contentView || !_hasBounds) return;
+
+    CGSize viewSize = _contentView.bounds.size;
+    CGRect frame;
+    if(_gameWidth > 0 && _gameHeight > 0 &&
+       viewSize.width > 0.0 && viewSize.height > 0.0)
+    {
+        /*
+         * The engine reports overlay rectangles in game-space units, and the
+         * renderer fits the game into the hosting view with a uniform
+         * aspect-ratio scale plus centering offsets.  Reproduce that exact
+         * transform here.  This stays correct even when UIScreen does not
+         * describe the hosting window (for example inside app containers),
+         * unlike the previous UIScreen-scale based mapping.
+         */
+        double scale = std::min(viewSize.width / (double)_gameWidth,
+                                viewSize.height / (double)_gameHeight);
+        double offsetX = (viewSize.width - _gameWidth * scale) / 2.0;
+        double offsetY = (viewSize.height - _gameHeight * scale) / 2.0;
+        frame = CGRectMake((CGFloat)(offsetX + _left * scale),
+                           (CGFloat)(offsetY + _top * scale),
+                           (CGFloat)(_width * scale),
+                           (CGFloat)(_height * scale));
+    }
+    else
+    {
+        /* Legacy fallback when the engine never provided the geometry. */
+        CGFloat scale = UIScreen.mainScreen.scale;
+        if(scale <= 0.0) scale = 1.0;
+        frame = CGRectMake(_left / scale, _top / scale,
+                           _width / scale, _height / scale);
+    }
+    frame = CGRectIntegral(frame);
+    if(!CGRectEqualToRect(_view.frame, frame))
+        _view.frame = frame;
 }
 
 - (void)setMovieVisible:(BOOL)visible { _view.hidden = !visible; }
@@ -451,6 +526,10 @@ void TVPMacVideoRewind(void *handle) { [TVPIOSController(handle) rewind]; }
 void TVPMacVideoSetBounds(void *handle, int left, int top, int width, int height)
 {
     [TVPIOSController(handle) setMovieBoundsLeft:left top:top width:width height:height];
+}
+void TVPMacVideoSetScreenGeometry(void *handle, int windowWidth, int windowHeight)
+{
+    [TVPIOSController(handle) setScreenGeometryWidth:windowWidth height:windowHeight];
 }
 void TVPMacVideoSetVisible(void *handle, int visible)
 {

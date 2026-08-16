@@ -17,6 +17,10 @@
 #include "SDL_ohosevents.h"
 #include "sdl_ohos_bridge.h"
 
+#ifndef SDL_TOUCH_MOUSEID
+#define SDL_TOUCH_MOUSEID ((SDL_MouseID)-1)
+#endif
+
 void OHOS_PumpEvents(_THIS)
 {
 	(void)_this;

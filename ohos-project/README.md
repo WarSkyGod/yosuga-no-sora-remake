@@ -76,14 +76,18 @@ when DevEco signing is configured, otherwise entry-default-unsigned.hap).
 
 ## Signing
 
-The CI workflow always produces a signed HAP:
+The workflow builds an unsigned HAP and its signing is controlled by the
+`sign_mode` workflow input (default `none`):
 
-- Without signing secrets it falls back to the community OpenHarmony debug
-  certificate (the official developtools_hapsigner autosign flow). Such a
-  HAP installs directly on OpenHarmony devices that have developer mode
-  enabled.
-- With the six repository secrets configured it signs with your own
-  materials instead:
+- `none` (default) - no signing. The release asset is the unsigned HAP;
+  install it only after signing it with your own materials.
+- `community` - signs with the community OpenHarmony debug certificate
+  (the official developtools_hapsigner autosign flow). The result installs
+  directly on OpenHarmony devices that have developer mode enabled, but
+  HarmonyOS 5+ (NEXT) devices reject this certificate.
+- `agc` - signs with your own AppGallery Connect materials provided as
+  the six repository secrets below. This is the mode that produces a HAP
+  which installs on HarmonyOS 5.0 and later (and on OpenHarmony):
 
   - OHOS_KEYSTORE_P12_BASE64
   - OHOS_KEYSTORE_PASSWORD
@@ -92,13 +96,43 @@ The CI workflow always produces a signed HAP:
   - OHOS_APP_CERT_BASE64 (the .cer application certificate)
   - OHOS_PROFILE_P7B_BASE64 (the .p7b provisioning profile)
 
-HarmonyOS NEXT devices only accept AppGallery Connect issued certificates
-and provisioning profiles: generate them in AGC and provide them through
-the same six secrets. The same HAP therefore supports both OpenHarmony and
-HarmonyOS NEXT; only the signing materials differ per target.
+Tag pushes default to `none` unless the repository variable
+`OHOS_DEFAULT_SIGN_MODE` is set; re-run the workflow manually on the same
+tag with the desired mode to replace the release assets.
 
-The workflow uses hapsigntoolv2.jar from the Huawei mirror
+The workflow signs with hapsigntoolv2.jar from the Huawei mirror
 (SHA256withECDSA, local signing).
+
+### Signing the downloaded HAP locally
+
+If you prefer to sign on your own machine (Windows), run
+`tools/sign_hap_agc.ps1`. DevEco Studio 5 installs everything the script
+needs (Java + hap-sign-tool); it auto-detects both:
+
+    powershell -ExecutionPolicy Bypass -File tools\sign_hap_agc.ps1 ^
+      -Hap Yosuga-...-unsigned.hap ^
+      -Keystore app.p12 -KeystorePassword ******** ^
+      -KeyAlias mykey -KeyPassword ******** ^
+      -AppCert app.cer -Profile profile.p7b
+
+Then install the signed HAP with `hdc install <signed.hap>`.
+
+### Getting AGC materials for HarmonyOS 5+
+
+1. Register an app in AppGallery Connect. Its bundle name must be
+   `com.lightwinder.yosuganosora.hdremake` (the name baked into
+   AppScope/app.json5). If you register a different name, change
+   AppScope/app.json5 and rebuild.
+2. Create the keystore (.p12) and download the application certificate
+   (.cer) issued for it.
+3. Create a release provisioning profile (发布 Profile) for the app and
+   download it (.p7b).
+4. Either configure the six secrets and run the workflow with
+   sign_mode=agc, or sign locally with `tools/sign_hap_agc.ps1`.
+
+HarmonyOS NEXT only accepts AGC-issued certificates and profiles, so the
+same HAP serves both OpenHarmony (community or AGC signing) and HarmonyOS
+NEXT (AGC signing).
 
 ## Current limitations
 

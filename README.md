@@ -151,11 +151,18 @@ backend (XComponent + EGL), assembles the HAP with Hvigor, and publishes it
 as multipart 7-Zip volumes below GitHub's 2 GiB per-asset limit.
 
 The game content is packaged as rawfile and extracted into the application
-sandbox on first launch. The workflow publishes an unsigned HAP by default;
-configure the six `OHOS_*` signing secrets documented in
-`ohos-project/README.md` to publish a signed package. Known limitations
-(no SDL audio backend yet, so the game runs without sound) are listed there
-as well.
+sandbox on first launch. The workflow publishes an *unsigned* HAP by
+default (sign_mode `none`); you must sign it before installing:
+
+- **OpenHarmony devices** - re-run the workflow with sign_mode `community`
+  for the community OpenHarmony debug certificate.
+- **HarmonyOS 5.0+ (NEXT)** - only AppGallery Connect issued certificates
+  and profiles are accepted. Re-run the workflow with sign_mode `agc` and
+  the six `OHOS_*` repository secrets, or sign the downloaded HAP locally
+  with `tools/sign_hap_agc.ps1`. Full instructions (including registering
+  the app in AGC with the matching bundle name) are in
+  `ohos-project/README.md`. Known limitations (no SDL audio backend yet,
+  so the game runs without sound) are listed there as well.
 
 The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
 Third-party components remain subject to the licenses in their respective

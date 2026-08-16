@@ -25,14 +25,14 @@
 #include <thread>
 #include <unistd.h>
 
-/* Kirikiri SDL2 platform hooks (see src/core/sdl2/SDLApplication.h). */
-extern "C" {
+/* Kirikiri SDL2 platform hooks (see src/core/sdl2/SDLApplication.h).
+ * These are plain C++ symbols; keep C++ linkage so the names match the
+ * engine's mangled definitions. */
 extern void krkrsdl2_pre_init_platform(void);
 extern void krkrsdl2_convert_set_args(int argc, char **argv);
 extern bool krkrsdl2_init_platform(void);
 extern void krkrsdl2_run_main_loop(void);
 extern void krkrsdl2_cleanup(void);
-}
 
 #define LOG_DOMAIN 0x0000
 #define LOG_TAG "YosugaOHOS"

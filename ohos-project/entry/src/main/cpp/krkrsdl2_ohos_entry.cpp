@@ -14,6 +14,7 @@
 
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <hilog/log.h>
+#include <native_window/external_window.h>
 #include <rawfile/raw_file_manager.h>
 
 #include <atomic>
@@ -240,17 +241,16 @@ void OHOS_Entry_AttachXComponent(void *component)
 	g_component = native;
 	pthread_mutex_unlock(&g_lock);
 
+	// Touch events are delivered through the lifecycle callback struct
+	// (DispatchTouchEvent); this SDK header does not provide the separate
+	// OH_NativeXComponent_TouchEvent_Callback registration API.
 	OH_NativeXComponent_Callback callback;
 	memset(&callback, 0, sizeof(callback));
 	callback.OnSurfaceCreated = OnSurfaceCreated;
 	callback.OnSurfaceChanged = OnSurfaceChanged;
 	callback.OnSurfaceDestroyed = OnSurfaceDestroyed;
+	callback.DispatchTouchEvent = OnTouchEvent;
 	OH_NativeXComponent_RegisterCallback(native, &callback);
-
-	OH_NativeXComponent_TouchEvent_Callback touch_callback;
-	memset(&touch_callback, 0, sizeof(touch_callback));
-	touch_callback.OnTouchEvent = OnTouchEvent;
-	OH_NativeXComponent_RegisterTouchEventCallback(native, &touch_callback);
 
 	Log(LOG_INFO, "XComponent attached");
 }

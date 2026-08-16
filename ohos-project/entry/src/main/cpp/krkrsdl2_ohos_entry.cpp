@@ -314,11 +314,12 @@ static void EngineMain()
 	bool data_ok = false;
 	if (!base_dir.empty())
 	{
-		// The ArkTS shell validates the content; the engine only needs a
-		// data directory (startup.tjs or a bundled data.xp3 live inside).
-		std::string data_path = base_dir + "/data";
+		// The engine needs a real game-data marker: startup.tjs or data.xp3.
 		struct stat st;
-		data_ok = stat(data_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+		std::string startup = base_dir + "/data/startup.tjs";
+		std::string xp3 = base_dir + "/data/data.xp3";
+		data_ok = (stat(startup.c_str(), &st) == 0 && S_ISREG(st.st_mode)) ||
+		          (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode));
 	}
 	if (!data_ok)
 	{

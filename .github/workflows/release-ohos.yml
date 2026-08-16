@@ -271,7 +271,7 @@ jobs:
           echo "hap=$hap" >> "$GITHUB_OUTPUT"
           ls -lh "$hap"
 
-      - name: Sign the HAP when signing secrets are configured
+      - name: Sign the HAP
         id: signing
         shell: bash
         env:
@@ -294,44 +294,76 @@ jobs:
             [[ -n "$value" ]] && configured=$((configured + 1))
           done
 
-          if [[ "$configured" -eq 0 ]]; then
-            echo 'No OpenHarmony signing secrets were provided; publishing the unsigned HAP.'
-            echo 'signed=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ "$configured" -ne 6 ]]; then
-            echo 'Configure all six OHOS signing secrets or none of them.' >&2
-            exit 1
-          fi
-
-          keystore="$RUNNER_TEMP/ohos-keystore.p12"
-          cert="$RUNNER_TEMP/ohos-app-cert.cer"
-          profile="$RUNNER_TEMP/ohos-profile.p7b"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
-          printf '%s' "$APP_CERT_BASE64" | base64 --decode > "$cert"
-          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$profile"
-          chmod 600 "$keystore"
-
           # OpenHarmony's signing tool (verified mirror location).
           sign_tool="$RUNNER_TEMP/hap-sign-tool.jar"
           sign_tool_url="${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
           curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "$sign_tool_url"
-          if [[ ! -f "$sign_tool" ]]; then
-            echo "Signing tool not found: $sign_tool" >&2
+
+          if [[ "$configured" -eq 6 ]]; then
+            # User-provided materials (OpenHarmony or HarmonyOS/AGC).
+            keystore="$RUNNER_TEMP/ohos-keystore.p12"
+            cert="$RUNNER_TEMP/ohos-app-cert.cer"
+            profile="$RUNNER_TEMP/ohos-profile.p7b"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            printf '%s' "$APP_CERT_BASE64" | base64 --decode > "$cert"
+            printf '%s' "$PROFILE_BASE64" | base64 --decode > "$profile"
+            chmod 600 "$keystore"
+            signed="${HAP%.hap}-signed.hap"
+            java -jar "$sign_tool" sign-app \
+              -keyAlias "$KEY_ALIAS" \
+              -signAlg SHA256withECDSA \
+              -mode localSign \
+              -appCertFile "$cert" \
+              -profileFile "$profile" \
+              -inFile "$HAP" \
+              -outFile "$signed" \
+              -keystoreFile "$keystore" \
+              -keyPwd "$KEY_PASSWORD" \
+              -keystorePwd "$KEYSTORE_PASSWORD"
+            echo 'signed=user' >> "$GITHUB_OUTPUT"
+          elif [[ "$configured" -eq 0 ]]; then
+            # Fall back to the community OpenHarmony debug certificate so the
+            # HAP installs on developer-mode OpenHarmony devices out of the
+            # box. (HarmonyOS NEXT devices need AGC materials via secrets.)
+            echo 'No signing secrets provided; signing with the community OpenHarmony debug certificate.'
+            sign_dir="$RUNNER_TEMP/ohos-autosign"
+            mkdir -p "$sign_dir"
+            cp "$sign_tool" "$sign_dir/hap-sign-tool.jar"
+            for file in autosign.py createRootAndSubCert.config \
+              createAppCertAndProfile.config signHap.config \
+              UnsgnedReleasedProfileTemplate.json; do
+              curl -fL --retry 3 --retry-delay 10 \
+                -o "$sign_dir/$file" \
+                "https://raw.githubusercontent.com/openharmony/developtools_hapsigner/master/autosign/$file"
+            done
+            cd "$sign_dir"
+            sed -i "s#config.signtool=.*#config.signtool=$sign_dir/hap-sign-tool.jar#" *.config
+            now="$(date +%s)"
+            future="$(date -d '+10 years' +%s)"
+            python3 - "$now" "$future" <<'PY'
+            import json, sys
+            path = 'UnsgnedReleasedProfileTemplate.json'
+            profile = json.load(open(path, encoding='utf-8'))
+            profile['bundle-info']['bundle-name'] = 'com.lightwinder.yosuganosora.hdremake'
+            profile['bundle-info']['app-feature'] = 'hos_normal_app'
+            profile['validity'] = {'not-before': int(sys.argv[1]), 'not-after': int(sys.argv[2])}
+            json.dump(profile, open(path, 'w', encoding='utf-8'))
+            PY
+            python3 autosign.py createRootAndSubCert
+            python3 autosign.py createAppCertAndProfile
+            cp "$HAP" "$sign_dir/app1-unsigned.hap"
+            sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
+            python3 autosign.py signHap
+            signed="$sign_dir/result/app1-signed.hap"
+            if [[ ! -f "$signed" ]]; then
+              echo 'Community debug signing failed to produce a HAP.' >&2
+              exit 1
+            fi
+            echo 'signed=community' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Configure all six OHOS signing secrets or none of them.' >&2
             exit 1
           fi
-          signed="${HAP%.hap}-signed.hap"
-          java -jar "$sign_tool" sign-app \
-            -keyAlias "$KEY_ALIAS" \
-            -signAlg SHA256withECDSA \
-            -mode localSign \
-            -appCertFile "$cert" \
-            -profileFile "$profile" \
-            -inFile "$HAP" \
-            -outFile "$signed" \
-            -keystoreFile "$keystore" \
-            -keyPwd "$KEY_PASSWORD" \
-            -keystorePwd "$KEYSTORE_PASSWORD"
 
           echo "hap=$signed" >> "$GITHUB_OUTPUT"
           echo 'signed=true' >> "$GITHUB_OUTPUT"

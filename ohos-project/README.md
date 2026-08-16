@@ -76,19 +76,29 @@ when DevEco signing is configured, otherwise entry-default-unsigned.hap).
 
 ## Signing
 
-DevEco Studio signs the module automatically for device deployment. The CI
-workflow publishes the unsigned HAP by default; set all six repository
-secrets to sign in CI:
+The CI workflow always produces a signed HAP:
 
-- OHOS_KEYSTORE_P12_BASE64
-- OHOS_KEYSTORE_PASSWORD
-- OHOS_KEY_ALIAS
-- OHOS_KEY_PASSWORD
-- OHOS_APP_CERT_BASE64 (the .cer application certificate)
-- OHOS_PROFILE_P7B_BASE64 (the .p7b provisioning profile)
+- Without signing secrets it falls back to the community OpenHarmony debug
+  certificate (the official developtools_hapsigner autosign flow). Such a
+  HAP installs directly on OpenHarmony devices that have developer mode
+  enabled.
+- With the six repository secrets configured it signs with your own
+  materials instead:
 
-The workflow uses the hap-sign-tool.jar bundled with the command line
-tools (SHA256withECDSA, local signing).
+  - OHOS_KEYSTORE_P12_BASE64
+  - OHOS_KEYSTORE_PASSWORD
+  - OHOS_KEY_ALIAS
+  - OHOS_KEY_PASSWORD
+  - OHOS_APP_CERT_BASE64 (the .cer application certificate)
+  - OHOS_PROFILE_P7B_BASE64 (the .p7b provisioning profile)
+
+HarmonyOS NEXT devices only accept AppGallery Connect issued certificates
+and provisioning profiles: generate them in AGC and provide them through
+the same six secrets. The same HAP therefore supports both OpenHarmony and
+HarmonyOS NEXT; only the signing materials differ per target.
+
+The workflow uses hapsigntoolv2.jar from the Huawei mirror
+(SHA256withECDSA, local signing).
 
 ## Current limitations
 

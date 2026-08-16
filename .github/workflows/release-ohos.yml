@@ -141,12 +141,12 @@ jobs:
           sdk_root="$RUNNER_TEMP/ohos-sdk"
           mkdir -p "$sdk_root"
 
-          # Command line tools (hvigorw, ohpm, signing tool) for API 12.
-          # Pinned to the OpenHarmony 5.0.0 release; override the repository
-          # variables OHOS_COMMAND_LINE_TOOLS_URL / OHOS_SDK_URL when the
-          # release page publishes newer packages:
+          # Command line tools (hvigorw + ohpm + bundled node) for API 12.
+          # Defaults are pinned to the OpenHarmony 5.0.0 release; override
+          # the repository variables OHOS_COMMAND_LINE_TOOLS_URL /
+          # OHOS_SDK_URL when the mirrors publish newer packages:
           # https://gitee.com/openharmony/docs/blob/master/zh-cn/release-notes/OpenHarmony-v5.0.0-release.md
-          cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/openharmony/os/5.0.0-release/sdk-package/commandline-tools-linux-5.0.0.58.zip}"
+          cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
           echo "Downloading command line tools: $cli_url"
           curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/commandline-tools.zip" "$cli_url"
           unzip -q -o "$RUNNER_TEMP/commandline-tools.zip" -d "$sdk_root/"
@@ -155,31 +155,64 @@ jobs:
             exit 1
           fi
 
-          # Public SDK (ets + native + toolchains) for the standard system.
-          sdk_url="${OHOS_SDK_URL:-https://repo.huaweicloud.com/openharmony/os/5.0.0-release/sdk-package/ohos-sdk-linux-public.tar.gz}"
+          # Public SDK for the standard system (Windows/Linux combined archive).
+          sdk_url="${OHOS_SDK_URL:-https://repo.huaweicloud.com/openharmony/os/5.0.0-Release/ohos-sdk-windows_linux-public.tar.gz}"
           echo "Downloading SDK: $sdk_url"
           curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/ohos-sdk-public.tar.gz" "$sdk_url"
-          tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$RUNNER_TEMP/"
-          # The archive may nest the payload (ohos-sdk/linux/...); flatten it
-          # so DEVECO_SDK_HOME contains native/, ets/ and toolchains/ directly.
-          payload_dir=""
-          while IFS= read -r dir; do
-            if [[ -d "$dir/native" && -d "$dir/ets" ]]; then
-              payload_dir="$dir"
+
+          # The archive ships the Windows and Linux SDKs together. Extract
+          # only the Linux payload so the runner keeps enough disk for the
+          # 3+ GiB game package.
+          linux_root=""
+          while IFS= read -r entry; do
+            candidate="${entry%/native}"
+            candidate="${candidate%/native/}"
+            if [[ "$candidate" == *linux* ]]; then
+              linux_root="$candidate"
               break
             fi
-          done < <(find "$RUNNER_TEMP" -maxdepth 5 -type d -name native \
-            -printf '%h\n' 2>/dev/null | sort -u)
-          if [[ -z "$payload_dir" || "$payload_dir" == "$sdk_root" ]]; then
-            echo 'Could not locate the SDK payload directory (expected a directory containing native/, ets/).' >&2
-            exit 1
-          fi
-          for entry in "$payload_dir"/*; do
-            name="$(basename "$entry")"
-            if [[ ! -e "$sdk_root/$name" ]]; then
-              mv "$entry" "$sdk_root/$name"
+          done < <(tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null | \
+            grep -E '/native/?$' | head -n 40)
+
+          unpack_dir="$RUNNER_TEMP/ohos-sdk-unpack"
+          rm -rf "$unpack_dir"; mkdir -p "$unpack_dir"
+          if [[ -n "$linux_root" ]]; then
+            echo "Extracting Linux SDK payload: $linux_root"
+            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir" "$linux_root"
+            for entry in "$unpack_dir"/"$linux_root"/*; do
+              name="$(basename "$entry")"
+              if [[ ! -e "$sdk_root/$name" ]]; then
+                mv "$entry" "$sdk_root/$name"
+              fi
+            done
+          else
+            echo 'No Linux payload detected in the SDK archive; extracting everything.'
+            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir/"
+            payload_dir=""
+            while IFS= read -r dir; do
+              if [[ -d "$dir/native" && -d "$dir/ets" ]]; then payload_dir="$dir"; break; fi
+            done < <(find "$unpack_dir" -maxdepth 5 -type d -name native -printf '%h\n' 2>/dev/null | sort -u)
+            if [[ -z "$payload_dir" ]]; then
+              echo 'Could not locate the SDK payload directory (expected a directory containing native/, ets/).' >&2
+              exit 1
             fi
-          done
+            for entry in "$payload_dir"/*; do
+              name="$(basename "$entry")"
+              if [[ ! -e "$sdk_root/$name" ]]; then
+                mv "$entry" "$sdk_root/$name"
+              fi
+            done
+          fi
+
+          # The uni-package metadata may live above the Linux payload.
+          if tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null | grep -qE '(^|/)oh-uni-package\.json$'; then
+            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir" \
+              --wildcards --no-anchored 'oh-uni-package.json' || true
+            find "$unpack_dir" -name oh-uni-package.json -exec cp -n {} "$sdk_root/" \; || true
+          fi
+
+          # Free the downloaded archives before the multi-GiB build.
+          rm -f "$RUNNER_TEMP/ohos-sdk-public.tar.gz" "$RUNNER_TEMP/commandline-tools.zip"
 
           chmod +x "$sdk_root"/command-line-tools/bin/* 2>/dev/null || true
           if [[ ! -x "$sdk_root/command-line-tools/bin/hvigorw" ]]; then
@@ -255,6 +288,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.OHOS_KEY_PASSWORD }}
           APP_CERT_BASE64: ${{ secrets.OHOS_APP_CERT_BASE64 }}
           PROFILE_BASE64: ${{ secrets.OHOS_PROFILE_P7B_BASE64 }}
+          OHOS_SIGN_TOOL_URL: ${{ vars.OHOS_SIGN_TOOL_URL }}
         run: |
           set -euo pipefail
           values=(
@@ -284,7 +318,10 @@ jobs:
           printf '%s' "$PROFILE_BASE64" | base64 --decode > "$profile"
           chmod 600 "$keystore"
 
-          sign_tool="$DEVECO_SDK_HOME/command-line-tools/toolchains/lib/hap-sign-tool.jar"
+          # OpenHarmony's signing tool (verified mirror location).
+          sign_tool="$RUNNER_TEMP/hap-sign-tool.jar"
+          sign_tool_url="${OHOS_SIGN_TOOL_URL:-https://repo.huaweicloud.com/harmonyos/develop_tools/hapsigntoolv2.jar}"
+          curl -fL --retry 3 --retry-delay 10 -o "$sign_tool" "$sign_tool_url"
           if [[ ! -f "$sign_tool" ]]; then
             echo "Signing tool not found: $sign_tool" >&2
             exit 1

@@ -223,6 +223,7 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     int _width;
     int _height;
     BOOL _hasBounds;
+    BOOL _retriedOnce;
 }
 
 - (instancetype)initWithPath:(NSString *)path
@@ -233,6 +234,12 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     self = [super init];
     if(!self || path.length == 0 ||
        ![[NSFileManager defaultManager] isReadableFileAtPath:path]) return nil;
+
+    /* Make sure the audio session allows playback; without an active
+       playback session AVPlayer can fail shortly after starting. */
+    AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+    [audioSession setCategory:AVAudioSessionCategoryPlayback error:nil];
+    [audioSession setActive:YES error:nil];
 
     NSURL *url = [NSURL fileURLWithPath:path isDirectory:NO];
     _asset = [AVURLAsset URLAssetWithURL:url options:nil];
@@ -249,6 +256,7 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
     _width = 0;
     _height = 0;
     _hasBounds = NO;
+    _retriedOnce = NO;
     _item = [AVPlayerItem playerItemWithAsset:_asset];
     _player = [AVPlayer playerWithPlayerItem:_item];
     _player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
@@ -286,6 +294,25 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
                     if(!strongSelf) return;
                     strongSelf->_playing = NO;
                     strongSelf->_ended = YES;
+                    if(!strongSelf->_retriedOnce) {
+                        double played = CMTimeGetSeconds(strongSelf->_player.currentTime);
+                        double expected = [strongSelf duration];
+                        if(expected > 2.0 && played < 3.0 && played < expected * 0.5) {
+                            /* Ending after only a second or two smells like a
+                               bogus duration read or a transient glitch; retry
+                               once before reporting completion. */
+                            strongSelf->_retriedOnce = YES;
+                            NSLog(@"krkrsdl2: iOS movie ended prematurely (%.2f/%.2f s); retrying once.",
+                                  played, expected);
+                            [strongSelf->_player seekToTime:kCMTimeZero
+                                toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+                            strongSelf->_ended = NO;
+                            strongSelf->_playing = YES;
+                            [strongSelf->_player play];
+                            strongSelf->_player.rate = strongSelf->_rate;
+                            return;
+                        }
+                    }
                     if(strongSelf->_finished)
                         strongSelf->_finished(strongSelf->_context);
                 }];
@@ -299,6 +326,19 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
                           error.localizedDescription ?: @"unknown error");
                     TVPIOSMovieController *strongSelf = weakSelf;
                     if(!strongSelf) return;
+                    if(!strongSelf->_retriedOnce) {
+                        /* Transient failures (audio session handover, first
+                           frame decode) often recover on a clean restart. */
+                        strongSelf->_retriedOnce = YES;
+                        NSLog(@"krkrsdl2: iOS movie playback retrying once.");
+                        [strongSelf->_player seekToTime:kCMTimeZero
+                            toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+                        strongSelf->_ended = NO;
+                        strongSelf->_playing = YES;
+                        [strongSelf->_player play];
+                        strongSelf->_player.rate = strongSelf->_rate;
+                        return;
+                    }
                     strongSelf->_playing = NO;
                     if(strongSelf->_finished)
                         strongSelf->_finished(strongSelf->_context);

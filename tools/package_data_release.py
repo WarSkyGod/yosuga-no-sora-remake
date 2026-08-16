@@ -123,19 +123,25 @@ def main() -> int:
     for index, batch in enumerate(batches, start=1):
         name = "Yosuga-no-Sora-HD-Remake-OpenHarmony-data-%02d-%s.zip" % (index, args.tag)
         archive = args.out / name
+        # Pass the file list through a list file: thousands of absolute
+        # paths exceed the OS command-line length limit.
+        list_path = args.out / (name + ".list")
+        with list_path.open("w", encoding="utf-8") as list_handle:
+            for pack_id, files in batch:
+                for relative in files:
+                    list_handle.write(os.path.join(root_parent, relative) + "\n")
         with open(os.devnull, "w") as devnull:
             if args.archiver == "7z":
-                cmd = ["7z", "a", "-tzip", "-mx=9", "-bso0", "-bsp0", str(archive)]
-                for pack_id, files in batch:
-                    for relative in files:
-                        cmd.append(os.path.join(root_parent, relative))
+                cmd = ["7z", "a", "-tzip", "-mx=9", "-bso0", "-bsp0", str(archive), "@" + str(list_path)]
                 result = subprocess.run(cmd, stdout=devnull, stderr=devnull)
             else:
-                cmd = ["zip", "-9", "-q", "-y", str(archive)]
-                for pack_id, files in batch:
-                    for relative in files:
-                        cmd.append(os.path.join(root_parent, relative))
-                result = subprocess.run(cmd, stdout=devnull, stderr=devnull)
+                cmd = ["zip", "-9", "-q", "-y", str(archive), "-@"]
+                with list_path.open("r", encoding="utf-8") as list_handle:
+                    result = subprocess.run(cmd, stdin=list_handle, stdout=devnull, stderr=devnull)
+        try:
+            list_path.unlink()
+        except OSError:
+            pass
         if result.returncode != 0:
             print("error: archiving %s failed with exit %d" % (name, result.returncode), file=sys.stderr)
             return 1

@@ -20,31 +20,43 @@
 #define SDL_OHOS_TOUCH_UP 1
 #define SDL_OHOS_TOUCH_MOVE 2
 
+/* The OpenHarmony NDK builds with -fvisibility=hidden; symbols that cross
+ * the libentry.so / libkrkrsdl2.so boundary must be explicitly exported. */
+#if defined(__OHOS__) && !defined(OHOS_EXPORT)
+#if defined(__GNUC__) || defined(__clang__)
+#define OHOS_EXPORT __attribute__((visibility("default")))
+#else
+#define OHOS_EXPORT
+#endif
+#elif !defined(OHOS_EXPORT)
+#define OHOS_EXPORT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Store the application sandbox files directory. */
-void SDL_OHOS_SetFilesDir(const char *files_dir);
+OHOS_EXPORT void SDL_OHOS_SetFilesDir(const char *files_dir);
 
 /* Return the sandbox files directory, or NULL when not set yet. */
-const char *SDL_OHOS_GetFilesDir(void);
+OHOS_EXPORT const char *SDL_OHOS_GetFilesDir(void);
 
 /* Block until the XComponent surface provides a native window. Returns 1 when
  * the window is ready, 0 on timeout. */
-int SDL_OHOS_WaitForNativeWindow(int timeout_ms);
+OHOS_EXPORT int SDL_OHOS_WaitForNativeWindow(int timeout_ms);
 
 /* Return the OHNativeWindow, or NULL when the surface is not ready. */
-void *SDL_OHOS_GetNativeWindow(void);
+OHOS_EXPORT void *SDL_OHOS_GetNativeWindow(void);
 
 /* Return the current surface size in pixels. Returns 1 when valid. */
-int SDL_OHOS_GetSurfaceSize(int *width, int *height);
+OHOS_EXPORT int SDL_OHOS_GetSurfaceSize(int *width, int *height);
 
 /* Deliver an XComponent touch event. Called from the ACE UI thread. */
-void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y);
+OHOS_EXPORT void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y);
 
 /* Notify the SDL video driver that the surface size changed. */
-void SDL_OHOS_OnSurfaceChanged(int width, int height);
+OHOS_EXPORT void SDL_OHOS_OnSurfaceChanged(int width, int height);
 
 #ifdef __cplusplus
 }

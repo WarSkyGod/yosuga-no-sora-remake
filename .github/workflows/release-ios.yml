@@ -338,6 +338,14 @@ jobs:
             [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
             [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
             if ! gh "${args[@]}"; then
+              # gh cannot attach a release to an already existing tag; the
+              # REST API can. Fall back to it before giving up.
+              echo "gh release create failed; trying REST API fallback."
+              api_args=(api "repos/$GH_REPOSITORY/releases" \
+                -f "tag_name=$RELEASE_TAG" -f "target_commitish=$COMMIT_SHA" \
+                -f draft=true -f "name=$RELEASE_TAG" -f generate_release_notes=true)
+              [[ "$IS_PRERELEASE" == 'true' ]] && api_args+=(-f prerelease=true)
+              gh "${api_args[@]}" || echo "REST API release creation also failed."
               for ((attempt = 1; attempt <= 12; attempt++)); do
                 if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" \
                   --json isDraft 2>/dev/null); then
@@ -353,8 +361,18 @@ jobs:
               [[ "$exists" == 'true' ]] || exit 1
             fi
           fi
-          gh release upload "$RELEASE_TAG" "${assets[@]}" \
-            --repo "$GH_REPOSITORY" --clobber
+          # Uploading the large IPA can fail transiently; retry a few times.
+          uploaded=false
+          for ((attempt = 1; attempt <= 5; attempt++)); do
+            if gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GH_REPOSITORY" --clobber; then
+              uploaded=true
+              break
+            fi
+            echo "Release asset upload failed (attempt $attempt/5); retrying in 20s..."
+            sleep 20
+          done
+          [[ "$uploaded" == 'true' ]] || exit 1
           if [[ "$exists" == 'false' || "$is_draft" == 'true' ]]; then
             gh release edit "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft=false
           fi

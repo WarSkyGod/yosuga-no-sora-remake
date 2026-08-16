@@ -258,6 +258,13 @@ jobs:
 
           cd ohos-project
 
+          # This hvigor locates the SDK through local.properties' sdk.dir or
+          # the OHOS_BASE_SDK_HOME environment variable.
+          {
+            echo "sdk.dir=$DEVECO_SDK_HOME"
+          } > local.properties
+          export OHOS_BASE_SDK_HOME="$DEVECO_SDK_HOME"
+
           hvigorw --version
           ohpm --version || true
           # Inject the release version into the app manifest.

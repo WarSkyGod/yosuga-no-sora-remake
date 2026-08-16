@@ -4,6 +4,8 @@ import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { zlib } from '@ohos.zlib';
 import { util } from '@kit.ArkTS';
+import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import { promptAction } from '@kit.ArkUI';
 
 /** data-assets.json entry. */
 interface DataAsset {
@@ -69,13 +71,10 @@ struct Index {
     this.saveDir = publicOk ? this.appDir + '/savedata' : this.sandboxFiles + '/savedata';
     this.dataDir = this.baseDir + '/data';
 
-    try {
-      await fs.access(this.dataDir + '/startup.tjs');
+    if (await this.dataReady()) {
       this.bootState = 1;
       this.progressText = '游戏数据已就绪';
       return;
-    } catch (e) {
-      // data missing
     }
     await this.loadManifest();
     this.bootState = 2;
@@ -117,6 +116,9 @@ struct Index {
       const tmp = cacheDir + '/' + asset.name;
       try {
         await this.downloadFile(url, tmp);
+        if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {
+          throw new Error('SHA-256 校验失败，请重试');
+        }
       } catch (e) {
         this.bootState = 5;
         this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）';
@@ -151,6 +153,9 @@ struct Index {
         httpRequest.on('dataReceiveError', () => {
           reject(new Error('http receive error'));
         });
+        httpRequest.on('dataReceiveEnd', () => {
+          resolve();
+        });
         httpRequest.request(url, {
           method: http.RequestMethod.GET,
           expectDataType: http.HttpDataType.ARRAY_BUFFER,
@@ -159,9 +164,7 @@ struct Index {
         }).then((response: http.HttpResponse) => {
           if (response.responseCode !== 200) {
             reject(new Error('HTTP ' + response.responseCode));
-            return;
           }
-          resolve();
         }).catch((err: Error) => {
           reject(err);
         });
@@ -182,6 +185,50 @@ struct Index {
 
   async unzipTo(srcZip: string, outDir: string): Promise<void> {
     await zlib.decompressFile(srcZip, outDir);
+  }
+
+  /** True when the data folder contains startup.tjs or a data.xp3 file. */
+  async dataReady(): Promise<boolean> {
+    try {
+      await fs.access(this.dataDir + '/startup.tjs');
+      return true;
+    } catch (e) {
+      // fall through
+    }
+    try {
+      await fs.access(this.dataDir + '/data.xp3');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async verifySha256(path: string, expected: string): Promise<boolean> {
+    const md = cryptoFramework.createMd('SHA256');
+    const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    const chunk = new ArrayBuffer(1024 * 1024);
+    try {
+      while (true) {
+        const len = fs.readSync(file, chunk);
+        if (len <= 0) {
+          break;
+        }
+        const view = new Uint8Array(chunk.slice(0, len));
+        await md.update({ data: view });
+      }
+    } finally {
+      fs.closeSync(file);
+    }
+    const digest = await md.digest();
+    return digest.data.toUpperCase() === expected.toUpperCase();
+  }
+
+  async showNotice(title: string, msg: string): Promise<void> {
+    await promptAction.showDialog({
+      title: title,
+      message: msg,
+      buttons: [{ text: '知道了', color: '#FFFFFF' }]
+    });
   }
 
   async importLocal(): Promise<void> {
@@ -208,18 +255,34 @@ struct Index {
       const name = uri.substring(uri.lastIndexOf('/') + 1);
       this.progressText = '正在导入 ' + name;
       this.progressValue = Math.floor((i + 1) * 100 / Math.max(1, uris.length));
-      const tmp = cacheDir + '/' + name;
+      const lower = name.toLowerCase();
       try {
-        fs.copyFileSync(uri, tmp);
-        await this.unzipTo(tmp, this.baseDir);
-        try {
-          fs.unlinkSync(tmp);
-        } catch (e) {
-          // ignore
+        if (lower.endsWith('.xp3')) {
+          // A bare data.xp3 goes straight into the data folder.
+          fs.mkdirSync(this.dataDir, true);
+          fs.copyFileSync(uri, this.dataDir + '/data.xp3');
+        } else if (lower.endsWith('.zip')) {
+          const tmp = cacheDir + '/' + name;
+          fs.copyFileSync(uri, tmp);
+          await this.unzipTo(tmp, this.baseDir);
+          try {
+            fs.unlinkSync(tmp);
+          } catch (e) {
+            // ignore
+          }
+        } else if (lower.endsWith('.7z') || lower.endsWith('.001') || lower.endsWith('.002')) {
+          this.message = '暂不支持 7z 格式，请使用 zip 压缩包或 data.xp3';
+          await this.showNotice('暂不支持 7z 格式', '请选择 zip 压缩包或 data.xp3 文件');
+          continue;
+        } else {
+          this.message = '不支持的文件类型：' + name;
+          await this.showNotice('不支持的文件类型', '请选择 zip 压缩包或 data.xp3 文件');
+          continue;
         }
       } catch (e) {
-        this.bootState = 5;
+        this.bootState = 2;
         this.message = '导入失败：' + name + '（' + JSON.stringify(e) + '）';
+        await this.showNotice('导入失败', JSON.stringify(e));
         return;
       }
       await this.delay(50);
@@ -228,15 +291,16 @@ struct Index {
   }
 
   async finishData(): Promise<void> {
-    try {
-      await fs.access(this.dataDir + '/startup.tjs');
+    if (await this.dataReady()) {
       this.bootState = 1;
       this.progressText = '游戏数据已就绪';
       this.progressValue = 100;
-    } catch (e) {
-      this.bootState = 5;
-      this.message = '数据不完整：未找到 startup.tjs，请检查压缩包内容';
+      return;
     }
+    this.bootState = 2;
+    this.progressValue = 0;
+    this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+    await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
   }
 
   delay(ms: number): Promise<void> {
@@ -275,7 +339,7 @@ struct Index {
       } else if (this.bootState === 2) {
         Column({ space: 14 }) {
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
-          Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地 zip 压缩包导入').fontSize(13).fontColor(Color.Gray)
+          Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Gray)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（GitHub Release 页面）' })
             .width('86%')
             .onChange((value: string) => {

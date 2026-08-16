@@ -257,7 +257,7 @@ jobs:
             else
               python3 tools/package_data_release.py \
                 --root data --config content-packs.json \
-                --tag "$RELEASE_TAG" --out "$out_dir" --archiver 7z
+                --tag "$RELEASE_TAG" --out "$out_dir"
             fi
             echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
             ls -lh "$out_dir"

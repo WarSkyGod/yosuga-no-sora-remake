@@ -96,7 +96,8 @@ target_link_libraries(entry PUBLIC
 	${SDL2_TARGET}
 	libace_napi.z.so
 	libace_ndk.z.so
-	libnative_window.z.so
+	libnative_window.so
+	libnative_buffer.so
 	librawfile.z.so
 	libhilog_ndk.z.so
 	EGL

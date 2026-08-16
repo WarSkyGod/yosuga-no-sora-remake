@@ -21,15 +21,14 @@
 #define OHOS_FALLBACK_WIDTH 1920
 #define OHOS_FALLBACK_HEIGHT 1080
 
-static int OHOS_Available(void);
-static SDL_VideoDevice *OHOS_CreateDevice(int devindex);
+static SDL_VideoDevice *OHOS_CreateDevice(void);
 static void OHOS_DestroyDevice(SDL_VideoDevice *device);
 
 static int OHOS_VideoInit(_THIS);
 static void OHOS_VideoQuit(_THIS);
 static void OHOS_GetDisplayModes(_THIS, SDL_VideoDisplay *display);
 static int OHOS_SetDisplayMode(_THIS, SDL_VideoDisplay *display, SDL_DisplayMode *mode);
-static void OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect);
+static int OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect);
 static int OHOS_CreateSDLWindow(_THIS, SDL_Window *window);
 static void OHOS_SetWindowTitle(_THIS, SDL_Window *window);
 static void OHOS_SetWindowPosition(_THIS, SDL_Window *window);
@@ -39,14 +38,8 @@ static void OHOS_HideWindow(_THIS, SDL_Window *window);
 static void OHOS_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay *display, SDL_bool fullscreen);
 
 VideoBootStrap OHOS_bootstrap = {
-	"ohos", "OpenHarmony XComponent video driver", OHOS_Available, OHOS_CreateDevice
+	"ohos", "OpenHarmony XComponent video driver", OHOS_CreateDevice, NULL
 };
-
-static int OHOS_Available(void)
-{
-	/* The window may only become ready after the page loads; VideoInit waits. */
-	return 1;
-}
 
 static void OHOS_DestroyDevice(SDL_VideoDevice *device)
 {
@@ -57,12 +50,10 @@ static void OHOS_DestroyDevice(SDL_VideoDevice *device)
 	SDL_free(device);
 }
 
-static SDL_VideoDevice *OHOS_CreateDevice(int devindex)
+static SDL_VideoDevice *OHOS_CreateDevice(void)
 {
 	SDL_VideoDevice *device;
 	OHOS_VideoData *videodata;
-
-	(void)devindex;
 
 	device = (SDL_VideoDevice *)SDL_calloc(1, sizeof(SDL_VideoDevice));
 	if (device == NULL)
@@ -142,7 +133,7 @@ static int OHOS_VideoInit(_THIS)
 	mode.driverdata = NULL;
 	display.desktop_mode = mode;
 	display.current_mode = mode;
-	SDL_AddVideoDisplay(&display);
+	SDL_AddVideoDisplay(&display, SDL_FALSE);
 	return 0;
 }
 
@@ -185,7 +176,7 @@ static int OHOS_SetDisplayMode(_THIS, SDL_VideoDisplay *display, SDL_DisplayMode
 	return 0;
 }
 
-static void OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect)
+static int OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect)
 {
 	int w = 0;
 	int h = 0;
@@ -196,6 +187,7 @@ static void OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *re
 	rect->y = 0;
 	rect->w = w;
 	rect->h = h;
+	return 0;
 }
 
 static int OHOS_CreateSDLWindow(_THIS, SDL_Window *window)

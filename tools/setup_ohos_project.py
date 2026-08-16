@@ -68,10 +68,13 @@ if(OHOS)
     -DSDL_SENSOR_DISABLED=1
     -DSDL_POWER_DISABLED=1
   )
+  set(SDL_VIDEO_OPENGL_ES 1)
+  set(SDL_VIDEO_OPENGL_ES2 1)
+  set(SDL_VIDEO_RENDER_OGL_ES 1)
+  set(SDL_VIDEO_RENDER_OGL_ES2 1)
   set(HAVE_VIDEO_OPENGLES TRUE)
   set(HAVE_VIDEO_OPENGLES2 TRUE)
   set(HAVE_VIDEO_OPENGLES3 TRUE)
-  set(SDL_VIDEO_RENDER_OGL_ES 1)
 endif()
 """
 
@@ -134,19 +137,37 @@ def insert_after(lines, anchor, block, label, target):
 def patch_sdl():
     print("Patching vendored SDL2 ...")
 
+    # Register the driver declaration. Recent SDL2 keeps the bootstrap
+    # externs in SDL_sysvideo.h; older trees declare them in SDL_video.c.
+    extern_patched = False
+    for relative in ("src/video/SDL_sysvideo.h", "src/video/SDL_video.c"):
+        target = SDL_DEST / relative
+        text = target.read_text(encoding="utf-8", errors="replace")
+        if "OHOS_bootstrap" in text:
+            print("%s already patched; skipping." % relative)
+            extern_patched = True
+            break
+        if "extern VideoBootStrap Android_bootstrap;" in text:
+            lines = text.splitlines(keepends=True)
+            insert_after(
+                lines,
+                "extern VideoBootStrap Android_bootstrap;",
+                ["extern VideoBootStrap OHOS_bootstrap;\n"],
+                "bootstrap extern",
+                target,
+            )
+            target.write_text("".join(lines), encoding="utf-8")
+            extern_patched = True
+            break
+    if not extern_patched:
+        fail("could not find 'extern VideoBootStrap Android_bootstrap;' in "
+             "the vendored SDL video headers")
+
+    # Add the driver to the bootstrap table in SDL_video.c.
     video_c = SDL_DEST / "src" / "video" / "SDL_video.c"
     text = video_c.read_text(encoding="utf-8", errors="replace")
-    if "OHOS_bootstrap" in text:
-        print("SDL_video.c already patched; skipping.")
-    else:
+    if "&OHOS_bootstrap," not in text:
         lines = text.splitlines(keepends=True)
-        insert_after(
-            lines,
-            "extern VideoBootStrap Android_bootstrap;",
-            ["#if SDL_VIDEO_DRIVER_OHOS\n", "extern VideoBootStrap OHOS_bootstrap;\n", "#endif\n"],
-            "bootstrap extern",
-            video_c,
-        )
         insert_after(
             lines,
             "    &Android_bootstrap,",
@@ -155,6 +176,8 @@ def patch_sdl():
             video_c,
         )
         video_c.write_text("".join(lines), encoding="utf-8")
+    else:
+        print("SDL_video.c already patched; skipping.")
 
     cmake_file = SDL_DEST / "CMakeLists.txt"
     text = cmake_file.read_text(encoding="utf-8", errors="replace")
@@ -162,14 +185,21 @@ def patch_sdl():
         print("SDL CMakeLists.txt already patched; skipping.")
     else:
         lines = text.splitlines(keepends=True)
-        for index, line in enumerate(lines):
-            if line.startswith("sdl_add_library("):
-                block = SDL_CMAKE_OHOS_BLOCK.splitlines(keepends=True)
-                lines[index:index] = block
-                cmake_file.write_text("".join(lines), encoding="utf-8")
-                print("Patched CMakeLists.txt (OpenHarmony block)")
-                return
-        fail("could not find 'sdl_add_library(' in vendored SDL CMakeLists.txt")
+        inserted = False
+        for anchor in ("add_library(SDL2 SHARED", "sdl_add_library(", "add_library(SDL2 STATIC"):
+            for index, line in enumerate(lines):
+                if line.startswith(anchor):
+                    block = SDL_CMAKE_OHOS_BLOCK.splitlines(keepends=True)
+                    lines[index:index] = block
+                    cmake_file.write_text("".join(lines), encoding="utf-8")
+                    print("Patched CMakeLists.txt (OpenHarmony block before %r)" % anchor)
+                    inserted = True
+                    break
+            if inserted:
+                break
+        if not inserted:
+            fail("could not find an SDL library creation anchor in the vendored "
+                 "SDL CMakeLists.txt")
 
 
 def link_data():

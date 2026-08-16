@@ -15,7 +15,7 @@
 
 int OHOS_GL_LoadLibrary(_THIS, const char *path)
 {
-	return SDL_EGL_LoadLibrary(_this, path, (NativeDisplayType)EGL_DEFAULT_DISPLAY);
+	return SDL_EGL_LoadLibrary(_this, path, (NativeDisplayType)EGL_DEFAULT_DISPLAY, 0);
 }
 
 void *OHOS_GL_GetProcAddress(_THIS, const char *proc)
@@ -44,7 +44,7 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		return NULL;
 	}
 
-	data->egl_surface = SDL_EGL_CreateSurface(_this, (NativeWindowType)native_window);
+	data->egl_surface = (EGLSurface)SDL_EGL_CreateSurface(_this, (NativeWindowType)native_window);
 	if (data->egl_surface == EGL_NO_SURFACE)
 	{
 		return NULL;
@@ -54,12 +54,16 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 
 int OHOS_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext context)
 {
-	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
-	if (data == NULL)
+	if (window && context)
 	{
-		return SDL_SetError("Window has no driver data");
+		SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+		if (data == NULL)
+		{
+			return SDL_SetError("Window has no driver data");
+		}
+		return SDL_EGL_MakeCurrent(_this, data->egl_surface, context);
 	}
-	return SDL_EGL_MakeCurrent(_this, data->egl_surface, context);
+	return SDL_EGL_MakeCurrent(_this, NULL, NULL);
 }
 
 int OHOS_GL_SetSwapInterval(_THIS, int interval)

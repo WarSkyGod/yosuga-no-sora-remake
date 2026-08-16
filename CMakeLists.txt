@@ -607,9 +607,11 @@ endif()
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
 )
-# musl libc compatibility shims (e.g. pthread_setaffinity_np stub).
-list(APPEND KRKRSDL2_SRC
-	${KRKRSDL2_REPO_DIR}/ohos-project/entry/src/main/cpp/ohos_compat.c
+# musl libc has no pthread_setaffinity_np; the engine calls it as a
+# performance hint and ignores the result, so map it onto sched_setaffinity
+# (an invalid thread id simply yields ESRCH which the caller discards).
+list(APPEND KRKRSDL2_CXXFLAGS
+	-Dpthread_setaffinity_np=sched_setaffinity
 )
 elseif(WIN32)
 set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)

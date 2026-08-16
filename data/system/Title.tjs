@@ -138,6 +138,13 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		if(CONFIG.muteSystem || CONFIG.muteMaster)
 			keyframe(stAttentionEnd);
 
+		// ムービー再生中、背面を隠していた白幕をフェードアウトさせる。
+		// ここでフェードアウトしないとムービー終了後に白画面のままになる。
+		with(SPR_COVER){
+			.setBlendingEnvelope(0);
+			.beginActivation(500);
+		}
+
 		with(_spr.BASE){
 			.setTransitionCompleteCall(step03);
 			.opacity = 0;
@@ -292,7 +299,14 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 	function action(ev){
 		if(ev.type == "Movie.onStatusChanged" && ev.status == "stop"){
-			if(_movie !== null) _movie.visible = false;
+			// ネイティブ動画レイヤーは停止後も最後のフレームを残すことがあり、
+			// 白画面のまま残るため、即座に破棄して白残りを防ぐ。
+			var m = _movie;
+			_movie = null;
+			if(m !== void && m !== null && isvalid m){
+				try{ m.visible = false; }catch(eVis){}
+				try{ invalidate m; }catch(eInv){}
+			}
 			step02();
 		}
 	}

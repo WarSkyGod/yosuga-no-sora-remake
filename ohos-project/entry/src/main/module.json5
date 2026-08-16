@@ -11,6 +11,9 @@
     "installationFree": false,
     "requestPermissions": [
       {
+        "name": "ohos.permission.INTERNET"
+      },
+      {
         "name": "ohos.permission.READ_MEDIA",
         "reason": "$string:media_reason",
         "usedScene": {

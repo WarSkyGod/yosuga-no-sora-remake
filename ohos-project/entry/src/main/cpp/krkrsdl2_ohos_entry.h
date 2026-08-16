@@ -23,6 +23,11 @@ void OHOS_Entry_SetResourceManager(napi_env env, napi_value ability_context);
 /* Remember the application sandbox files directory (filesDir). */
 void OHOS_Entry_SetFilesDir(const char *files_dir);
 
+/* Set the external engine base directory (public Download app folder) and
+ * the external savedata directory. The engine prefers them over the sandbox
+ * so users can reach the game data and save files. Either may be NULL. */
+void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir);
+
 /* Attach the page XComponent. Registers surface and touch callbacks so the
  * SDL video driver can obtain its native window. */
 void OHOS_Entry_AttachXComponent(void *component);

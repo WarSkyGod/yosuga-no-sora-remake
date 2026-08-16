@@ -13,19 +13,25 @@
 
 #include "sdl_ohos_bridge.h"
 
-static char *SDL_OHOS_PathForFilesDir(const char *subdir)
+static char *SDL_OHOS_PathForBase(const char *subdir)
 {
-	const char *files_dir = SDL_OHOS_GetFilesDir();
+	/* The external base directory (public Download app folder) takes
+	 * precedence over the sandbox files directory. */
+	const char *base = SDL_OHOS_GetDataDir();
 	size_t base_length;
 	size_t sub_length;
 	size_t total;
 	char *path;
 
-	if (files_dir == NULL)
+	if (base == NULL || base[0] == '\0')
 	{
-		files_dir = "/";
+		base = SDL_OHOS_GetFilesDir();
 	}
-	base_length = SDL_strlen(files_dir);
+	if (base == NULL || base[0] == '\0')
+	{
+		base = "/";
+	}
+	base_length = SDL_strlen(base);
 	sub_length = subdir != NULL ? SDL_strlen(subdir) : 0;
 
 	/* base + '/' + subdir + '/' + NUL */
@@ -35,7 +41,7 @@ static char *SDL_OHOS_PathForFilesDir(const char *subdir)
 	{
 		return NULL;
 	}
-	SDL_snprintf(path, total, "%s/%s/", files_dir, subdir != NULL ? subdir : "");
+	SDL_snprintf(path, total, "%s/%s/", base, subdir != NULL ? subdir : "");
 	return path;
 }
 
@@ -61,15 +67,31 @@ static void SDL_OHOS_MakeDirectoryRecursive(char *path)
 
 char *SDL_GetBasePath(void)
 {
-	return SDL_OHOS_PathForFilesDir(NULL);
+	return SDL_OHOS_PathForBase(NULL);
 }
 
 char *SDL_GetPrefPath(const char *org, const char *app)
 {
-	const char *leaf = app != NULL ? app : "krkrsdl2";
-	char *path = SDL_OHOS_PathForFilesDir(leaf);
-
 	(void)org;
+	/* The external savedata directory wins when set, so save files stay
+	 * user-accessible in the public Download app folder. */
+	const char *save_dir = SDL_OHOS_GetSaveDir();
+	if (save_dir != NULL && save_dir[0] != '\0')
+	{
+		size_t length = SDL_strlen(save_dir);
+		char *path = (char *)SDL_malloc(length + 2);
+		if (path == NULL)
+		{
+			return NULL;
+		}
+		SDL_snprintf(path, length + 2, "%s/", save_dir);
+		SDL_OHOS_MakeDirectoryRecursive(path);
+		return path;
+	}
+
+	const char *leaf = app != NULL ? app : "krkrsdl2";
+	char *path = SDL_OHOS_PathForBase(leaf);
+
 	if (path != NULL)
 	{
 		SDL_OHOS_MakeDirectoryRecursive(path);

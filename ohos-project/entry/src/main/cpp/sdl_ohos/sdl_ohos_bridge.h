@@ -42,6 +42,20 @@ OHOS_EXPORT void SDL_OHOS_SetFilesDir(const char *files_dir);
 /* Return the sandbox files directory, or NULL when not set yet. */
 OHOS_EXPORT const char *SDL_OHOS_GetFilesDir(void);
 
+/* Store the external game-data directory (may live outside the sandbox,
+ * e.g. the public Download folder). SDL_GetBasePath prefers it. */
+OHOS_EXPORT void SDL_OHOS_SetDataDir(const char *data_dir);
+
+/* Return the external game-data directory, or NULL when not set. */
+OHOS_EXPORT const char *SDL_OHOS_GetDataDir(void);
+
+/* Store the external savedata directory. SDL_GetPrefPath prefers it so the
+ * save files stay user-accessible. */
+OHOS_EXPORT void SDL_OHOS_SetSaveDir(const char *save_dir);
+
+/* Return the external savedata directory, or NULL when not set. */
+OHOS_EXPORT const char *SDL_OHOS_GetSaveDir(void);
+
 /* Block until the XComponent surface provides a native window. Returns 1 when
  * the window is ready, 0 on timeout. */
 OHOS_EXPORT int SDL_OHOS_WaitForNativeWindow(int timeout_ms);

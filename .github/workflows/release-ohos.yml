@@ -340,15 +340,10 @@ jobs:
             sed -i "s#config.signtool=.*#config.signtool=$sign_dir/hap-sign-tool.jar#" *.config
             now="$(date +%s)"
             future="$(date -d '+10 years' +%s)"
-            python3 - "$now" "$future" <<'PY'
-            import json, sys
-            path = 'UnsgnedReleasedProfileTemplate.json'
-            profile = json.load(open(path, encoding='utf-8'))
-            profile['bundle-info']['bundle-name'] = 'com.lightwinder.yosuganosora.hdremake'
-            profile['bundle-info']['app-feature'] = 'hos_normal_app'
-            profile['validity'] = {'not-before': int(sys.argv[1]), 'not-after': int(sys.argv[2])}
-            json.dump(profile, open(path, 'w', encoding='utf-8'))
-            PY
+            jq --arg now "$now" --arg future "$future" \
+              '.validity = {"not-before": ($now | tonumber), "not-after": ($future | tonumber)} | .["bundle-info"]["bundle-name"] = "com.lightwinder.yosuganosora.hdremake" | .["bundle-info"]["app-feature"] = "hos_normal_app"' \
+              UnsgnedReleasedProfileTemplate.json > profile.tmp.json
+            mv profile.tmp.json UnsgnedReleasedProfileTemplate.json
             python3 autosign.py createRootAndSubCert
             python3 autosign.py createAppCertAndProfile
             cp "$HAP" "$sign_dir/app1-unsigned.hap"

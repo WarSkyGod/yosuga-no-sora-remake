@@ -586,6 +586,24 @@ list(APPEND KRKRSDL2_LIBS
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
 )
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS")
+# SDL2 for OpenHarmony is built by the ohos-project entry module (see
+# ohos-project/entry/src/main/cpp/CMakeLists.txt) and must already be
+# available as the SDL2 or SDL2-static target when this file is included.
+if(TARGET SDL2)
+list(APPEND KRKRSDL2_LIBS
+	SDL2
+)
+elseif(TARGET SDL2-static)
+list(APPEND KRKRSDL2_LIBS
+	SDL2-static
+)
+else()
+message(FATAL_ERROR "SDL2 for OpenHarmony was not built before krkrsdl2; see ohos-project/entry/src/main/cpp/CMakeLists.txt")
+endif()
+list(APPEND KRKRSDL2_DEFINITIONS
+	USE_SDL_MAIN
+)
 elseif(WIN32)
 set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
 set(SDL_SHARED OFF)
@@ -699,6 +717,10 @@ set(KRKRSDL2_NAME krkrsdl2)
 if(ANDROID)
 add_library(${KRKRSDL2_NAME} SHARED)
 set_target_properties(${KRKRSDL2_NAME} PROPERTIES OUTPUT_NAME "main")
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS")
+# On OpenHarmony the engine ships as a native library that the NAPI entry
+# module (ohos-project/entry) links and starts from its own thread.
+add_library(${KRKRSDL2_NAME} SHARED)
 else()
 add_executable(${KRKRSDL2_NAME})
 if(WIN32)

@@ -18,6 +18,9 @@ alternative.
 - `android-project/` is the Android Gradle project and reads content directly
   from the root `data/` directory while building.
 - `ios-project/` generates the iOS Xcode project from the root CMake build.
+- `ohos-project/` is the DevEco Studio/Hvigor project for OpenHarmony 5.0
+  (API 12), including the OpenHarmony SDL2 video backend and the NAPI entry
+  module; see `ohos-project/README.md`.
 - `platform/windows-krkrz/` contains the native Kirikiri Z Windows runtime,
   plugins, and startup configuration.
 - `tools/` contains content-manifest utilities and future release tooling.
@@ -45,7 +48,7 @@ git lfs pull
 The SDL2 desktop targets and Android project both read game content from
 `data/`. The Windows KRKRZ runtime is stored separately under `platform/`.
 Automated release packaging covers Windows KRKRZ, Android ARM64, Apple Silicon
-macOS, and iOS ARM64.
+macOS, iOS ARM64, and OpenHarmony 5.0 ARM64.
 
 ## Development Launchers
 
@@ -137,6 +140,22 @@ The default iOS bundle identifier is
 `com.lightwinder.yosuganosora.hdremake`. Set the repository variable
 `IOS_BUNDLE_IDENTIFIER` before building if the provisioning profile uses a
 different identifier. See `ios-project/README.md` for local Xcode generation.
+
+## OpenHarmony Releases
+
+The OpenHarmony workflow responds to the same `v*` tags and can also be run
+manually. It builds an ARM64 HAP for OpenHarmony 5.0 (API 12) on a Linux
+runner: the workflow downloads the official OpenHarmony 5.0.0 SDK and command
+line tools, patches and builds the vendored SDL2 with the OpenHarmony video
+backend (XComponent + EGL), assembles the HAP with Hvigor, and publishes it
+as multipart 7-Zip volumes below GitHub's 2 GiB per-asset limit.
+
+The game content is packaged as rawfile and extracted into the application
+sandbox on first launch. The workflow publishes an unsigned HAP by default;
+configure the six `OHOS_*` signing secrets documented in
+`ohos-project/README.md` to publish a signed package. Known limitations
+(no SDL audio backend yet, so the game runs without sound) are listed there
+as well.
 
 The Kirikiri SDL2 source code is licensed under the MIT License; see `LICENSE`.
 Third-party components remain subject to the licenses in their respective

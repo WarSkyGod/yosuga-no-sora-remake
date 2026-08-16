@@ -23,6 +23,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 	var _te;
 	var _finalizeDone = false;
+	var _fStep02 = false;
 
 	var SPR_LIST = [
 		%[id:"ATTENTION_MARK", file:"ui_1920/FRM_0502.png", center:[179,  34], pos:[960, 235]], 
@@ -88,6 +89,10 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 		OnceCall(step01, 1500);
 
+		// ムービー停止通知やトランジション完了通知が届かない場合の
+		// セーフティネット(正常時は何もしない)。
+		OnceCall(flowWatchdog1, 9000, "logo-watchdog1");
+
 		window.addInputNotify(this);
 	}
 	function finalize(){
@@ -142,6 +147,8 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	}
 	//ロゴ→警告文フェード
 	function step02(){
+		if(_fStep02) return;
+		_fStep02 = true;
 		_state = stAttentionPlay;
 		if(CONFIG.muteSystem || CONFIG.muteMaster)
 			keyframe(stAttentionEnd);
@@ -197,6 +204,8 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		OnceCallCancel(step03);
 		OnceCallCancel(step04);
 		OnceCallCancel(step05);
+		OnceCallCancel("logo-watchdog1");
+		OnceCallCancel("logo-watchdog2");
 		with(_spr.BASE){
 			.setTransitionCompleteCall();
 			.flushActivation();
@@ -255,11 +264,6 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	function onAnyInput(){
 		if(!valid) return;
 
-		// iOS のコンテナ環境では起動直後に合成された入力イベントが届き、
-		// ムービーと注意画面をすっ飛ばしてタイトルへ飛んでしまう。
-		// ロゴ/ムービー再生中は入力を無視してフローを最後まで通す。
-		if(IsIOSPlatform() && _state == stLogo) return;
-
 		cancel();
 
 		_te.stop();
@@ -307,6 +311,24 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 					invalidate failedMovie;
 				OnceCall(step02, 1);
 			}
+		}
+	}
+
+	// ムービー停止通知が届かない場合の強制進行(通常は何もしない)
+	function flowWatchdog1(){
+		if(!valid || _fGoTitle) return;
+		if(_state == stLogo){
+			if(_movie !== null){
+				try{ _movie.stop(); }catch(eStop){}
+			}
+			step02();
+		}
+		OnceCall(flowWatchdog2, 12000, "logo-watchdog2");
+	}
+	function flowWatchdog2(){
+		if(!valid || _fGoTitle) return;
+		if(_state == stAttentionPlay || _state == stAttentionEnd){
+			step05();
 		}
 	}
 

@@ -1,5 +1,5 @@
 import entryNapi from 'libentry.so';
-import { common } from '@kit.AbilityKit';
+import { common, abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
@@ -47,33 +47,67 @@ struct Index {
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
+  }
+
+  onPageShow(): void {
+    // Re-check on every page show: once the data exists the game starts
+    // automatically and this screen does not appear again.
     this.prepare();
   }
 
   async prepare(): Promise<void> {
+    if (this.bootState === 6) {
+      return; // already running
+    }
     this.bootState = 0;
     this.progressText = '正在检查游戏数据…';
-    // Prefer the public Download app folder; fall back to the sandbox.
-    this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    let publicOk = false;
+
+    // Ask for public Download access in-page so the folder checks below run
+    // after the user has granted (or denied) the permission.
+    const atManager = abilityAccessCtrl.createAtManager();
+    const permissions: Array<Permissions> = [
+      'ohos.permission.READ_MEDIA',
+      'ohos.permission.WRITE_MEDIA'
+    ];
     try {
-      await fs.access(this.appDir);
-      publicOk = true;
-    } catch (e) {
-      try {
-        fs.mkdirSync(this.appDir, true);
-        publicOk = true;
-      } catch (e2) {
-        publicOk = false;
+      const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(
+        getContext(this) as common.UIAbilityContext, permissions);
+      const granted = result.authResults.every((code: number) => code === 0);
+      if (!granted) {
+        this.bootState = 5;
+        this.message = '未授予存储权限，无法在下载目录创建游戏文件夹';
+        return;
       }
+    } catch (e) {
+      this.bootState = 5;
+      this.message = '权限申请失败：' + JSON.stringify(e);
+      return;
     }
-    this.baseDir = publicOk ? this.appDir : this.sandboxFiles;
-    this.saveDir = publicOk ? this.appDir + '/savedata' : this.sandboxFiles + '/savedata';
-    this.dataDir = this.baseDir + '/data';
+
+    // The game data and savedata live ONLY in the public Download folder so
+    // stale sandbox data from an older build can never masquerade as ready.
+    this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+    try {
+      fs.mkdirSync(this.appDir, true);
+    } catch (e) {
+      // already exists
+    }
+    this.baseDir = this.appDir;
+    this.saveDir = this.appDir + '/savedata';
+    this.dataDir = this.appDir + '/data';
+    try {
+      fs.mkdirSync(this.saveDir, true);
+    } catch (e) {
+      // already exists
+    }
+    try {
+      fs.mkdirSync(this.dataDir, true);
+    } catch (e) {
+      // already exists
+    }
 
     if (await this.dataReady()) {
-      this.bootState = 1;
-      this.progressText = '游戏数据已就绪';
+      this.startGame();
       return;
     }
     await this.loadManifest();
@@ -294,9 +328,9 @@ struct Index {
 
   async finishData(): Promise<void> {
     if (await this.dataReady()) {
-      this.bootState = 1;
-      this.progressText = '游戏数据已就绪';
-      this.progressValue = 100;
+      // Data verified: jump straight into the game. Next launch skips this
+      // screen because onPageShow finds the data ready.
+      this.startGame();
       return;
     }
     this.bootState = 2;
@@ -310,6 +344,9 @@ struct Index {
   }
 
   startGame(): void {
+    if (this.bootState === 6) {
+      return; // already running
+    }
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
     this.bootState = 6;
   }
@@ -318,14 +355,6 @@ struct Index {
     Column() {
       if (this.bootState === 0) {
         Text(this.progressText).fontSize(16).fontColor(Color.Gray)
-      } else if (this.bootState === 1) {
-        Column({ space: 16 }) {
-          Text('缘之空：高清重制').fontSize(30).fontWeight(FontWeight.Bold).fontColor(Color.White)
-          Text('游戏数据已就绪，点击开始').fontSize(14).fontColor(Color.Gray)
-          Button('开始游戏').width(220).height(60).fontSize(18).onClick(() => {
-            this.startGame();
-          })
-        }
       } else if (this.bootState === 6) {
         XComponent({
           id: 'gameview',
@@ -353,6 +382,9 @@ struct Index {
           Button('从本地压缩包导入').width(220).height(52).backgroundColor('#3A5BA0').onClick(() => {
             this.importLocal();
           })
+          Button('重新检查').width(220).height(44).backgroundColor('#555555').onClick(() => {
+            this.prepare();
+          })
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(4)
         }
         .width('100%')
@@ -364,9 +396,9 @@ struct Index {
         }
       } else {
         Column({ space: 14 }) {
-          Text('出错了').fontSize(18).fontColor(Color.White)
+          Text('需要授权').fontSize(18).fontColor(Color.White)
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(6)
-          Button('返回').width(160).height(44).onClick(() => {
+          Button('重新授权并检查').width(200).height(48).onClick(() => {
             this.prepare();
           })
         }

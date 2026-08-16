@@ -2,12 +2,9 @@
 	ロゴ・タイトル
 */
 
-// iOS (iPhone/iPad) 判定。krkrsdl2 では Win/Android/macOS 以外の
-// プラットフォーム名が返るため、それ以外は iOS とみなす。
+// SDL_GetPlatform() returns the literal "iOS" on iPhone and iPad.
 function IsIOSPlatform(){
-	var p = System.platformName;
-	return p != "Win32" && p != "Win64" && p != "Android" &&
-		p != "Mac OS X" && p != "macOS";
+	return System.platformName == "iOS";
 }
 
 class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
@@ -24,6 +21,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	var _te;
 	var _finalizeDone = false;
 	var _fStep02 = false;
+	var _inputGuardStartedAt = 0;
 
 	var SPR_LIST = [
 		%[id:"ATTENTION_MARK", file:"ui_1920/FRM_0502.png", center:[179,  34], pos:[960, 235]], 
@@ -75,6 +73,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 		_movie = new MovieLayer(win, this, true);
 		_movie.hitThreshold = 256;
 		_state = stLogo;
+		_inputGuardStartedAt = System.getTickCount();
 		// [BUGFIX: Kirikiroid2 1.3.9]
 		// 起動直後はウィンドウがまだ全画面化されていないことがあるため、
 		// 全画面化の完了を待ってからムービーを開く(最大 20×100ms 待機)。
@@ -264,6 +263,14 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	function onAnyInput(){
 		if(!valid) return;
 
+		// Some iOS containers emit a synthetic tap as the view is attached.
+		// Ignore only that short startup window; real taps must still be able to
+		// skip the intro after the application has settled.
+		if(IsIOSPlatform()) {
+			var inputGuardElapsed = System.getTickCount() - _inputGuardStartedAt;
+			if(inputGuardElapsed >= 0 && inputGuardElapsed < 1000) return;
+		}
+
 		cancel();
 
 		_te.stop();
@@ -397,7 +404,8 @@ class MovieScene extends Layer, SceneBase{
 		if(key == VK_ESCAPE) returnToTitle();
 	}
 	function onMouseDown(x, y, button, shift){
-		if(button == mbRight) returnToTitle();
+		if(button == mbRight || (IsIOSPlatform() && button == mbLeft))
+			returnToTitle();
 	}
 }
 
@@ -431,6 +439,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	var _sprASaveInfo;
 
 	var _enterBonus = false;
+	var _btnBonusBack;
 
 	var BTN_LIST = [
 		
@@ -548,6 +557,17 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		layout.add(btnVoice);
 		setLayout(layout, 55, interval);
 
+		// iOS has no synthesized right mouse button. Provide the same explicit
+		// return control used by the appreciation screens so the bonus menu is
+		// never a one-way navigation path on touch-only devices.
+		if(IsIOSPlatform()){
+			_btnBonusBack = new Button(win, this);
+			_btnBonusBack.create("ui_1920/appreciation/backtotitle.png", 2);
+			_btnBonusBack.setPos(56, 1005);
+			_btnBonusBack.hitThreshold = 0;
+			_btnBonusBack.visible = false;
+		}
+
 		@if(__TRIAL__ == 0)
 			if(!ChkGlobalFlag(1))	btnBonus.visible = false;
 		@endif
@@ -639,6 +659,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 		invalidate _btnBase;
 		invalidate _grpBtn;
 		invalidate _grpBtnBonus;
+		invalidate _btnBonusBack;
 		InvalidateArray(_ptGrp);
 
 		InvalidateArray(_separate);
@@ -654,6 +675,7 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	}
 
 	function close(){
+		if(_btnBonusBack !== void) _btnBonusBack.visible = false;
 		visible = false;
 		valid = false;
 		// P1-2: detach input immediately. finalize may call remove again; safe twice.
@@ -697,6 +719,10 @@ class Title extends Sprite, SelectItemNotifyBase, SceneBase, ChainItemBase{
 	}
 
 	function onButtonDownL(target){
+		if(_btnBonusBack !== void && target == _btnBonusBack){
+			leaveBonus();
+			return;
+		}
 		switch(target){
 		case btnStart :
 			hitThresholdSelectItems(256);
@@ -880,6 +906,10 @@ case btnContinue :
 		addChainItem(btnMusic);
 		addChainItem(btnMemories);
 		addChainItem(btnVoice);
+		if(_btnBonusBack !== void){
+			_btnBonusBack.visible = true;
+			addChainItem(_btnBonusBack);
+		}
 
 		_grpBtn.flushActivation();
 		_grpBtnBonus.flushActivation();
@@ -894,6 +924,7 @@ case btnContinue :
 	}
 	function leaveBonus(){
 		_enterBonus = false;
+		if(_btnBonusBack !== void) _btnBonusBack.visible = false;
 
 		btnStart.hitThreshold = 0;
 		btnContinue.hitThreshold = 0;

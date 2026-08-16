@@ -1,4 +1,4 @@
-name: Release OpenHarmony 5 (HAP)
+name: Release OpenHarmony / HarmonyOS HAP
 
 'on':
   push:
@@ -15,6 +15,16 @@ name: Release OpenHarmony 5 (HAP)
         required: true
         default: true
         type: boolean
+      sign_mode:
+        description: 'HAP signing: none = unsigned (sign locally with AGC materials), community = OpenHarmony debug certificate, agc = your AppGallery Connect materials via the six OHOS_* secrets'
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - community
+          - agc
+
 
 permissions:
   contents: write
@@ -85,6 +95,8 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_SIGN_MODE: ${{ inputs.sign_mode }}
+          OHOS_DEFAULT_SIGN_MODE: ${{ vars.OHOS_DEFAULT_SIGN_MODE }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == 'push' ]]; then
@@ -106,11 +118,25 @@ jobs:
 
           version_name="${release_tag#v}"
           version_code="$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))"
+
+          # Signing mode: the workflow input wins; tag pushes fall back to
+          # the OHOS_DEFAULT_SIGN_MODE repository variable and finally to
+          # 'none' (unsigned, signable later with AGC materials).
+          sign_mode="${INPUT_SIGN_MODE}"
+          if [[ -z "$sign_mode" ]]; then
+            sign_mode="${OHOS_DEFAULT_SIGN_MODE:-none}"
+          fi
+          case "$sign_mode" in
+            none|community|agc) ;;
+            *) echo "Invalid sign mode: $sign_mode" >&2; exit 1 ;;
+          esac
+
           {
             echo "tag=$release_tag"
             echo "prerelease=$is_prerelease"
             echo "version-name=$version_name"
             echo "version-code=$version_code"
+            echo "sign-mode=$sign_mode"
           } >> "$GITHUB_OUTPUT"
 
       - name: Verify Git LFS content
@@ -273,9 +299,11 @@ jobs:
 
       - name: Sign the HAP
         id: signing
+        if: steps.release.outputs.sign-mode != 'none'
         shell: bash
         env:
           HAP: ${{ steps.build.outputs.hap }}
+          SIGN_MODE: ${{ steps.release.outputs.sign-mode }}
           KEYSTORE_BASE64: ${{ secrets.OHOS_KEYSTORE_P12_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.OHOS_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OHOS_KEY_ALIAS }}
@@ -311,8 +339,13 @@ jobs:
             exit 1
           fi
 
-          if [[ "$configured" -eq 6 ]]; then
-            # User-provided materials (OpenHarmony or HarmonyOS/AGC).
+          if [[ "$SIGN_MODE" == 'agc' ]]; then
+            # Your own AppGallery Connect materials. This is the only mode
+            # that produces a HAP accepted by HarmonyOS 5+ (NEXT) devices.
+            if [[ "$configured" -ne 6 ]]; then
+              echo "sign_mode=agc requires all six OHOS_* secrets." >&2
+              exit 1
+            fi
             keystore="$RUNNER_TEMP/ohos-keystore.p12"
             cert="$RUNNER_TEMP/ohos-app-cert.cer"
             profile="$RUNNER_TEMP/ohos-profile.p7b"
@@ -332,12 +365,12 @@ jobs:
               -keystoreFile "$keystore" \
               -keyPwd "$KEY_PASSWORD" \
               -keystorePwd "$KEYSTORE_PASSWORD"
-            echo 'signed=user' >> "$GITHUB_OUTPUT"
-          elif [[ "$configured" -eq 0 ]]; then
-            # Fall back to the community OpenHarmony debug certificate so the
-            # HAP installs on developer-mode OpenHarmony devices out of the
-            # box. (HarmonyOS NEXT devices need AGC materials via secrets.)
-            echo 'No signing secrets provided; signing with the community OpenHarmony debug certificate.'
+            echo 'signed=agc' >> "$GITHUB_OUTPUT"
+          elif [[ "$SIGN_MODE" == 'community' ]]; then
+            # Community OpenHarmony debug certificate so the HAP installs on
+            # developer-mode OpenHarmony devices out of the box. (HarmonyOS
+            # NEXT devices need AGC materials: use sign_mode=agc.)
+            echo 'Signing with the community OpenHarmony debug certificate.'
             sign_dir="$RUNNER_TEMP/ohos-autosign"
             mkdir -p "$sign_dir"
             cp "$sign_tool" "$sign_dir/hap-sign-tool.jar"
@@ -388,12 +421,11 @@ jobs:
             fi
             echo 'signed=community' >> "$GITHUB_OUTPUT"
           else
-            echo 'Configure all six OHOS signing secrets or none of them.' >&2
+            echo "Unexpected sign mode: $SIGN_MODE" >&2
             exit 1
           fi
 
           echo "hap=$signed" >> "$GITHUB_OUTPUT"
-          echo 'signed=true' >> "$GITHUB_OUTPUT"
           ls -lh "$signed"
 
       - name: Verify and package the HAP
@@ -426,7 +458,11 @@ jobs:
             fi
           done
 
-          package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-$RELEASE_TAG.hap"
+          if [[ -n "$SIGNED" ]]; then
+            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-$RELEASE_TAG.hap"
+          else
+            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-unsigned-$RELEASE_TAG.hap"
+          fi
           asset_dir="$RUNNER_TEMP/release-assets"
           package_dir="$RUNNER_TEMP/ohos-package"
           mkdir -p "$asset_dir" "$package_dir"
@@ -464,7 +500,7 @@ jobs:
           Runtime: Kirikiri SDL2 for OpenHarmony 5.0 (API 12, ARM64)
           Release: $RELEASE_TAG
           Commit: $GITHUB_SHA
-          Signing: ${SIGNED:-false}
+          Signing: ${SIGNED:-unsigned}
           Native optimization: Release
           Known limitations: no SDL audio backend yet (silent), game data is
           extracted from rawfile into the app sandbox on first launch.

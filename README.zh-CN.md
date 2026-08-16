@@ -119,8 +119,15 @@ OpenHarmony 5.0（API 12）构建 ARM64 HAP：下载官方 OpenHarmony 5.0.0 SDK
 工具，把自带 OpenHarmony 视频后端（XComponent + EGL）的 SDL2 打补丁后编译，用
 Hvigor 组装 HAP，并按 GitHub 单个附件小于 2 GiB 的限制发布成 7-Zip 分卷。
 
-游戏内容以 rawfile 打包，首次启动时解压到应用沙箱目录。工作流默认发布未签名的
-HAP；如需在 CI 中签名，请按 `ohos-project/README.md` 配置六个 `OHOS_*` Secrets。
-已知限制（暂无 SDL 音频后端，游戏暂以静音运行）也记录在该文档中。
+游戏内容以 rawfile 打包，首次启动时解压到应用沙箱目录。工作流默认发布**未签名**
+HAP（sign_mode `none`），安装前必须先用你自己的材料签名：
+
+- **OpenHarmony 设备**：以 sign_mode `community` 重新触发工作流，使用 OpenHarmony
+  社区调试证书签名。
+- **HarmonyOS 5.0 及以上（NEXT）**：只接受 AppGallery Connect（AGC）颁发的证书与
+  Profile。以 sign_mode `agc` 配合六个 `OHOS_*` Secrets 重新触发工作流，或用
+  `tools/sign_hap_agc.ps1` 在本地签名下载到的 HAP。完整说明（包括在 AGC 注册
+  bundleName 一致的应用）见 `ohos-project/README.md`。已知限制（暂无 SDL 音频后端，
+  游戏暂以静音运行）也记录在该文档中。
 
 Kirikiri SDL2 源码使用 MIT 许可证，详见 `LICENSE`。第三方组件适用各自目录中的许可证。

@@ -20,12 +20,12 @@ project(krkrsdl2)
 # Disable install for subprojects
 if(NOT DEFINED _DISABLE_INSTALLATION)
 set(_DISABLE_INSTALLATION FALSE)
+endif()
 macro(install)
 if (NOT _DISABLE_INSTALLATION)
 _install(${ARGN})
 endif()
 endmacro()
-endif()
 
 if (${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.13")
 cmake_policy(SET CMP0077 NEW)

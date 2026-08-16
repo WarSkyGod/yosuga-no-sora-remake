@@ -613,6 +613,11 @@ list(APPEND KRKRSDL2_DEFINITIONS
 list(APPEND KRKRSDL2_CXXFLAGS
 	-Dpthread_setaffinity_np=sched_setaffinity
 )
+# The OpenHarmony musl declares pthread_setcanceltype but does not export
+# it; the shim below provides the missing implementation.
+list(APPEND KRKRSDL2_SRC
+	${KRKRSDL2_REPO_DIR}/ohos-project/entry/src/main/cpp/ohos_compat.c
+)
 elseif(WIN32)
 set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
 set(SDL_SHARED OFF)

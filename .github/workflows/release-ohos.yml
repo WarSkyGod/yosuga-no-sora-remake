@@ -24,6 +24,14 @@ name: Release OpenHarmony / HarmonyOS HAP
           - none
           - community
           - agc
+      data_mode:
+        description: 'Game data in the HAP: full = complete data/ (multi-GB), mini = tiny sample data (a few MB, for install tests)'
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - mini
 
 
 permissions:
@@ -233,11 +241,23 @@ jobs:
 
       - name: Prepare the OpenHarmony project
         shell: bash
+        env:
+          DATA_MODE: ${{ inputs.data_mode }}
         run: |
           set -euo pipefail
           # Vendors and patches SDL2 for OpenHarmony and links data/ into the
           # rawfile packaging directory.
           python3 tools/setup_ohos_project.py
+
+          if [[ "$DATA_MODE" == 'mini' ]]; then
+            # Tiny data sample (a few MB) so the HAP stays far below the
+            # 2 GiB zip offset limit and can be used for install tests.
+            rm -f ohos-project/entry/src/main/resources/rawfile/data
+            mkdir -p ohos-project/entry/src/main/resources/rawfile/data
+            cp data/startup.tjs ohos-project/entry/src/main/resources/rawfile/data/
+            find data -maxdepth 1 -type f -size -5M -exec cp {} ohos-project/entry/src/main/resources/rawfile/data/ \;
+            du -sh ohos-project/entry/src/main/resources/rawfile/data
+          fi
 
       - name: Build the release HAP
         id: build
@@ -435,6 +455,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           SIGNED: ${{ steps.signing.outputs.signed }}
           HAP: ${{ steps.signing.outputs.hap || steps.build.outputs.hap }}
+          DATA_MODE: ${{ inputs.data_mode }}
         run: |
           set -euo pipefail
           hap="$HAP"
@@ -458,10 +479,15 @@ jobs:
             fi
           done
 
-          if [[ -n "$SIGNED" ]]; then
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-$RELEASE_TAG.hap"
+          if [[ "$DATA_MODE" == 'mini' ]]; then
+            data_suffix="-mini"
           else
-            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64-unsigned-$RELEASE_TAG.hap"
+            data_suffix=""
+          fi
+          if [[ -n "$SIGNED" ]]; then
+            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-$RELEASE_TAG.hap"
+          else
+            package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-unsigned-$RELEASE_TAG.hap"
           fi
           asset_dir="$RUNNER_TEMP/release-assets"
           package_dir="$RUNNER_TEMP/ohos-package"
@@ -501,6 +527,7 @@ jobs:
           Release: $RELEASE_TAG
           Commit: $GITHUB_SHA
           Signing: ${SIGNED:-unsigned}
+          Data: ${DATA_MODE:-full}
           Native optimization: Release
           Known limitations: no SDL audio backend yet (silent), game data is
           extracted from rawfile into the app sandbox on first launch.

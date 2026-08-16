@@ -80,7 +80,9 @@ void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
 	pthread_mutex_lock(&g_lock);
 	g_surface_width = width;
 	g_surface_height = height;
-	OH_NativeXComponent_GetNativeWindow(component, &g_native_window);
+	// OpenHarmony 5.0: the OnSurfaceChanged window parameter is the
+	// OHNativeWindow itself (OH_NativeXComponent_GetNativeWindow removed).
+	g_native_window = static_cast<OHNativeWindow *>(window);
 	g_window_ready = g_native_window != nullptr;
 	pthread_cond_broadcast(&g_cond);
 	pthread_mutex_unlock(&g_lock);

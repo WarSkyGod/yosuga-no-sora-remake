@@ -2,6 +2,14 @@
 	ロゴ・タイトル
 */
 
+// iOS (iPhone/iPad) 判定。krkrsdl2 では Win/Android/macOS 以外の
+// プラットフォーム名が返るため、それ以外は iOS とみなす。
+function IsIOSPlatform(){
+	var p = System.platformName;
+	return p != "Win32" && p != "Win64" && p != "Android" &&
+		p != "Mac OS X" && p != "macOS";
+}
+
 class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 	var _state = 0;
 	var _fCancel = false;
@@ -246,6 +254,11 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 
 	function onAnyInput(){
 		if(!valid) return;
+
+		// iOS のコンテナ環境では起動直後に合成された入力イベントが届き、
+		// ムービーと注意画面をすっ飛ばしてタイトルへ飛んでしまう。
+		// ロゴ/ムービー再生中は入力を無視してフローを最後まで通す。
+		if(IsIOSPlatform() && _state == stLogo) return;
 
 		cancel();
 

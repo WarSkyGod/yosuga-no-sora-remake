@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Yosuga no Sora: HD Remake entry module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Yosuga no Sora: HD Remake"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Yosuga no Sora: HD Remake"
+    }
+  ]
+}

@@ -160,56 +160,65 @@ jobs:
           echo "Downloading SDK: $sdk_url"
           curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/ohos-sdk-public.tar.gz" "$sdk_url"
 
-          # The archive ships the Windows and Linux SDKs together. Extract
-          # only the Linux payload so the runner keeps enough disk for the
-          # 3+ GiB game package.
-          linux_root=""
-          while IFS= read -r entry; do
-            candidate="${entry%/native}"
-            candidate="${candidate%/native/}"
-            if [[ "$candidate" == *linux* ]]; then
-              linux_root="$candidate"
-              break
-            fi
-          done < <(tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null | \
-            grep -E '/native/?$' | head -n 40)
-
+          # The archive ships the Windows and Linux SDKs together, and each
+          # platform payload is itself a set of nested zips (native/ets/js/
+          # toolchains). Extract only the Linux payload and unpack its zips
+          # so the runner keeps enough disk for the 3+ GiB game package.
           unpack_dir="$RUNNER_TEMP/ohos-sdk-unpack"
           rm -rf "$unpack_dir"; mkdir -p "$unpack_dir"
-          if [[ -n "$linux_root" ]]; then
-            echo "Extracting Linux SDK payload: $linux_root"
-            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir" "$linux_root"
-            for entry in "$unpack_dir"/"$linux_root"/*; do
+
+          linux_dir=""
+          while IFS= read -r entry; do
+            clean="${entry#./}"
+            first="${clean%%/*}"
+            if [[ "$first" == *linux* ]]; then linux_dir="$first"; break; fi
+          done < <(tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null | head -n 200)
+          if [[ -z "$linux_dir" ]]; then
+            linux_dir=$(tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null \
+              | grep -m1 -oE '[^/]*linux[^/]*/' | head -1 | tr -d '/')
+          fi
+
+          if [[ -n "$linux_dir" ]]; then
+            echo "Extracting Linux SDK payload: $linux_dir"
+            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir" "$linux_dir"
+            for entry in "$unpack_dir"/"$linux_dir"/*; do
               name="$(basename "$entry")"
-              if [[ ! -e "$sdk_root/$name" ]]; then
-                mv "$entry" "$sdk_root/$name"
+              if [[ "$entry" == *.zip ]]; then
+                echo "Unpacking $name"
+                unzip -q -o "$entry" -d "$sdk_root/"
+              elif [[ ! -e "$sdk_root/$name" ]]; then
+                cp -n "$entry" "$sdk_root/$name"
               fi
             done
           else
             echo 'No Linux payload detected in the SDK archive; extracting everything.'
             tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir/"
-            payload_dir=""
-            while IFS= read -r dir; do
-              if [[ -d "$dir/native" && -d "$dir/ets" ]]; then payload_dir="$dir"; break; fi
-            done < <(find "$unpack_dir" -maxdepth 5 -type d -name native -printf '%h\n' 2>/dev/null | sort -u)
-            if [[ -z "$payload_dir" ]]; then
-              echo 'Could not locate the SDK payload directory (expected a directory containing native/, ets/).' >&2
-              exit 1
-            fi
-            for entry in "$payload_dir"/*; do
-              name="$(basename "$entry")"
-              if [[ ! -e "$sdk_root/$name" ]]; then
-                mv "$entry" "$sdk_root/$name"
-              fi
-            done
+            find "$unpack_dir" -name '*.zip' -exec unzip -q -o {} -d "$sdk_root/" \;
+            find "$unpack_dir" -name 'oh-uni-package.json' -exec cp -n {} "$sdk_root/" \; || true
           fi
 
           # The uni-package metadata may live above the Linux payload.
-          if tar -tzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" 2>/dev/null | grep -qE '(^|/)oh-uni-package\.json$'; then
-            tar -xzf "$RUNNER_TEMP/ohos-sdk-public.tar.gz" -C "$unpack_dir" \
-              --wildcards --no-anchored 'oh-uni-package.json' || true
-            find "$unpack_dir" -name oh-uni-package.json -exec cp -n {} "$sdk_root/" \; || true
+          if [[ ! -f "$sdk_root/oh-uni-package.json" ]]; then
+            find "$unpack_dir" -name 'oh-uni-package.json' -exec cp -n {} "$sdk_root/" \; || true
           fi
+
+          # If a component zip expanded to a versioned directory
+          # (native-linux-x64-5.0.0.71-Release/), flatten it to the name
+          # DevEco expects (native/, ets/, ...).
+          for dir in "$sdk_root"/*/; do
+            base="$(basename "$dir")"
+            case "$base" in
+              native-*) target="native";;
+              ets-*) target="ets";;
+              toolchains-*) target="toolchains";;
+              js-*) target="js";;
+              *) continue;;
+            esac
+            if [[ ! -e "$sdk_root/$target" ]]; then
+              echo "Flattening $base -> $target"
+              mv "$dir" "$sdk_root/$target"
+            fi
+          done
 
           # Free the downloaded archives before the multi-GiB build.
           rm -f "$RUNNER_TEMP/ohos-sdk-public.tar.gz" "$RUNNER_TEMP/commandline-tools.zip"

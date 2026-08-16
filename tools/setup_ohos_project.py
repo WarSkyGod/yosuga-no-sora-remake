@@ -188,7 +188,7 @@ def patch_sdl():
         inserted = False
         for anchor in ("add_library(SDL2 SHARED", "sdl_add_library(", "add_library(SDL2 STATIC"):
             for index, line in enumerate(lines):
-                if line.startswith(anchor):
+                if line.lstrip().startswith(anchor):
                     block = SDL_CMAKE_OHOS_BLOCK.splitlines(keepends=True)
                     lines[index:index] = block
                     cmake_file.write_text("".join(lines), encoding="utf-8")

@@ -154,16 +154,37 @@ jobs:
             exit 1
           fi
 
-          # The command line tools bundle already ships the OpenHarmony SDK in
-          # the current layout (command-line-tools/sdk/default/openharmony/);
-          # extracting the standalone public SDK next to it triggers hvigor's
-          # "SDK management mode has changed" error. Use the bundled SDK.
+          # The command line tools bundle ships the OpenHarmony SDK in the old
+          # layout (command-line-tools/sdk/default/openharmony/<component>).
+          # hvigor 5.8.x expects the new per-API layout instead:
+          # <sdk_root>/<apiVersion>/<component>. Migrate the bundled SDK.
           bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
           if [[ ! -d "$bundled_sdk/native" || ! -d "$bundled_sdk/ets" ]]; then
             echo 'The command line tools bundle did not include the OpenHarmony SDK.' >&2
             echo "Expected SDK components under $bundled_sdk" >&2
             exit 1
           fi
+
+          uni_json="$(find "$bundled_sdk" -maxdepth 2 -name oh-uni-package.json -print -quit)"
+          if [[ -z "$uni_json" ]]; then
+            echo 'No oh-uni-package.json found in the bundled SDK.' >&2
+            exit 1
+          fi
+          api_version="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('apiVersion',''))" "$uni_json")"
+          if [[ -z "$api_version" ]]; then
+            api_version="12"
+          fi
+          echo "Bundled OpenHarmony SDK API version: $api_version"
+
+          mkdir -p "$sdk_root/$api_version"
+          for component in ets js native previewer toolchains; do
+            if [[ -d "$bundled_sdk/$component" ]]; then
+              mv "$bundled_sdk/$component" "$sdk_root/$api_version/$component"
+            fi
+          done
+          # Drop the now-empty legacy SDK shell so stale components are not
+          # scanned again.
+          rm -rf "$sdk_root/command-line-tools/sdk"
 
           # Free the downloaded archive before the multi-GiB build.
           rm -f "$RUNNER_TEMP/commandline-tools.zip"
@@ -173,11 +194,16 @@ jobs:
             echo 'hvigorw was not found under command-line-tools/bin.' >&2
             exit 1
           fi
+          if [[ ! -d "$sdk_root/$api_version/native" ]]; then
+            echo "The OpenHarmony SDK native/ directory is missing under $sdk_root/$api_version." >&2
+            exit 1
+          fi
 
           echo "DEVECO_SDK_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "OHOS_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          echo "OHOS_SDK_API=$api_version" >> "$GITHUB_ENV"
           ls "$sdk_root"
-          ls "$bundled_sdk"
+          ls "$sdk_root/$api_version"
 
       - name: Prepare the OpenHarmony project
         shell: bash
@@ -209,9 +235,10 @@ jobs:
 
           hvigorw --version
           ohpm --version || true
-          # Inject the release version into the app manifest.
+          # Inject the release version into the app manifest and align the
+          # SDK API fields with the bundled OpenHarmony SDK.
           python3 - <<'PY'
-          import json, os, re
+          import os, re
           path = 'AppScope/app.json5'
           text = open(path, encoding='utf-8').read()
           text = re.sub(
@@ -220,6 +247,15 @@ jobs:
           text = re.sub(
               r'"(versionCode)"\s*:\s*\d+',
               '"versionCode": ' + os.environ['OHOS_VERSION_CODE'], text)
+          open(path, 'w', encoding='utf-8').write(text)
+
+          path = 'build-profile.json5'
+          text = open(path, encoding='utf-8').read()
+          api = os.environ.get('OHOS_SDK_API', '12')
+          for field in ('compileSdkVersion', 'compatibleSdkVersion', 'targetSdkVersion'):
+              text = re.sub(
+                  r'("' + field + r'"\s*:\s*)[^,\n]+',
+                  r'\g<1>' + api, text)
           open(path, 'w', encoding='utf-8').write(text)
           PY
 

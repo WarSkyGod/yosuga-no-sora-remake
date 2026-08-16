@@ -139,13 +139,15 @@ struct Index {
 
   async downloadFile(url: string, dest: string): Promise<void> {
     const httpRequest = http.createHttp();
-    let file = -1;
+    let file: fs.File | null = null;
     try {
       file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
       await new Promise<void>((resolve, reject) => {
         httpRequest.on('dataReceive', (data: ArrayBuffer) => {
           try {
-            fs.writeSync(file, data);
+            if (file !== null) {
+              fs.writeSync(file.fd, data);
+            }
           } catch (e) {
             reject(e);
           }
@@ -159,7 +161,7 @@ struct Index {
         httpRequest.request(url, {
           method: http.RequestMethod.GET,
           expectDataType: http.HttpDataType.ARRAY_BUFFER,
-          timeout: 600000,
+          connectTimeout: 600000,
           readTimeout: 600000
         }).then((response: http.HttpResponse) => {
           if (response.responseCode !== 200) {
@@ -170,7 +172,7 @@ struct Index {
         });
       });
     } finally {
-      if (file >= 0) {
+      if (file !== null) {
         try {
           fs.closeSync(file);
         } catch (e) {
@@ -178,7 +180,6 @@ struct Index {
         }
       }
       httpRequest.off('dataReceive');
-      httpRequest.off('dataReceiveError');
       httpRequest.destroy();
     }
   }
@@ -209,7 +210,7 @@ struct Index {
     const chunk = new ArrayBuffer(1024 * 1024);
     try {
       while (true) {
-        const len = fs.readSync(file, chunk);
+        const len = fs.readSync(file.fd, chunk);
         if (len <= 0) {
           break;
         }
@@ -220,7 +221,12 @@ struct Index {
       fs.closeSync(file);
     }
     const digest = await md.digest();
-    return digest.data.toUpperCase() === expected.toUpperCase();
+    const bytes = digest.data;
+    let hex = '';
+    for (let i = 0; i < bytes.length; i++) {
+      hex += bytes[i].toString(16).padStart(2, '0');
+    }
+    return hex.toUpperCase() === expected.toUpperCase();
   }
 
   async showNotice(title: string, msg: string): Promise<void> {

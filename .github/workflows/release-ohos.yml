@@ -25,12 +25,13 @@ name: Release OpenHarmony / HarmonyOS HAP
           - community
           - agc
       data_mode:
-        description: 'Game data in the HAP: full = complete data/ (multi-GB), mini = tiny sample data (a few MB, for install tests)'
+        description: 'external = HAP without game data (data zips are published as release assets and downloaded/imported in-game), bundled = full data/ inside the HAP (legacy), mini = tiny sample data for install tests'
         required: true
-        default: full
+        default: external
         type: choice
         options:
-          - full
+          - external
+          - bundled
           - mini
 
 
@@ -239,15 +240,46 @@ jobs:
           ls "$sdk_root"
           ls "$sdk_root/$api_version"
 
+      - name: Package game data assets
+        id: data
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          DATA_MODE: ${{ inputs.data_mode }}
+        run: |
+          set -euo pipefail
+          if [[ "$DATA_MODE" != 'mini' ]]; then
+            out_dir="$RUNNER_TEMP/data-assets"
+            mkdir -p "$out_dir"
+            if [[ "$DATA_MODE" == 'bundled' ]]; then
+              # Legacy behavior: data ships inside the HAP, no download zips.
+              echo '{"schemaVersion":1,"releaseTag":"'"$RELEASE_TAG"'","assets":[]}' > "$out_dir/data-assets.json"
+            else
+              python3 tools/package_data_release.py \
+                --root data --config content-packs.json \
+                --tag "$RELEASE_TAG" --out "$out_dir" --archiver 7z
+            fi
+            echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
+            ls -lh "$out_dir"
+          fi
+
       - name: Prepare the OpenHarmony project
         shell: bash
         env:
           DATA_MODE: ${{ inputs.data_mode }}
+          ASSETS_DIR: ${{ steps.data.outputs.assets-dir }}
         run: |
           set -euo pipefail
-          # Vendors and patches SDL2 for OpenHarmony and links data/ into the
-          # rawfile packaging directory.
-          python3 tools/setup_ohos_project.py
+          assets_arg=""
+          if [[ -n "${ASSETS_DIR:-}" ]]; then
+            assets_arg="--assets-file $ASSETS_DIR/data-assets.json"
+          fi
+          data_arg=""
+          if [[ "$DATA_MODE" == 'bundled' ]]; then
+            data_arg="--data-link"
+          fi
+          # Vendors and patches SDL2 for OpenHarmony.
+          python3 tools/setup_ohos_project.py $data_arg $assets_arg
 
           if [[ "$DATA_MODE" == 'mini' ]]; then
             # Tiny data sample (a few MB) so the HAP stays far below the
@@ -469,10 +501,15 @@ jobs:
           unzip -t "$hap" >/dev/null
           mapfile -t contents < <(unzip -Z1 "$hap")
           content_list="$(printf '%s\n' "${contents[@]}")"
+          if [[ "$DATA_MODE" == 'bundled' ]]; then
+            rawfile_check='resources/rawfile/data/startup.tjs'
+          else
+            rawfile_check='resources/rawfile/data-assets.json'
+          fi
           for required in \
             'libs/arm64-v8a/libentry.so' \
             'libs/arm64-v8a/libkrkrsdl2.so' \
-            'resources/rawfile/data/startup.tjs'; do
+            "$rawfile_check"; do
             if ! grep -Fxq "$required" <<<"$content_list"; then
               echo "The HAP is missing the required entry: $required" >&2
               exit 1
@@ -543,6 +580,7 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           IS_PRERELEASE: ${{ steps.release.outputs.prerelease }}
           ASSET_DIRECTORY: ${{ steps.package.outputs.asset-directory }}
+          ASSETS_DIR: ${{ steps.data.outputs.assets-dir }}
           EVENT_NAME: ${{ github.event_name }}
           COMMIT_SHA: ${{ github.sha }}
           SIGNED: ${{ steps.signing.outputs.signed }}
@@ -550,6 +588,12 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          # Add the downloadable game data zips to the release assets.
+          if [[ -n "${ASSETS_DIR:-}" ]]; then
+            for data_zip in "$ASSETS_DIR"/*.zip; do
+              [[ -e "$data_zip" ]] && cp "$data_zip" "$ASSET_DIRECTORY/"
+            done
+          fi
           assets=("$ASSET_DIRECTORY"/*)
           [[ "${#assets[@]}" -gt 0 ]]
           exists=false

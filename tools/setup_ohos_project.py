@@ -15,12 +15,13 @@ Performs two steps:
    * wires the new sources and the required preprocessor definitions into
      SDL's CMakeLists.txt.
 
-2. Exposes the repository data/ directory to the packaging step as rawfile
-   content: a directory junction (Windows) or a symbolic link (elsewhere) is
-   created at ohos-project/entry/src/main/resources/rawfile/data.
+2. (Optional) Installs the data-assets.json download manifest into the
+   rawfile directory so the in-game downloader knows which zip assets to
+   fetch. By default the HAP does NOT bundle the multi-GiB data/ tree;
+   pass --data-link to keep the old bundled-data behavior.
 
 Usage:
-    python tools/setup_ohos_project.py [--no-data-link]
+    python tools/setup_ohos_project.py [--data-link] [--assets-file PATH]
 """
 
 import argparse
@@ -202,6 +203,16 @@ def patch_sdl():
                  "SDL CMakeLists.txt")
 
 
+def install_assets(assets_file):
+    RAWFILE_DIR.mkdir(parents=True, exist_ok=True)
+    target = RAWFILE_DIR / "data-assets.json"
+    if assets_file.is_file():
+        shutil.copy2(assets_file, target)
+        print("Installed rawfile data-assets.json (%d bytes)" % target.stat().st_size)
+    else:
+        fail("data-assets manifest not found: %s" % assets_file)
+
+
 def link_data():
     data_link = RAWFILE_DIR / "data"
     RAWFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,14 +246,18 @@ def link_data():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--no-data-link", action="store_true",
-                        help="skip creating the rawfile data link")
+    parser.add_argument("--data-link", action="store_true",
+                        help="bundle the full data/ tree as rawfile (large HAP)")
+    parser.add_argument("--assets-file", type=Path, default=None,
+                        help="copy this data-assets.json into the rawfile directory")
     args = parser.parse_args()
 
     check_sdl_source()
     vendor_sdl()
     patch_sdl()
-    if not args.no_data_link:
+    if args.assets_file is not None:
+        install_assets(args.assets_file)
+    if args.data_link:
         link_data()
     print("OpenHarmony project is ready.")
     print("Next: install DevEco Studio (OpenHarmony, API 12) and build "

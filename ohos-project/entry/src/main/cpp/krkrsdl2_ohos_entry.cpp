@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 
@@ -52,6 +53,8 @@ namespace
 
 NativeResourceManager *g_resource_manager = nullptr;
 std::string g_files_dir;
+std::string g_data_dir;
+std::string g_save_dir;
 
 pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
@@ -151,6 +154,32 @@ const char *SDL_OHOS_GetFilesDir(void)
 	return g_files_dir.empty() ? nullptr : g_files_dir.c_str();
 }
 
+void SDL_OHOS_SetDataDir(const char *data_dir)
+{
+	if (data_dir != nullptr)
+	{
+		g_data_dir = data_dir;
+	}
+}
+
+const char *SDL_OHOS_GetDataDir(void)
+{
+	return g_data_dir.empty() ? nullptr : g_data_dir.c_str();
+}
+
+void SDL_OHOS_SetSaveDir(const char *save_dir)
+{
+	if (save_dir != nullptr)
+	{
+		g_save_dir = save_dir;
+	}
+}
+
+const char *SDL_OHOS_GetSaveDir(void)
+{
+	return g_save_dir.empty() ? nullptr : g_save_dir.c_str();
+}
+
 int SDL_OHOS_WaitForNativeWindow(int timeout_ms)
 {
 	struct timespec ts;
@@ -225,6 +254,15 @@ void OHOS_Entry_SetFilesDir(const char *files_dir)
 	Log(LOG_INFO, "filesDir: %{public}s", files_dir != nullptr ? files_dir : "(null)");
 }
 
+void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir)
+{
+	SDL_OHOS_SetDataDir(base_dir);
+	SDL_OHOS_SetSaveDir(save_dir);
+	Log(LOG_INFO, "external baseDir: %{public}s  saveDir: %{public}s",
+		base_dir != nullptr ? base_dir : "(null)",
+		save_dir != nullptr ? save_dir : "(null)");
+}
+
 void *OHOS_Entry_GetResourceManager(void)
 {
 	return static_cast<void *>(g_resource_manager);
@@ -269,23 +307,37 @@ static void EngineMain()
 		return;
 	}
 
-	if (g_resource_manager == nullptr)
+	// Determine the engine base directory. The ArkTS shell may have set an
+	// external (public Download) base with game data at <base>/data and
+	// savedata at <save>/. Fall back to the sandbox files directory.
+	std::string base_dir = !g_data_dir.empty() ? g_data_dir : g_files_dir;
+	bool data_ok = false;
+	if (!base_dir.empty())
 	{
-		Log(LOG_ERROR, "rawfile resource manager is unavailable; cannot extract game data");
+		std::string startup = base_dir + "/data/startup.tjs";
+		struct stat st;
+		data_ok = stat(startup.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+	}
+	if (!data_ok)
+	{
+		// Legacy bundled/mini builds: extract the packaged rawfile data into
+		// the sandbox files directory.
+		if (g_resource_manager != nullptr && OHOS_ExtractGameData())
+		{
+			base_dir = g_files_dir;
+			data_ok = !base_dir.empty();
+		}
+	}
+	if (!data_ok)
+	{
+		Log(LOG_ERROR, "game data is missing; use the in-game download or import first");
 		g_engine_running = false;
 		return;
 	}
 
-	if (!OHOS_ExtractGameData())
+	if (!base_dir.empty() && chdir(base_dir.c_str()) != 0)
 	{
-		Log(LOG_ERROR, "game data extraction failed");
-		g_engine_running = false;
-		return;
-	}
-
-	if (!g_files_dir.empty() && chdir(g_files_dir.c_str()) != 0)
-	{
-		Log(LOG_WARN, "chdir(%{public}s) failed", g_files_dir.c_str());
+		Log(LOG_WARN, "chdir(%{public}s) failed", base_dir.c_str());
 	}
 
 	char app_name[] = "krkrsdl2";

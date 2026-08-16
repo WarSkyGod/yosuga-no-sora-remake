@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Package the game data/ tree into downloadable zip archives.
 
-The OpenHarmony HAP no longer bundles the multi-GiB game data; instead the
-CI workflow publishes the data as one or more zip assets (each below the
-2 GiB GitHub limit) plus a JSON manifest that the in-game downloader reads.
+The OpenHarmony HAP does not bundle the multi-GiB game data. The CI workflow
+publishes the data instead as a set of INDEPENDENT zip archives (one per
+batch of content packs, each below the 2 GiB GitHub limit). Every archive is
+a plain zip32 file that the in-game downloader/import flow can extract on
+the device without merging volumes or zip64 support.
 
-Files are grouped by the packs in content-packs.json so the zips stay
-reasonably small while keeping the data/ relative layout intact:
+Every archive stores its entries under the "data/" prefix, so extracting all
+archives into the application data folder reproduces the original tree:
 
-    data/<relative path>
+    <app folder>/data/startup.tjs
+    <app folder>/data/system/...
 
-Extraction of every asset into one directory therefore reproduces the
-original data/ tree.
+data-assets.json (shipped inside the HAP) lists the archives, their sizes and
+SHA-256 hashes so the app can download them in order and verify integrity.
 """
 
 from __future__ import annotations
@@ -22,8 +25,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
+import zipfile
 from typing import Any, Dict, Iterable, List, Tuple
 
 
@@ -34,7 +37,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tag", required=True, help="Release tag, e.g. v0.1.0-test.1")
     parser.add_argument("--out", type=Path, required=True, help="Directory for the zip assets")
     parser.add_argument("--max-size", type=int, default=1800, help="Max raw size per zip in MiB")
-    parser.add_argument("--archiver", default="7z", choices=["7z", "zip"], help="zip tool to use")
+    parser.add_argument("--compress-level", type=int, default=6, choices=range(0, 10),
+                        help="zip deflate level (0 = store)")
     return parser.parse_args()
 
 
@@ -52,13 +56,22 @@ def iter_content_files(root: Path) -> Iterable[str]:
             yield relative.replace(os.sep, "/")
 
 
-def select_pack(relative: str, packs: List[Dict[str, Any]], default_pack: str, exclude: List[str]) -> str:
+def select_pack(relative: str, packs: List[Dict[str, Any]], default_pack: str,
+                exclude: List[str]) -> str:
     if any(fnmatch.fnmatchcase(relative, pattern) for pattern in exclude):
         return ""
     for pack in packs:
         if any(fnmatch.fnmatchcase(relative, pattern) for pattern in pack.get("include", [])):
             return str(pack["id"])
     return str(default_pack)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def main() -> int:
@@ -79,17 +92,15 @@ def main() -> int:
         pack_id = select_pack(relative, packs, default_pack, exclude)
         if not pack_id:
             continue
-        path = root / relative
         try:
-            size = path.stat().st_size
+            size = (root / relative).stat().st_size
         except OSError:
             continue
         by_pack.setdefault(pack_id, []).append(relative)
         total += size
-
     print("total data size: %d bytes across %d packs" % (total, len(by_pack)))
 
-    # Order: explicit packs as configured, default (misc) last.
+    # Explicit packs in configured order, default pack last.
     ordered: List[Tuple[str, List[str]]] = []
     for pack in packs:
         files = by_pack.pop(pack["id"], None)
@@ -98,10 +109,8 @@ def main() -> int:
     misc_files = by_pack.pop(default_pack, None)
     if misc_files:
         ordered.append((default_pack, misc_files))
-    if by_pack:
-        print("warning: packs not emitted: %s" % sorted(by_pack), file=sys.stderr)
 
-    # Batch packs into zip assets below the size limit.
+    # Batch packs into archives below the size limit.
     max_bytes = args.max_size * 1024 * 1024
     batches: List[List[Tuple[str, List[str]]]] = []
     current: List[Tuple[str, List[str]]] = []
@@ -118,50 +127,35 @@ def main() -> int:
         batches.append(current)
 
     args.out.mkdir(parents=True, exist_ok=True)
+    compression = zipfile.ZIP_DEFLATED if args.compress_level > 0 else zipfile.ZIP_STORED
     assets = []
-    root_parent = str(root.parent)
     for index, batch in enumerate(batches, start=1):
         name = "Yosuga-no-Sora-HD-Remake-OpenHarmony-data-%02d-%s.zip" % (index, args.tag)
         archive = args.out / name
-        # Pass the file list through a list file: thousands of absolute
-        # paths exceed the OS command-line length limit.
-        list_path = args.out / (name + ".list")
-        with list_path.open("w", encoding="utf-8") as list_handle:
+        print("archiving %s ..." % name)
+        file_count = 0
+        with zipfile.ZipFile(str(archive), "w", compression, compresslevel=args.compress_level) as zf:
             for pack_id, files in batch:
                 for relative in files:
-                    list_handle.write(os.path.join(root_parent, relative) + "\n")
-        with open(os.devnull, "w") as devnull:
-            if args.archiver == "7z":
-                cmd = ["7z", "a", "-tzip", "-mx=9", "-bso0", "-bsp0", str(archive), "@" + str(list_path)]
-                result = subprocess.run(cmd, stdout=devnull, stderr=devnull)
-            else:
-                cmd = ["zip", "-9", "-q", "-y", str(archive), "-@"]
-                with list_path.open("r", encoding="utf-8") as list_handle:
-                    result = subprocess.run(cmd, stdin=list_handle, stdout=devnull, stderr=devnull)
-        try:
-            list_path.unlink()
-        except OSError:
-            pass
-        if result.returncode != 0:
-            print("error: archiving %s failed with exit %d" % (name, result.returncode), file=sys.stderr)
-            return 1
-
+                    zf.write(str(root / relative), "data/" + relative)
+                    file_count += 1
         size = archive.stat().st_size
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         assets.append({
             "name": name,
             "size": size,
-            "sha256": digest,
+            "sha256": sha256_file(archive),
             "packs": [pack_id for pack_id, _ in batch],
-            "fileCount": sum(len(files) for _, files in batch),
+            "fileCount": file_count,
         })
         print("asset %s: %d bytes, packs=%s" % (name, size, ",".join(assets[-1]["packs"])))
 
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "releaseTag": args.tag,
         "baseUrl": "https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/download/%s" % args.tag,
+        "kind": "zip-parts",
         "assets": assets,
+        "totalSize": total,
     }
     manifest_path = args.out / "data-assets.json"
     with manifest_path.open("w", encoding="utf-8", newline="\n") as handle:

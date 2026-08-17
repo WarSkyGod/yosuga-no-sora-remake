@@ -281,16 +281,18 @@ struct Index {
   async dataReady(): Promise<boolean> {
     // A complete tree has startup.tjs plus the system scripts; a bare
     // startup.tjs (e.g. leftover from an old mini test build) is not enough.
+    // List the directory instead of probing files so platform quirks in
+    // fs.access cannot produce a false positive.
     try {
-      await fs.access(this.dataDir + '/startup.tjs');
-      try {
-        await fs.access(this.dataDir + '/system');
+      const entries = fs.listFileSync(this.dataDir);
+      this.log('dataDir entries: ' + JSON.stringify(entries).slice(0, 300));
+      const hasStartup = entries.indexOf('startup.tjs') >= 0;
+      const hasSystem = entries.indexOf('system') >= 0;
+      if (hasStartup && hasSystem) {
         return true;
-      } catch (e) {
-        return false;
       }
     } catch (e) {
-      // fall through
+      this.log('dataDir list failed: ' + JSON.stringify(e));
     }
     try {
       await fs.access(this.dataDir + '/data.xp3');
@@ -428,8 +430,17 @@ struct Index {
           libraryname: 'entry'
         })
           .onLoad((context) => {
-            entryNapi.onLoad(context);
-            entryNapi.startEngine();
+            try {
+              const ok = entryNapi.onLoad(context);
+              if (ok) {
+                entryNapi.startEngine();
+              } else {
+                this.log('onLoad failed to attach the XComponent');
+              }
+            } catch (e) {
+              // never let an exception kill the app
+              this.log('onLoad exception: ' + JSON.stringify(e));
+            }
           })
           .width('100%')
           .height('100%')

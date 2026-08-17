@@ -102,42 +102,64 @@ struct Index {
         missing.push(perm);
       }
     }
+    let publicOk = missing.length === 0;
     if (missing.length > 0) {
       this.log('requesting permissions: ' + JSON.stringify(missing));
-      const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
-      this.log('permission result: ' + JSON.stringify(result));
-      const granted = result.authResults.every((code: number) => code === 0);
-      if (!granted) {
-        this.bootState = 5;
-        this.message = '未授予存储权限，无法在下载目录创建游戏文件夹';
-        this.log('permissions denied');
-        return;
+      try {
+        const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
+        this.log('permission result: ' + JSON.stringify(result));
+        publicOk = result.authResults.every((code: number) => code === 0);
+      } catch (e) {
+        this.log('requestPermissionsFromUser failed: ' + JSON.stringify(e));
+        publicOk = false;
       }
     }
 
-    // The game data and savedata live ONLY in the public Download folder so
-    // stale sandbox data from an older build can never masquerade as ready.
+    // The game data and savedata should live in the public Download folder;
+    // when the platform refuses (denied permission or a changed path model),
+    // fall back to the sandbox so the app always boots.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    try {
-      fs.mkdirSync(this.appDir, true);
-      this.log('mkdir appDir ok: ' + this.appDir);
-    } catch (e) {
-      this.log('mkdir appDir failed: ' + JSON.stringify(e));
+    if (publicOk) {
+      try {
+        fs.mkdirSync(this.appDir, true);
+        this.log('mkdir appDir ok: ' + this.appDir);
+        await fs.access(this.appDir);
+      } catch (e) {
+        this.log('public appDir unusable: ' + JSON.stringify(e));
+        publicOk = false;
+      }
     }
-    this.baseDir = this.appDir;
-    this.saveDir = this.appDir + '/savedata';
-    this.dataDir = this.appDir + '/data';
-    try {
-      fs.mkdirSync(this.saveDir, true);
-      this.log('mkdir saveDir ok');
-    } catch (e) {
-      this.log('mkdir saveDir failed: ' + JSON.stringify(e));
-    }
-    try {
-      fs.mkdirSync(this.dataDir, true);
-      this.log('mkdir dataDir ok');
-    } catch (e) {
-      this.log('mkdir dataDir failed: ' + JSON.stringify(e));
+    if (publicOk) {
+      this.baseDir = this.appDir;
+      this.saveDir = this.appDir + '/savedata';
+      this.dataDir = this.appDir + '/data';
+      try {
+        fs.mkdirSync(this.saveDir, true);
+      } catch (e) {
+        // already exists
+      }
+      try {
+        fs.mkdirSync(this.dataDir, true);
+      } catch (e) {
+        // already exists
+      }
+      this.message = '';
+    } else {
+      this.baseDir = this.sandboxFiles;
+      this.saveDir = this.sandboxFiles + '/savedata';
+      this.dataDir = this.sandboxFiles + '/data';
+      try {
+        fs.mkdirSync(this.saveDir, true);
+      } catch (e) {
+        // already exists
+      }
+      try {
+        fs.mkdirSync(this.dataDir, true);
+      } catch (e) {
+        // already exists
+      }
+      this.message = '未获得公共下载目录访问权限，游戏数据将存放在应用私有目录';
+      this.log('sandbox fallback: ' + this.baseDir);
     }
 
     const ready = await this.dataReady();
@@ -255,11 +277,18 @@ struct Index {
     await zlib.decompressFile(srcZip, outDir);
   }
 
-  /** True when the data folder contains startup.tjs or a data.xp3 file. */
+  /** True when the data folder holds a complete data tree or a data.xp3. */
   async dataReady(): Promise<boolean> {
+    // A complete tree has startup.tjs plus the system scripts; a bare
+    // startup.tjs (e.g. leftover from an old mini test build) is not enough.
     try {
       await fs.access(this.dataDir + '/startup.tjs');
-      return true;
+      try {
+        await fs.access(this.dataDir + '/system');
+        return true;
+      } catch (e) {
+        return false;
+      }
     } catch (e) {
       // fall through
     }

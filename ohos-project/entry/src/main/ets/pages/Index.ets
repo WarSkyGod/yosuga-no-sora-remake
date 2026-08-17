@@ -78,7 +78,7 @@ struct Index {
     hilog.info(0x0000, 'YosugaOHOS', '%{public}s', msg);
   }
 
-  async prepareInternal(): Promise<void> {
+  prepareInternal(): void {
     this.log('prepareInternal begin');
     // NOTE: no permission dialog here. On HarmonyOS 7 (API 26) the system
     // permission dialog is a UIExtension whose close can wipe the host page
@@ -92,7 +92,7 @@ struct Index {
     let publicOk = false;
     try {
       fs.mkdirSync(this.appDir, true);
-      await fs.access(this.appDir);
+      fs.accessSync(this.appDir);
       publicOk = true;
       this.log('public appDir ok: ' + this.appDir);
     } catch (e) {
@@ -131,13 +131,13 @@ struct Index {
       this.log('sandbox fallback: ' + this.baseDir);
     }
 
-    const ready = await this.dataReady();
+    const ready = this.dataReady();
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
     if (ready) {
       this.startGame();
       return;
     }
-    await this.loadManifest();
+    this.loadManifest();
     this.log('manifest loaded, assets=' + this.assets.length);
     this.bootState = 2;
     this.progressText = '需要下载或导入游戏数据';
@@ -145,10 +145,12 @@ struct Index {
     this.log('bootstrap page shown');
   }
 
-  async loadManifest(): Promise<void> {
+  loadManifest(): void {
     try {
+      // Synchronous: an async rawfile read that never settles would leave the
+      // UI thread stuck on some system versions (black screen).
       const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
-      const bytes = await manager.getRawFileContent('data-assets.json');
+      const bytes = manager.getRawFileContentSync('data-assets.json');
       const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
       const parsed = JSON.parse(text) as DataManifest;
       this.manifest = parsed;
@@ -190,7 +192,7 @@ struct Index {
     }
     try {
       fs.mkdirSync(this.appDir, true);
-      await fs.access(this.appDir);
+      fs.accessSync(this.appDir);
     } catch (e) {
       this.log('public dir still unusable: ' + JSON.stringify(e));
       return false;
@@ -307,11 +309,11 @@ struct Index {
   }
 
   /** True when the data folder holds a complete data tree or a data.xp3. */
-  async dataReady(): Promise<boolean> {
+  dataReady(): boolean {
+    // Fully synchronous: async probes that never settle on some system
+    // versions would freeze the UI thread (black screen).
     // A complete tree has startup.tjs plus the system scripts; a bare
     // startup.tjs (e.g. leftover from an old mini test build) is not enough.
-    // List the directory instead of probing files so platform quirks in
-    // fs.access cannot produce a false positive.
     try {
       const entries = fs.listFileSync(this.dataDir);
       this.log('dataDir entries: ' + JSON.stringify(entries).slice(0, 300));
@@ -324,7 +326,7 @@ struct Index {
       this.log('dataDir list failed: ' + JSON.stringify(e));
     }
     try {
-      await fs.access(this.dataDir + '/data.xp3');
+      fs.accessSync(this.dataDir + '/data.xp3');
       return true;
     } catch (e) {
       return false;
@@ -426,8 +428,8 @@ struct Index {
     this.uiEpoch++;
   }
 
-  async finishData(): Promise<void> {
-    if (await this.dataReady()) {
+  finishData(): void {
+    if (this.dataReady()) {
       // Data verified: jump straight into the game. Next launch skips this
       // screen because onPageShow finds the data ready.
       this.startGame();

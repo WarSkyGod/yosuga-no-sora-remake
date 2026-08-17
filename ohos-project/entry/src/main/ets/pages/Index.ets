@@ -165,7 +165,8 @@ struct Index {
     const context = getContext(this) as common.UIAbilityContext;
     const atManager = abilityAccessCtrl.createAtManager();
     const missing: Array<Permissions> = [];
-    for (const perm of ['ohos.permission.READ_MEDIA', 'ohos.permission.WRITE_MEDIA']) {
+    const perms: Array<Permissions> = ['ohos.permission.READ_MEDIA', 'ohos.permission.WRITE_MEDIA'];
+    for (const perm of perms) {
       try {
         const state: number = await atManager.checkAccessToken(context.applicationInfo.accessTokenId, perm);
         if (state !== 0) {
@@ -451,8 +452,7 @@ struct Index {
   }
 
   build() {
-    Column()
-      .key('boot-' + this.bootState + '-' + this.uiEpoch) {
+    Column() {
       if (this.bootState === 0) {
         Text(this.progressText).fontSize(16).fontColor(Color.Gray)
       } else if (this.bootState === 6) {
@@ -513,6 +513,7 @@ struct Index {
         }
       }
     }
+    .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')
     .height('100%')
     .backgroundColor(Color.Black)

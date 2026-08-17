@@ -431,7 +431,7 @@ struct Index {
         })
           .onLoad((context: object) => {
             try {
-              const ok = entryNapi.onLoad(context);
+              const ok: boolean = entryNapi.onLoad(context) as boolean;
               if (ok) {
                 entryNapi.startEngine();
               } else {

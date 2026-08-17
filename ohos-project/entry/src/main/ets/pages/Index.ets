@@ -429,7 +429,7 @@ struct Index {
           type: XComponentType.SURFACE,
           libraryname: 'entry'
         })
-          .onLoad((context) => {
+          .onLoad((context: object) => {
             try {
               const ok = entryNapi.onLoad(context);
               if (ok) {

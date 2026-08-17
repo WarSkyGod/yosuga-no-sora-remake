@@ -46,19 +46,25 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 		return nullptr;
 	}
 
-	// Prefer the official accessor (works on modern system versions); fall
-	// back to the historic unwrap path on older ones. NEVER throw from here:
-	// on HarmonyOS 7 a JS exception escapes and kills the app.
-	OH_NativeXComponent *component = OH_NativeXComponent_GetNativeXComponent(env, args[0]);
+	// The onLoad context carries the OH_NativeXComponent. Older systems wrap
+	// it with napi_wrap (unwrap path); newer systems may hand it out as a
+	// napi external instead. Try both. NEVER throw from here: on HarmonyOS 7
+	// a JS exception escapes and kills the app.
+	OH_NativeXComponent *component = nullptr;
+	napi_status status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
+	if (status != napi_ok || component == nullptr)
+	{
+		void *external = nullptr;
+		if (napi_get_value_external(env, args[0], &external) == napi_ok && external != nullptr)
+		{
+			component = static_cast<OH_NativeXComponent *>(external);
+		}
+	}
 	if (component == nullptr)
 	{
-		napi_status status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
-		if (status != napi_ok || component == nullptr)
-		{
-			napi_value result = nullptr;
-			napi_get_boolean(env, false, &result);
-			return result;
-		}
+		napi_value result = nullptr;
+		napi_get_boolean(env, false, &result);
+		return result;
 	}
 	OHOS_Entry_AttachXComponent(component);
 	napi_value ok = nullptr;

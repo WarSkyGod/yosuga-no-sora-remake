@@ -527,35 +527,18 @@ jobs:
             package_name="Yosuga-no-Sora-HD-Remake-OpenHarmony-arm64${data_suffix}-unsigned-$RELEASE_TAG.hap"
           fi
           asset_dir="$RUNNER_TEMP/release-assets"
-          package_dir="$RUNNER_TEMP/ohos-package"
-          mkdir -p "$asset_dir" "$package_dir"
-          cp "$hap" "$package_dir/$package_name"
+          mkdir -p "$asset_dir"
+          cp "$hap" "$asset_dir/$package_name"
 
-          # Remove intermediates before splitting the multi-GiB package.
+          # The HAP is small now (no bundled game data); upload it directly
+          # instead of splitting it into 7-Zip volumes. Remove build
+          # intermediates before the packaging step ends.
           rm -rf ohos-project/entry/build ohos-project/.hvigor \
             ohos-project/entry/src/main/cpp/third_party
 
-          archive="$asset_dir/$package_name.7z"
-          (
-            cd "$package_dir"
-            7z a -t7z -mx=0 -mmt=on -v1900m "$archive" "$package_name"
-          )
-
-          shopt -s nullglob
-          volumes=("$asset_dir/$package_name.7z."*)
-          [[ "${#volumes[@]}" -gt 0 ]]
-          7z t "${volumes[0]}"
-          for volume in "${volumes[@]}"; do
-            size=$(stat --printf='%s' "$volume")
-            if ((size >= 2147483648)); then
-              echo "Release asset exceeds GitHub's 2 GiB limit: $volume" >&2
-              exit 1
-            fi
-          done
-
           (
             cd "$asset_dir"
-            sha256sum "$package_name.7z".* > "$package_name-SHA256SUMS.txt"
+            sha256sum "$package_name" > "$package_name-SHA256SUMS.txt"
           )
 
           cat > "$asset_dir/$package_name-BUILD-INFO.txt" <<EOF

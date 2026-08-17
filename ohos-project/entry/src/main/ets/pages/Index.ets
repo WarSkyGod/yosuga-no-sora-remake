@@ -438,7 +438,7 @@ struct Index {
     this.bootState = 2;
     this.progressValue = 0;
     this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
-    await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+    this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
   }
 
   delay(ms: number): Promise<void> {

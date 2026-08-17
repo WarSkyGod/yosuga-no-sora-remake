@@ -43,20 +43,27 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 	if (argc < 1)
 	{
-		napi_throw_error(env, nullptr, "onLoad expects the XComponent onLoad context");
 		return nullptr;
 	}
 
-	// The XComponent onLoad context carries the OH_NativeXComponent pointer.
-	OH_NativeXComponent *component = nullptr;
-	napi_status status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
-	if (status != napi_ok || component == nullptr)
+	// Prefer the official accessor (works on modern system versions); fall
+	// back to the historic unwrap path on older ones. NEVER throw from here:
+	// on HarmonyOS 7 a JS exception escapes and kills the app.
+	OH_NativeXComponent *component = OH_NativeXComponent_GetNativeXComponent(env, args[0]);
+	if (component == nullptr)
 	{
-		napi_throw_error(env, nullptr, "onLoad: cannot unwrap the XComponent context");
-		return nullptr;
+		napi_status status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
+		if (status != napi_ok || component == nullptr)
+		{
+			napi_value result = nullptr;
+			napi_get_boolean(env, false, &result);
+			return result;
+		}
 	}
 	OHOS_Entry_AttachXComponent(component);
-	return nullptr;
+	napi_value ok = nullptr;
+	napi_get_boolean(env, true, &ok);
+	return ok;
 }
 
 static napi_value StartEngine(napi_env env, napi_callback_info info)

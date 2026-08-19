@@ -917,6 +917,43 @@ static void TVPInitRandomGenerator()
 
 
 //---------------------------------------------------------------------------
+// TVPLoadExternalPatchArchives
+//---------------------------------------------------------------------------
+// Scans the public game data folder (the parent of the save directory) for
+// patch archives (patch.xp3, patch2.xp3, ...) and registers them with the
+// engine so updates can be applied without reinstalling the app.  The input
+// is the save directory path in UTF-8 (Android: Downloads/YosugaSoraHD/
+// savedata; iOS: Documents/<bundle>/savedata); the parent folder is scanned.
+//---------------------------------------------------------------------------
+static void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
+{
+	if(!saveDirUtf8 || !*saveDirUtf8) return;
+
+	tjs_string saveDirU16;
+	if(!TVPUtf8ToUtf16(saveDirU16, std::string(saveDirUtf8))) return;
+	if(saveDirU16.empty()) return;
+
+	// Parent directory of the save folder = the public game data folder.
+	tjs_string parent = ExtractFileDir(saveDirU16);
+	if(parent.empty()) return;
+
+	tjs_string prefix = IncludeTrailingBackslash(parent);
+	// Scan patch.xp3, patch2.xp3, ... (up to 32).
+	for(int i = 1; i <= 32; ++i)
+	{
+		tjs_string name = prefix + TJS_W("patch");
+		if(i > 1) name += ttstr((tjs_int)i).AsStdString();
+		name += TJS_W(".xp3");
+		if(TVPCheckExistentLocalFile(name))
+		{
+			// Register the archive (trailing '>' marks an archive file).
+			TVPAddAutoPath(name + TJS_W(">"));
+			TVPAddImportantLog(TJS_W("(info) Loaded patch archive: ") + name);
+		}
+	}
+}
+
+//---------------------------------------------------------------------------
 // TVPInitializeBaseSystems
 //---------------------------------------------------------------------------
 void TVPInitializeBaseSystems()
@@ -940,6 +977,16 @@ void TVPInitializeBaseSystems()
 		if(TVPIsExistentStorage(name_msgmap))
 			TVPExecuteStorage(name_msgmap, NULL, false, TJS_W(""));
 	}
+
+	// Load external patch archives (patch.xp3, patch2.xp3, ...) from the
+	// public game data folder so updates can be applied without reinstalling
+	// the app.  On Android the folder is the public Downloads game directory
+	// (parent of the save folder); on iOS it is Documents/<bundle-id>.
+#if defined(__ANDROID__)
+	TVPLoadExternalPatchArchives(TVPAndroidGetPublicSaveDirectory());
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+	TVPLoadExternalPatchArchives(TVPIOSGetDocumentsDirectory());
+#endif
 }
 //---------------------------------------------------------------------------
 

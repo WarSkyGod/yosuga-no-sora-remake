@@ -971,6 +971,7 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 #endif
 
 	bool any = false;
+	tjs_string loadedPatchPath;
 	for(size_t c = 0; c < candidates.size(); ++c)
 	{
 		/* Use '/' explicitly: on Android IncludeTrailingBackslash returns a
@@ -998,6 +999,8 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 			{
 				ttstr archiveName = ttstr(name + TJS_W(">"));
 				TVPAddAutoPath(archiveName);
+				if(loadedPatchPath.empty())
+					loadedPatchPath = name;
 				ttstr log(TJS_W("(info) Loaded patch archive: "));
 				log += nativeName;
 				TVPAddImportantLog(log);
@@ -1023,22 +1026,35 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 	}
 	if(!any)
 		TVPAddImportantLog(TJS_W("(info) Patch scan: no patch archives found."));
-	else
+	else if(!loadedPatchPath.empty())
 	{
-		/* The archive was registered on the auto path; now run the patch
-		   bootstrap script (system/patch_test.tjs inside the archive) which
-		   is resolved through the auto path, so no startup.tjs override is
-		   needed. */
-		TVPAddImportantLog(TJS_W("(info) Patch scan: executing patch bootstrap script."));
+		/* Execute the patch bootstrap script directly from inside the
+		   archive using KRKR's 'archive>file' path syntax.  At this point
+		   (right after system init) the normal auto paths are not yet
+		   registered, so a bare file name would not be resolved. */
+		tjs_string scriptPath = loadedPatchPath + TJS_W(">system/patch_test.tjs");
+		ttstr scriptName = ttstr(scriptPath);
+		TVPAddImportantLog(TJS_W("(info) Patch scan: executing ") + scriptName);
 		if(scanLog)
-			fprintf(scanLog, "executing patch_test.tjs\n");
+		{
+			std::string utf8;
+			if(TVPUtf16ToUtf8(utf8, scriptPath))
+				fprintf(scanLog, "executing: %s\n", utf8.c_str());
+		}
 		try
 		{
-			TVPExecuteStorage(TJS_W("patch_test.tjs"), NULL, false, TJS_W(""));
+			if(TVPIsExistentStorage(scriptName))
+				TVPExecuteStorage(scriptName, NULL, false, TJS_W(""));
+			else
+			{
+				TVPAddImportantLog(TJS_W("(info) Patch scan: bootstrap script not found: ") + scriptName);
+				if(scanLog)
+					fprintf(scanLog, "bootstrap script NOT found\n");
+			}
 		}
 		catch(...)
 		{
-			TVPAddImportantLog(TJS_W("(info) Patch scan: patch_test.tjs execution failed."));
+			TVPAddImportantLog(TJS_W("(info) Patch scan: patch bootstrap execution failed."));
 		}
 	}
 	if(scanLog)

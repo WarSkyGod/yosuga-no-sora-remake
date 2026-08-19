@@ -188,10 +188,10 @@ class MovieLayer extends VideoOverlay{
 		}
 	}
 	function onStatusChanged(status){
-		// The initial stop notification emitted by open() can be delivered
-		// late (on iOS it can arrive seconds later under startup load).
-		// Ignore the first stop regardless of phase; every backend emits it.
-		if(status == "stop" && !_openStopIgnored){
+		// open() can emit an initialization stop while it is still running.
+		// Filter only that phase: SetStatus(play) cancels older queued events,
+		// so the first stop seen after playback starts can be the real end.
+		if(status == "stop" && _phase == 1 && !_openStopIgnored){
 			_openStopIgnored = true;
 			Debug.message("Movie: ignored open-init stop instance=" + _instanceId);
 			return;

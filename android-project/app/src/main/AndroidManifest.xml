@@ -35,6 +35,17 @@
         android:name="android.hardware.microphone"
         android:required="false" /> -->
 
+    <!-- Storage: public Downloads/Documents access so game saves live in
+         a user-reachable folder that survives app un-installs.  On
+         Android 11+ (API 30) scoped storage forces MANAGE_EXTERNAL_STORAGE
+         (granted by the user in system Settings); on older versions the
+         WRITE/READ pair is requested at runtime.  Saves live in a folder
+         with a .nomedia marker so Android's media scanner never publishes
+         the save thumbnail images into the system photo gallery. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
     <!-- Allow access to the vibrator -->
     <uses-permission android:name="android.permission.VIBRATE" />
 

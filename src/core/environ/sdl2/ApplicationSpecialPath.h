@@ -18,6 +18,9 @@
 #if defined(__APPLE__) && TARGET_OS_IPHONE
 extern "C" const char *TVPIOSGetDocumentsDirectory(void);
 #endif
+#if defined(__ANDROID__)
+extern "C" const char *TVPAndroidGetPublicSaveDirectory(void);
+#endif
 
 class ApplicationSpecialPath {
 public:
@@ -95,7 +98,7 @@ public:
 		/* iOS: keep saves in a game-specific subfolder of the app
 		   <sandbox>/Documents (Documents/<bundle-id>/savedata) so the user
 		   can reach, back up and re-import them through the Files app or
-		   Finder (UIFileSharingEnabled) without risking a collistion with
+		   Finder (UIFileSharingEnabled) without risking a collision with
 		   another application that shares the Documents directory.  Being
 		   inside the sandbox it is never indexed into the system photo
 		   library. */
@@ -112,6 +115,41 @@ public:
 		ttstr nativeDataPath = ttstr(TVPGetAppPath().AsStdString());
 		nativeDataPath += TJS_W("/savedata/");
 		return nativeDataPath.AsStdString();
+#elif defined(__ANDROID__)
+		/* Android: keep saves in the public Downloads folder (falling back
+		   to the private data dir when public access is unavailable).  The
+		   Java activity creates <Download>/YosugaSoraHD/savedata, writes
+		   .nomedia so the media scanner ignores the save thumbnails, and
+		   migrates the old private-dir saves here on upgrade. */
+		{
+			const char *androidDir = TVPAndroidGetPublicSaveDirectory();
+			tjs_string path;
+			if(androidDir && *androidDir &&
+				TVPUtf8ToUtf16(path, std::string(androidDir)))
+			{
+				if(path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+					path += TJS_W('/');
+				return path;
+			}
+		}
+		{
+			/* No public access (yet): keep the exact legacy behaviour so an
+			   older install's save location is preserved until migration. */
+			char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");
+			std::string pref_path_utf8;
+			if (pref_path)
+			{
+				pref_path_utf8 = pref_path;
+				SDL_free(pref_path);
+				tjs_string pref_path_utf16;
+				TVPUtf8ToUtf16(pref_path_utf16, pref_path_utf8);
+				return pref_path_utf16;
+			}
+			ttstr nativeDataPath = ttstr(TVPGetAppPath().AsStdString());
+			TVPGetLocalName(nativeDataPath);
+			nativeDataPath += TJS_W("/savedata/");
+			return nativeDataPath.AsStdString();
+		}
 #elif defined(__vita__)
 		return TJS_W("savedata0:/savedata/");
 #else

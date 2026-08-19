@@ -36,6 +36,7 @@ struct Index {
   @State progressText: string = '';
   @State progressValue: number = 0;
   @State baseUrl: string = '';
+  @State proxyUrl: string = '';
   @State message: string = '';
   @State uiEpoch: number = 0;
   private sandboxFiles: string = '';
@@ -213,12 +214,23 @@ struct Index {
     }
     let doneBytes = 0;
     const totalBytes = this.assets.reduce((sum, asset) => sum + asset.size, 0);
+    const startTime = Date.now();
     for (const asset of this.assets) {
-      const url = this.baseUrl + '/' + asset.name;
+      const originalUrl = this.baseUrl + '/' + asset.name;
+      const proxy = this.proxyUrl.trim();
+      const url = proxy !== '' ? proxy + originalUrl : originalUrl;
       this.progressText = '正在下载 ' + asset.name;
       const tmp = cacheDir + '/' + asset.name;
       try {
-        await this.downloadFile(url, tmp);
+        await this.downloadFile(url, tmp, (downloaded: number) => {
+          const doneTotal = doneBytes + downloaded;
+          const elapsed = Math.max(1, (Date.now() - startTime) / 1000);
+          const speed = doneTotal / elapsed;
+          this.progressValue = Math.min(99, Math.floor(doneTotal * 100 / Math.max(1, totalBytes)));
+          this.progressText = '正在下载 ' + asset.name + '  ' +
+            this.fmtSize(doneTotal) + ' / ' + this.fmtSize(totalBytes) +
+            '  (' + this.fmtSpeed(speed) + ')';
+        });
         if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {
           throw new Error('SHA-256 校验失败，请重试');
         }
@@ -240,7 +252,8 @@ struct Index {
     await this.finishData();
   }
 
-  async downloadFile(url: string, dest: string): Promise<void> {
+  async downloadFile(url: string, dest: string,
+    onProgress?: (downloaded: number) => void): Promise<void> {
     // Range-chunked download: @ohos.net.http has no streaming end event on
     // this SDK, and buffering multi-GiB files in memory is not an option.
     const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
@@ -271,6 +284,9 @@ struct Index {
           }
           fs.writeSync(file.fd, data);
           offset += length;
+          if (onProgress) {
+            onProgress(offset);
+          }
           if (length < chunkSize) {
             break;
           }
@@ -345,6 +361,41 @@ struct Index {
     });
   }
 
+  /** Copy from a document picker uri (file:// or datashare://) to a sandbox
+   * path. Plain copyFileSync fails on picker uris with error 13900002. */
+  copyFromUri(uri: string, dest: string): void {
+    const src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+    const dst = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    const buf = new ArrayBuffer(1024 * 1024);
+    try {
+      while (true) {
+        const n = fs.readSync(src.fd, buf);
+        if (n <= 0) {
+          break;
+        }
+        const chunk = buf.slice(0, n);
+        fs.writeSync(dst.fd, chunk);
+      }
+    } finally {
+      fs.closeSync(src);
+      fs.closeSync(dst);
+    }
+  }
+
+  fmtSize(bytes: number): string {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    return Math.round(bytes / 1024) + ' KB';
+  }
+
+  fmtSpeed(bytesPerSec: number): string {
+    return this.fmtSize(bytesPerSec) + '/s';
+  }
+
   async importLocal(): Promise<void> {
     this.bootState = 4;
     this.message = '';
@@ -356,10 +407,14 @@ struct Index {
       const result = await documentPicker.select({ maxSelectNumber: 20 });
       uris = result;
     } catch (e) {
+      // User cancelled the picker: force a rebuild so the picker (also a
+      // UIExtension) cannot leave the page blank.
+      this.uiEpoch++;
       this.bootState = 2;
       this.message = '未选择文件';
       return;
     }
+    this.uiEpoch++; // force a rebuild after the picker closes
     const cacheDir = this.sandboxFiles + '/cache';
     try {
       fs.mkdirSync(cacheDir, true);
@@ -376,11 +431,19 @@ struct Index {
         if (lower.endsWith('.xp3')) {
           // A bare data.xp3 goes straight into the data folder.
           fs.mkdirSync(this.dataDir, true);
-          fs.copyFileSync(uri, this.dataDir + '/data.xp3');
+          this.copyFromUri(uri, this.dataDir + '/data.xp3');
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
-          fs.copyFileSync(uri, tmp);
+          this.copyFromUri(uri, tmp);
           await this.unzipTo(tmp, this.baseDir);
+          // A zip may contain data.xp3 at its root (no data/ prefix);
+          // move it into the data folder so readiness checks pass.
+          try {
+            fs.accessSync(this.baseDir + '/data.xp3');
+            fs.renameSync(this.baseDir + '/data.xp3', this.dataDir + '/data.xp3');
+          } catch (e) {
+            // no root-level xp3
+          }
           try {
             fs.unlinkSync(tmp);
           } catch (e) {
@@ -463,9 +526,17 @@ struct Index {
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Gray)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（GitHub Release 页面）' })
             .width('86%')
+            .fontSize(12)
             .onChange((value: string) => {
               this.baseUrl = value;
             })
+          TextInput({ text: this.proxyUrl, placeholder: '加速代理前缀（留空=直连，如 https://gh-proxy.cn/ ）' })
+            .width('86%')
+            .fontSize(12)
+            .onChange((value: string) => {
+              this.proxyUrl = value;
+            })
+          Text('提示：可留空直连，或用 https://proxy.craft-hello.top/proxy/ 或 https://gh-proxy.cn/ 加速').fontSize(11).fontColor(Color.Gray).maxLines(2)
           Button('下载游戏数据').width(220).height(52).onClick(() => {
             this.downloadAll();
           })
@@ -494,6 +565,7 @@ struct Index {
         }
       }
     }
+    .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')
     .height('100%')
     .backgroundColor(Color.Black)

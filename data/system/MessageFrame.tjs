@@ -196,10 +196,9 @@ var ROLE_NAME_IMAGES = [
 	["一叶・母", "MP-86.png"],
 	["悠・母", "MP-87.png"],
 	["老师", "MP-88.png"],
-	["奈绪＆瑛＆一叶＆亮平", "MP-89.png"],
-	["女孩＆悠", "MP-90.png"],
-	["日志", "MP-91.png"],
-	["声音", "MP-92.png"]
+	["女孩＆悠", "MP-89.png"],
+	["日志", "MP-90.png"],
+	["声音", "MP-91.png"]
 ];
 
 var ROLE_NAME_IMAGE_DEFAULT = "nothing.png";

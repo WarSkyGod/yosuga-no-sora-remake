@@ -1,4 +1,4 @@
-﻿
+
 //デバッグメッセージ出力用
 @if(__DEBUGMODE__ != 0)
 	var dm = Debug.message;
@@ -247,7 +247,7 @@ LoadScript("MusicModeHD.tjs");
 LoadScript("VoiceCollect.tjs");
 LoadScript("VoiceModeScene.tjs");
 LoadScript("CgFlag.tjs");
-LoadScript("StaffRoll.tjs");
+LoadScript("staffroll.tjs");
 LoadScript("EnvEffect.tjs");
 @if(__DEBUGMODE__)
 	LoadScript("debugUtility.tjs");

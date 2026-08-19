@@ -48,14 +48,15 @@ struct Index {
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
+    // Show the bootstrap screen immediately with ZERO filesystem or
+    // permission work, so no platform call can stall the UI thread before
+    // the user sees it. Data checks run on demand below.
+    this.bootState = 2;
+    this.progressText = '需要下载或导入游戏数据';
   }
 
   onPageShow(): void {
-    // Re-check on every page show (after the page is fully interactive,
-    // otherwise the permission dialog can race the page transition).
-    setTimeout(() => {
-      this.prepare();
-    }, 400);
+    // Do not auto-check on page show; keep the bootstrap screen visible.
   }
 
   async prepare(): Promise<void> {
@@ -218,6 +219,9 @@ struct Index {
   }
 
   async downloadAll(): Promise<void> {
+    if (this.assets.length === 0) {
+      this.loadManifest();
+    }
     if (this.assets.length === 0) {
       this.message = '下载清单为空，请检查网络或稍后重试';
       return;

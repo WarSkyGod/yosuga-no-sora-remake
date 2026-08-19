@@ -10,6 +10,7 @@
 //---------------------------------------------------------------------------
 #include "tjsCommHead.h"
 
+#include <cstdio>
 
 #include "FilePathUtil.h"
 #if 0
@@ -927,14 +928,13 @@ static void TVPInitRandomGenerator()
 //---------------------------------------------------------------------------
 void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 {
-#if defined(__ANDROID__)
-	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-		"Patch scan start, saveDir=%s", saveDirUtf8 ? saveDirUtf8 : "(null)");
-#endif
+	/* Also write a human-readable log to the public folder so the result can
+	   be inspected with a file manager (no adb/logcat needed). */
+	FILE *scanLog = NULL;
+
 	/* The public save folder may not be resolvable yet (JNI/permission), so
 	   build a list of candidate patch folders: the parent of the save folder
-	   plus a few well-known public locations.  Each is scanned for patch.xp3,
-	   patch2.xp3, ... and every step is logged for diagnosis. */
+	   plus a few well-known public locations. */
 	std::vector<tjs_string> candidates;
 
 	if(saveDirUtf8 && *saveDirUtf8)
@@ -947,14 +947,27 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 				candidates.push_back(parent);
 		}
 	}
-	else
-	{
-		TVPAddImportantLog(TJS_W("(info) Patch scan: no public save dir resolved; using fallback locations."));
-	}
 	/* Fallbacks for Android: /sdcard/Download/YosugaSoraHD and /sdcard/Download. */
 #if defined(__ANDROID__)
 	candidates.push_back(tjs_string(TJS_W("/sdcard/Download/YosugaSoraHD")));
 	candidates.push_back(tjs_string(TJS_W("/sdcard/Download")));
+#endif
+
+	/* Open the diagnostic log file inside the public save folder (which the
+	   engine has already created and can write to). */
+#if defined(__ANDROID__)
+	if(saveDirUtf8 && *saveDirUtf8)
+	{
+		std::string logPath = std::string(saveDirUtf8) + "/patch_scan.log";
+		scanLog = fopen(logPath.c_str(), "w");
+	}
+#endif
+	if(scanLog)
+		fprintf(scanLog, "Patch scan start. saveDir=%s\n",
+			saveDirUtf8 ? saveDirUtf8 : "(null)");
+#if defined(__ANDROID__)
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+		"Patch scan start, saveDir=%s", saveDirUtf8 ? saveDirUtf8 : "(null)");
 #endif
 
 	bool any = false;
@@ -964,6 +977,12 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 		ttstr folderLog(TJS_W("(info) Patch scan folder: "));
 		folderLog += ttstr(candidates[c]);
 		TVPAddImportantLog(folderLog);
+		if(scanLog)
+		{
+			std::string utf8;
+			if(TVPUtf16ToUtf8(utf8, candidates[c]))
+				fprintf(scanLog, "folder: %s\n", utf8.c_str());
+		}
 		for(int i = 1; i <= 32; ++i)
 		{
 			tjs_string name = prefix + TJS_W("patch");
@@ -977,16 +996,33 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 				ttstr log(TJS_W("(info) Loaded patch archive: "));
 				log += nativeName;
 				TVPAddImportantLog(log);
+				if(scanLog)
+				{
+					std::string utf8;
+					if(TVPUtf16ToUtf8(utf8, name))
+						fprintf(scanLog, "LOADED: %s\n", utf8.c_str());
+				}
 				any = true;
 			}
 			else
 			{
 				TVPAddImportantLog(TJS_W("(info) Patch scan: not found ") + nativeName);
+				if(scanLog)
+				{
+					std::string utf8;
+					if(TVPUtf16ToUtf8(utf8, name))
+						fprintf(scanLog, "not found: %s\n", utf8.c_str());
+				}
 			}
 		}
 	}
 	if(!any)
 		TVPAddImportantLog(TJS_W("(info) Patch scan: no patch archives found."));
+	if(scanLog)
+	{
+		fprintf(scanLog, "Patch scan finished. loaded=%s\n", any ? "yes" : "no");
+		fclose(scanLog);
+	}
 }
 
 //---------------------------------------------------------------------------

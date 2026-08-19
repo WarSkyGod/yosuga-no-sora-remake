@@ -925,7 +925,7 @@ static void TVPInitRandomGenerator()
 // is the save directory path in UTF-8 (Android: Downloads/YosugaSoraHD/
 // savedata; iOS: Documents/<bundle>/savedata); the parent folder is scanned.
 //---------------------------------------------------------------------------
-static void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
+void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 {
 	if(!saveDirUtf8 || !*saveDirUtf8) return;
 
@@ -982,15 +982,9 @@ void TVPInitializeBaseSystems()
 			TVPExecuteStorage(name_msgmap, NULL, false, TJS_W(""));
 	}
 
-	// Load external patch archives (patch.xp3, patch2.xp3, ...) from the
-	// public game data folder so updates can be applied without reinstalling
-	// the app.  On Android the folder is the public Downloads game directory
-	// (parent of the save folder); on iOS it is Documents/<bundle-id>.
-#if defined(__ANDROID__)
-	TVPLoadExternalPatchArchives(TVPAndroidGetPublicSaveDirectory());
-#elif defined(__APPLE__) && TARGET_OS_IPHONE
-	TVPLoadExternalPatchArchives(TVPIOSGetDocumentsDirectory());
-#endif
+	// Note: external patch archives are loaded later in
+	// TVPInitializeStartupScript's caller once SDL/JNI is fully ready;
+	// see TVPLoadExternalPatchArchives usage in Application.cpp.
 }
 //---------------------------------------------------------------------------
 

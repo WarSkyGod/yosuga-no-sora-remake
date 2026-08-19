@@ -218,44 +218,72 @@ public class KirikiriSDL2Activity extends SDLActivity {
     }
 
     /**
-     * Places the movie view inside the window rectangle reported by the
-     * engine (game-space coordinates, already zoomed).  Without this the
-     * movie TextureView stays fullscreen and stretches the picture.  Called
-     * from native through JNI.
+     * Places the movie view inside the engine's overlay rectangle.
+     *
+     * The engine reports the rectangle in game-space logical coordinates
+     * (e.g. 1920x1080) together with the logical window size; this method
+     * scales those onto the actual view pixels so the video lands exactly on
+     * the intended overlay area instead of being stretched fullscreen.
+     * Called from native through JNI.
      */
     public void setMovieBounds(final int left, final int top,
-            final int width, final int height) {
+            final int width, final int height,
+            final int logicalWidth, final int logicalHeight) {
         runOnUiThread(() -> {
             movieLeft = left;
             movieTop = top;
             movieWidth = width;
             movieHeight = height;
-            movieHasBounds = width > 0 && height > 0;
-            if (movieView != null) {
+            movieHasBounds = width > 0 && height > 0 && logicalWidth > 0 && logicalHeight > 0;
+            if (movieView != null && movieHasBounds) {
+                // Scale logical game coordinates to the actual view size.
+                int viewW = mLayout.getWidth();
+                int viewH = mLayout.getHeight();
+                if (viewW > 0 && viewH > 0) {
+                    float sx = (float) viewW / logicalWidth;
+                    float sy = (float) viewH / logicalHeight;
+                    float px = left * sx;
+                    float py = top * sy;
+                    float pw = width * sx;
+                    float ph = height * sy;
+                    movieView.setX(px);
+                    movieView.setY(py);
+                    ViewGroup.LayoutParams lp = movieView.getLayoutParams();
+                    if (lp instanceof RelativeLayout.LayoutParams) {
+                        RelativeLayout.LayoutParams rlp =
+                            (RelativeLayout.LayoutParams) lp;
+                        rlp.width = (int) pw;
+                        rlp.height = (int) ph;
+                        rlp.leftMargin = 0;
+                        rlp.topMargin = 0;
+                    }
+                    movieView.setLayoutParams(lp);
+                    movieView.requestLayout();
+                    fitMovieView();
+                }
+            } else if (movieView != null) {
+                // No bounds: fullscreen fallback (OP/ED).
+                movieView.setX(0);
+                movieView.setY(0);
                 ViewGroup.LayoutParams lp = movieView.getLayoutParams();
                 if (lp instanceof RelativeLayout.LayoutParams) {
                     RelativeLayout.LayoutParams rlp =
                         (RelativeLayout.LayoutParams) lp;
-                    if (movieHasBounds) {
-                        rlp.leftMargin = left;
-                        rlp.topMargin = top;
-                        rlp.width = width;
-                        rlp.height = height;
-                    } else {
-                        rlp.leftMargin = 0;
-                        rlp.topMargin = 0;
-                        rlp.width = ViewGroup.LayoutParams.MATCH_PARENT;
-                        rlp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-                    }
-                    movieView.setLayoutParams(rlp);
+                    rlp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                    rlp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                    rlp.leftMargin = 0;
+                    rlp.topMargin = 0;
                 }
+                movieView.setLayoutParams(lp);
+                movieView.requestLayout();
+                fitMovieView();
             }
         });
     }
 
     /**
      * Applies a letterbox transform to the movie TextureView so the video
-     * keeps its native aspect ratio inside the engine-reported rectangle
+     * keeps its native aspect ratio inside the current view rectangle
      * instead of being stretched.  Fullscreen movies simply fill the window.
      */
     private void fitMovieView() {
@@ -266,7 +294,11 @@ public class KirikiriSDL2Activity extends SDLActivity {
 
         int viewW = movieView.getWidth();
         int viewH = movieView.getHeight();
-        if (viewW <= 0 || viewH <= 0) return;
+        if (viewW <= 0 || viewH <= 0) {
+            // Layout not done yet; try again after the frame is measured.
+            movieView.post(() -> fitMovieView());
+            return;
+        }
 
         float scale = Math.min((float) viewW / vw, (float) viewH / vh);
         float scaledW = vw * scale;

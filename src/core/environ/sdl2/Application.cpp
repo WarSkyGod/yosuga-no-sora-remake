@@ -27,6 +27,7 @@
 #include "Application.h"
 #include "SysInitIntf.h"
 #include "SysInitImpl.h"
+#include "ApplicationSpecialPath.h"
 #include "DebugIntf.h"
 #include "MsgIntf.h"
 #include "ScriptMgnIntf.h"
@@ -480,6 +481,15 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 #endif
 
 		TVPSystemInit();
+
+		// Load external patch archives (patch.xp3, ...) from the public game
+		// data folder once SDL/JNI is fully initialized, so users can apply
+		// updates without reinstalling the app.
+#if defined(__ANDROID__)
+		TVPLoadExternalPatchArchives(TVPAndroidGetPublicSaveDirectory());
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+		TVPLoadExternalPatchArchives(TVPIOSGetDocumentsDirectory());
+#endif
 
 		if(TVPCheckAbout()) return true; // version information dialog box;
 

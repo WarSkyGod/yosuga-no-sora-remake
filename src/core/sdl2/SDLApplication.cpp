@@ -2995,6 +2995,32 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_FINGERDOWN:
 				case SDL_FINGERUP:
 				{
+					/* Two-finger tap maps to the right mouse button so touch
+					   devices can cancel/back out of movies and menus exactly
+					   like a right-click on desktop.  The second finger press
+					   sends mbRight down, and when fingers drop below two the
+					   corresponding up is delivered. */
+					bool right_pressed = event.tfinger.numFingers >= 2;
+					if (event.tfinger.type == SDL_FINGERDOWN && right_pressed)
+					{
+						this->lastMouseX = static_cast<int>(event.tfinger.x * this->GetWidth());
+						this->lastMouseY = static_cast<int>(event.tfinger.y * this->GetHeight());
+						this->TranslateWindowToDrawArea(this->lastMouseX, this->lastMouseY);
+						tjs_uint32 s = TVP_TShiftState_To_uint32(GetShiftState());
+						s |= GetMouseButtonState();
+						s |= ssRight;
+						TVPPostInputEvent(new tTVPOnMouseDownInputEvent(this->TJSNativeInstance, this->lastMouseX, this->lastMouseY, tTVPMouseButton::mbRight, s));
+					}
+					else if (event.tfinger.type == SDL_FINGERUP && !right_pressed)
+					{
+						this->lastMouseX = static_cast<int>(event.tfinger.x * this->GetWidth());
+						this->lastMouseY = static_cast<int>(event.tfinger.y * this->GetHeight());
+						this->TranslateWindowToDrawArea(this->lastMouseX, this->lastMouseY);
+						tjs_uint32 s = TVP_TShiftState_To_uint32(GetShiftState());
+						s |= GetMouseButtonState();
+						s &= ~ssRight;
+						TVPPostInputEvent(new tTVPOnMouseUpInputEvent(this->TJSNativeInstance, this->lastMouseX, this->lastMouseY, tTVPMouseButton::mbRight, s));
+					}
 					switch (event.tfinger.type)
 					{
 						case SDL_FINGERDOWN:

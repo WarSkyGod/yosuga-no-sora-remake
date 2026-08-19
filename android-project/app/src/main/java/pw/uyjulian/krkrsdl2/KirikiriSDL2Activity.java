@@ -40,6 +40,12 @@ public class KirikiriSDL2Activity extends SDLActivity {
     private boolean moviePrepared;
     private boolean playMovieWhenPrepared;
     private float movieVolume = 1.0f;
+    // Movie display rectangle in the SDL surface's coordinate space; the
+    // engine reports it through setMovieBounds().  A zero-size rectangle
+    // means "fill the whole window" (default fullscreen movies).
+    private int movieLeft, movieTop, movieWidth, movieHeight;
+    private boolean movieHasBounds;
+    private int screenWidthPx, screenHeightPx;
 
     private static native void nativeOnMovieFinished();
     private static native void nativeOnMovieError(String message);
@@ -75,6 +81,10 @@ public class KirikiriSDL2Activity extends SDLActivity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT);
         mLayout.addView(movieView, params);
+
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        screenWidthPx = dm.widthPixels;
+        screenHeightPx = dm.heightPixels;
 
         // Ask for the storage permission needed to write to public Downloads.
         // On Android 11+ that means MANAGE_EXTERNAL_STORAGE (opens system
@@ -207,6 +217,69 @@ public class KirikiriSDL2Activity extends SDLActivity {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
     }
 
+    /**
+     * Places the movie view inside the window rectangle reported by the
+     * engine (game-space coordinates, already zoomed).  Without this the
+     * movie TextureView stays fullscreen and stretches the picture.  Called
+     * from native through JNI.
+     */
+    public void setMovieBounds(final int left, final int top,
+            final int width, final int height) {
+        runOnUiThread(() -> {
+            movieLeft = left;
+            movieTop = top;
+            movieWidth = width;
+            movieHeight = height;
+            movieHasBounds = width > 0 && height > 0;
+            if (movieView != null) {
+                ViewGroup.LayoutParams lp = movieView.getLayoutParams();
+                if (lp instanceof RelativeLayout.LayoutParams) {
+                    RelativeLayout.LayoutParams rlp =
+                        (RelativeLayout.LayoutParams) lp;
+                    if (movieHasBounds) {
+                        rlp.leftMargin = left;
+                        rlp.topMargin = top;
+                        rlp.width = width;
+                        rlp.height = height;
+                    } else {
+                        rlp.leftMargin = 0;
+                        rlp.topMargin = 0;
+                        rlp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                        rlp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                    }
+                    movieView.setLayoutParams(rlp);
+                }
+            }
+        });
+    }
+
+    /**
+     * Applies a letterbox transform to the movie TextureView so the video
+     * keeps its native aspect ratio inside the engine-reported rectangle
+     * instead of being stretched.  Fullscreen movies simply fill the window.
+     */
+    private void fitMovieView() {
+        if (movieView == null || moviePlayer == null) return;
+        int vw = moviePlayer.getVideoWidth();
+        int vh = moviePlayer.getVideoHeight();
+        if (vw <= 0 || vh <= 0) return;
+
+        int viewW = movieView.getWidth();
+        int viewH = movieView.getHeight();
+        if (viewW <= 0 || viewH <= 0) return;
+
+        float scale = Math.min((float) viewW / vw, (float) viewH / vh);
+        float scaledW = vw * scale;
+        float scaledH = vh * scale;
+        float tx = (viewW - scaledW) / 2f;
+        float ty = (viewH - scaledH) / 2f;
+
+        android.graphics.Matrix matrix = new android.graphics.Matrix();
+        matrix.setScale(scaledW / viewW, scaledH / viewH);
+        matrix.postTranslate(tx, ty);
+        movieView.setTransform(matrix);
+    }
+
     public void openMovie(final String path) {
         runOnUiThread(() -> {
             releaseMovieOnUiThread(false);
@@ -242,6 +315,7 @@ public class KirikiriSDL2Activity extends SDLActivity {
             player.setOnPreparedListener(preparedPlayer -> {
                 if (preparedPlayer != moviePlayer) return;
                 moviePrepared = true;
+                fitMovieView();
                 if (playMovieWhenPrepared) preparedPlayer.start();
             });
             player.setOnCompletionListener(completedPlayer -> {

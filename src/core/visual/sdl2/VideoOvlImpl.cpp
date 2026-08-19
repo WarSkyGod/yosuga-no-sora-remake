@@ -108,6 +108,27 @@ static bool TVPAndroidCallMovieVolume(float volume)
 	env->DeleteLocalRef(activity);
 	return !failed;
 }
+
+/* Push the movie display rectangle (already zoomed to window pixels) to the
+ * Java movie TextureView so the video is drawn inside the engine's overlay
+ * rect instead of stretched across the whole screen. */
+static bool TVPAndroidCallMovieSetBounds(int left, int top, int width, int height)
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity) return false;
+	jclass activityClass = env->GetObjectClass(activity);
+	jmethodID method = activityClass ? env->GetMethodID(activityClass,
+		"setMovieBounds", "(IIII)V") : nullptr;
+	if(method) env->CallVoidMethod(activity, method,
+		static_cast<jint>(left), static_cast<jint>(top),
+		static_cast<jint>(width), static_cast<jint>(height));
+	bool failed = !method ||
+		TVPAndroidCheckAndClearJNIException(env, "setMovieBounds");
+	if(activityClass) env->DeleteLocalRef(activityClass);
+	env->DeleteLocalRef(activity);
+	return !failed;
+}
 #endif
 //---------------------------------------------------------------------------
 static void TVPAddVideOverlay(tTJSNI_VideoOverlay *ovl)
@@ -642,6 +663,16 @@ void tTJSNI_VideoOverlay::SetRectangleToVideoOverlay()
 		TVPMacVideoSetScreenGeometry(MacVideoOverlay,
 			Window->GetWidth(), Window->GetHeight());
 		TVPMacVideoSetBounds(MacVideoOverlay, l, t, r - l, b - t);
+	}
+#elif defined(__ANDROID__)
+	if(AndroidVideoOpen && Window)
+	{
+		tjs_int l = Rect.left;
+		tjs_int t = Rect.top;
+		tjs_int r = Rect.right;
+		tjs_int b = Rect.bottom;
+		Window->ZoomRectangle(l, t, r, b);
+		TVPAndroidCallMovieSetBounds(l, t, r - l, b - t);
 	}
 #endif
 }

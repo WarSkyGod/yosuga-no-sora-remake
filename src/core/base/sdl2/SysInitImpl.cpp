@@ -1023,6 +1023,24 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 	}
 	if(!any)
 		TVPAddImportantLog(TJS_W("(info) Patch scan: no patch archives found."));
+	else
+	{
+		/* The archive was registered on the auto path; now run the patch
+		   bootstrap script (system/patch_test.tjs inside the archive) which
+		   is resolved through the auto path, so no startup.tjs override is
+		   needed. */
+		TVPAddImportantLog(TJS_W("(info) Patch scan: executing patch bootstrap script."));
+		if(scanLog)
+			fprintf(scanLog, "executing patch_test.tjs\n");
+		try
+		{
+			TVPExecuteStorage(TJS_W("patch_test.tjs"), NULL, false, TJS_W(""));
+		}
+		catch(...)
+		{
+			TVPAddImportantLog(TJS_W("(info) Patch scan: patch_test.tjs execution failed."));
+		}
+	}
 	if(scanLog)
 	{
 		fprintf(scanLog, "Patch scan finished. loaded=%s\n", any ? "yes" : "no");

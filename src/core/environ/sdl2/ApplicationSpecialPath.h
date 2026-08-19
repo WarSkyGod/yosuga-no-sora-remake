@@ -7,10 +7,17 @@
 #ifdef _WIN32
 #include <shlobj.h>
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "FilePathUtil.h"
 #include "StorageIntf.h"
 #include "CharacterSet.h"
 #include <SDL.h>
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+extern "C" const char *TVPIOSGetDocumentsDirectory(void);
+#endif
 
 class ApplicationSpecialPath {
 public:
@@ -84,7 +91,28 @@ public:
 		{
 			return datapath;
 		}
-#if defined(__vita__)
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+		/* iOS: keep saves in a game-specific subfolder of the app
+		   <sandbox>/Documents (Documents/<bundle-id>/savedata) so the user
+		   can reach, back up and re-import them through the Files app or
+		   Finder (UIFileSharingEnabled) without risking a collistion with
+		   another application that shares the Documents directory.  Being
+		   inside the sandbox it is never indexed into the system photo
+		   library. */
+		{
+			const char *docs = TVPIOSGetDocumentsDirectory();
+			tjs_string path;
+			if(docs && *docs && TVPUtf8ToUtf16(path, std::string(docs)))
+			{
+				if(path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+					path += TJS_W('/');
+				return path;
+			}
+		}
+		ttstr nativeDataPath = ttstr(TVPGetAppPath().AsStdString());
+		nativeDataPath += TJS_W("/savedata/");
+		return nativeDataPath.AsStdString();
+#elif defined(__vita__)
 		return TJS_W("savedata0:/savedata/");
 #else
 		char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");

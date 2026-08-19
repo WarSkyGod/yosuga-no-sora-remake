@@ -442,6 +442,7 @@ set_source_files_properties(
 endif()
 list(APPEND KRKRSDL2_LIBS
 	"-framework AVFoundation"
+	"-framework AudioToolbox"
 	"-framework CoreMedia"
 	"-framework QuartzCore"
 )

@@ -973,7 +973,12 @@ void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 	bool any = false;
 	for(size_t c = 0; c < candidates.size(); ++c)
 	{
-		tjs_string prefix = IncludeTrailingBackslash(candidates[c]);
+		/* Use '/' explicitly: on Android IncludeTrailingBackslash returns a
+		   backslash which corrupts the POSIX path (e.g. .../YosugaSoraHD\
+		   patch.xp3), so the file is never found. */
+		tjs_string prefix = candidates[c];
+		if(prefix.empty() || prefix[prefix.length() - 1] != TJS_W('/'))
+			prefix += TJS_W('/');
 		ttstr folderLog(TJS_W("(info) Patch scan folder: "));
 		folderLog += ttstr(candidates[c]);
 		TVPAddImportantLog(folderLog);

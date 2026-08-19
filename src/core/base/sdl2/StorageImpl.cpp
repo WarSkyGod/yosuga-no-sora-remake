@@ -49,6 +49,8 @@
 #include <android/log.h>
 #include <android/configuration.h>
 #include <android/asset_manager_jni.h>
+#include <jni.h>
+#include <SDL_system.h>
 #include "AndroidAssetManager.h"
 #endif
 
@@ -166,6 +168,54 @@ bool AndroidListAssetsFromContentManifest(
 	}
 	return matched;
 }
+} // namespace (anonymous)
+
+//---------------------------------------------------------------------------
+// TVPAndroidGetPublicSaveDirectory
+//---------------------------------------------------------------------------
+// Returns the public Downloads save folder exposed by the Java activity
+// (which migrates old private saves there and writes a .nomedia marker), or
+// an empty string when public storage is not available.  Used by
+// ApplicationSpecialPath::GetDataPathDirectory on Android.
+//
+// Only a non-empty result is cached.  If the very first query happens before
+// the user granted storage permission (returns empty), later calls re-query
+// the Java activity so an in-session grant can be picked up instead of being
+// stuck with a cached empty path.
+extern "C" const char *TVPAndroidGetPublicSaveDirectory(void)
+{
+	static std::string cached;
+	static bool cached_valid = false;
+	if(cached_valid) return cached.c_str();
+
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if(!env || !activity)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+			"Android: no JNI env/activity for public save dir");
+		return cached.c_str();
+	}
+	jclass clazz = env->GetObjectClass(activity);
+	jmethodID mid = clazz ? env->GetMethodID(clazz,
+		"getPublicSaveDataPath", "()Ljava/lang/String;") : nullptr;
+	jstring javaPath = mid
+		? static_cast<jstring>(env->CallObjectMethod(activity, mid))
+		: nullptr;
+	if(javaPath)
+	{
+		const char *utf8 = env->GetStringUTFChars(javaPath, nullptr);
+		if(utf8 && *utf8)
+		{
+			cached = utf8;
+			cached_valid = true;
+		}
+		env->ReleaseStringUTFChars(javaPath, utf8 ? utf8 : "");
+		env->DeleteLocalRef(javaPath);
+	}
+	if(clazz) env->DeleteLocalRef(clazz);
+	env->DeleteLocalRef(activity);
+	return cached.c_str();
 }
 #endif
 

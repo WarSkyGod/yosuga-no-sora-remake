@@ -127,8 +127,6 @@ static void TVPIOSStartKeepAliveAudio(void)
         TVPIOSKeepAliveQueue = NULL;
         return;
     }
-    const UInt32 maxBufferBytes = 44100 * 2; /* ~1 second of silence */
-    (void)maxBufferBytes;
     for(int i = 0; i < 2; ++i)
     {
         status = AudioQueueAllocateBuffer(TVPIOSKeepAliveQueue, 44100 * 2,
@@ -161,8 +159,79 @@ static void TVPIOSStopKeepAliveAudio(void)
                             error:nil];
 }
 
-/* Documents/savedata directory (UTF-8, no trailing slash).  Used by the
- * engine to relocate saves to a user-reachable folder; see
+static void TVPIOSMigrateLegacyDir(NSString *oldDir, NSString *targetDir,
+                                  NSFileManager *fm);
+
+/* Migrate saves written by an older build into the new
+ * Documents/<bundle>/savedata folder on the first run of an upgraded
+ * install, so progress is not lost and users keep their saves after
+ * re-installing.  Old builds left saves in SDL_GetPrefPath's private
+ * application-support folder, so several candidate locations are scanned. */
+static void TVPIOSMigrateLegacySaves(NSString *targetDir)
+{
+    static bool migrated = false;
+    if(migrated) return;
+    migrated = true;
+
+    /* Build candidate old save roots without needing the SDL headers: the
+       application-support folder SDL uses, and the app-private Library. */
+    NSMutableArray *candidates = [NSMutableArray array];
+    NSArray *support = NSSearchPathForDirectoriesInDomains(
+        NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    if(support.firstObject.length > 0)
+    {
+        [candidates addObject:
+            [support.firstObject stringByAppendingPathComponent:@"krkrsdl2"]];
+        [candidates addObject:
+            [support.firstObject stringByAppendingPathComponent:
+                (NSBundle.mainBundle.bundleIdentifier ?: @"krkrsdl2")]];
+    }
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for(NSString *oldDir in candidates)
+        TVPIOSMigrateLegacyDir(oldDir, targetDir, fm);
+}
+
+static void TVPIOSMigrateLegacyDir(NSString *oldDir, NSString *targetDir,
+                                   NSFileManager *fm)
+{
+    if(!oldDir || oldDir.length == 0 || [oldDir isEqualToString:targetDir])
+        return;
+    BOOL isDir = NO;
+    if(![fm fileExistsAtPath:oldDir isDirectory:&isDir] || !isDir) return;
+
+    NSArray *entries = [fm contentsOfDirectoryAtPath:oldDir error:nil];
+    for(NSString *entry in entries)
+    {
+        NSString *src = [oldDir stringByAppendingPathComponent:entry];
+        NSString *dst = [targetDir stringByAppendingPathComponent:entry];
+        if([fm fileExistsAtPath:dst]) continue; // never overwrite newer saves
+        BOOL srcIsDir = NO;
+        if(![fm fileExistsAtPath:src]) continue;
+        if(![fm fileExistsAtPath:src isDirectory:&srcIsDir] || !srcIsDir)
+        {
+            if([fm copyItemAtPath:src toPath:dst error:nil])
+                [fm removeItemAtPath:src error:nil];
+        }
+        else
+        {
+            /* Copy sub-folders recursively (e.g. thumbnails). */
+            NSArray *sub = [fm contentsOfDirectoryAtPath:src error:nil];
+            for(NSString *subEntry in sub)
+            {
+                NSString *s2 = [src stringByAppendingPathComponent:subEntry];
+                NSString *d2 = [dst stringByAppendingPathComponent:subEntry];
+                [fm createDirectoryAtPath:dst withIntermediateDirectories:YES
+                                attributes:nil error:nil];
+                if(![fm fileExistsAtPath:d2])
+                    [fm copyItemAtPath:s2 toPath:d2 error:nil];
+            }
+        }
+    }
+}
+
+/* Documents/<bundle>/savedata directory (UTF-8, no trailing slash).  Used
+ * by the engine to relocate saves to a user-reachable folder; see
  * ApplicationSpecialPath.h. */
 extern "C" const char *TVPIOSGetDocumentsDirectory(void)
 {
@@ -186,6 +255,7 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
                                   withIntermediateDirectories:YES
                                                    attributes:nil
                                                         error:nil];
+        TVPIOSMigrateLegacySaves(saveDir);
         const char *utf8 = saveDir.fileSystemRepresentation;
         if(utf8) cached = utf8;
     }
@@ -529,6 +599,7 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
 {
     if(!_player || _playing) return;
     if(_ended) [self rewind];
+    _skipRequested = NO; // allow skipping again on replay/loop
     _playing = YES;
     [_player play];
     _player.rate = _rate;

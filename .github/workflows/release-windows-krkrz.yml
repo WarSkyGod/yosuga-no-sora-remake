@@ -129,6 +129,22 @@ jobs:
           Move-Item -LiteralPath (Join-Path $projectRoot 'data.xp3') `
             -Destination (Join-Path $packageDirectory 'data.xp3')
 
+          # Pre-create the game's save directory inside the archive so users
+          # find it immediately, and drop a .nomedia marker so media scanners
+          # (and photo galleries on other systems) ignore the save thumbnails.
+          $saveDir = Join-Path $packageDirectory 'savedata'
+          New-Item -ItemType Directory -Path $saveDir -Force | Out-Null
+          New-Item -ItemType File -Path (Join-Path $saveDir '.nomedia') `
+            -Force | Out-Null
+          New-Item -ItemType File -Path (Join-Path $saveDir 'README-savedir.txt') `
+            -Force | Out-Null
+          @"
+          Save files and save thumbnails live in this folder.
+          The .nomedia file keeps Android/iOS media scanners from publishing
+          the thumbnail images into a system photo gallery; keep it here.
+          "@ | Set-Content -LiteralPath (Join-Path $saveDir 'README-savedir.txt') `
+            -Encoding utf8NoBOM
+
           @"
           Yosuga no Sora: HD Remake
           Runtime: Windows KRKRZ

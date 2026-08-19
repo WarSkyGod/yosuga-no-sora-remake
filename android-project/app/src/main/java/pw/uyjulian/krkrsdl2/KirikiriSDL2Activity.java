@@ -1,11 +1,17 @@
 package pw.uyjulian.krkrsdl2;
 
-import android.content.res.AssetFileDescriptor;
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.content.res.AssetFileDescriptor;
 import android.graphics.SurfaceTexture;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
@@ -13,11 +19,22 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
 
-import org.libsdl.app.SDLActivity; 
+import org.libsdl.app.SDLActivity;
+
+import java.io.File;
+import java.io.IOException; 
 
 public class KirikiriSDL2Activity extends SDLActivity {
     private static final String TAG = "KirikiriSDL2";
     private static final String ASSET_PREFIX = "asset:///";
+
+    private static final int STORAGE_PERMISSION_REQUEST = 9001;
+    private static final String SAVE_SUBDIR = "YosugaSoraHD" + File.separator + "savedata";
+    private static final String NO_MEDIA = ".nomedia";
+    // Cached public save directory absolute path (UTF-8), shared with native.
+    private static String sPublicSaveDir = null;
+    private static boolean sLegacyMigrated = false;
+    private String mLegacySaveDir = null;
 
     private TextureView movieView;
     private MediaPlayer moviePlayer;
@@ -60,6 +77,198 @@ public class KirikiriSDL2Activity extends SDLActivity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT);
         mLayout.addView(movieView, params);
+
+        // Legacy saves lived in the app's private container (SDL_GetPrefPath
+        // points at a folder under the internal/external private storage).
+        // Remember the candidates so the first run of an upgraded install can
+        // migrate them into the public Downloads folder.
+        mLegacySaveDir = new File(getFilesDir(), "savedata").getAbsolutePath();
+
+        // Ask for the storage permission needed to write to public Downloads.
+        // On Android 11+ that means MANAGE_EXTERNAL_STORAGE (opens system
+        // settings); on older versions the WRITE/READ pair is requested.
+        requestStoragePermissionIfNeeded();
+
+        // Build the public save directory and migrate old saves.  Safe to
+        // call even before permission is granted -- falls back cleanly.
+        getPublicSaveDataPath();
+    }
+
+    // ---- Storage permission + public save directory -----------------------
+    private void requestStoragePermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: scoped storage requires MANAGE_EXTERNAL_STORAGE,
+            // which can only be granted from system Settings.
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent intent = new Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Exception ignored) {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                    } catch (Exception ignored2) {
+                        // No settings screen available; stay in the private dir.
+                    }
+                }
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{
+                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        android.Manifest.permission.READ_EXTERNAL_STORAGE
+                }, STORAGE_PERMISSION_REQUEST);
+            }
+        }
+    }
+
+    private boolean hasPublicStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == PackageManager.PERMISSION_GRANTED;
+        }
+        return true; // granted at install time on <= API 22
+    }
+
+    /**
+     * Returns the public Downloads save folder path, creating it (plus a
+     * .nomedia marker so the media scanner never publishes the save thumbnails
+     * into the system gallery) if needed.  Old saves from the private data
+     * directory are migrated here on the first run of an upgraded install so
+     * progress is not lost.  Returns null when public access is unavailable.
+     * Called from native through JNI; keep it public and side-effect safe.
+     */
+    public String getPublicSaveDataPath() {
+        if (sPublicSaveDir != null) return sPublicSaveDir;
+        if (!hasPublicStorageAccess()) return null;
+
+        // Prefer the real public Downloads folder on Android 11+ (where
+        // MANAGE_EXTERNAL_STORAGE makes it writable).  On Android 10
+        // scoped storage blocks direct file writes to Downloads even with
+        // WRITE_EXTERNAL_STORAGE under targetSdk 37, so fall back to the
+        // app-external folder which is still user-reachable (via the
+        // Files app / USB) and persists across un-installs awaiting backup.
+        File saveDir = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            File publicDir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS);
+            if (publicDir != null)
+                saveDir = new File(publicDir, SAVE_SUBDIR);
+        } else {
+            File ext = getExternalFilesDir(null);
+            if (ext != null)
+                saveDir = new File(ext, "DownloadSavedata");
+        }
+        if (saveDir == null) return null;
+
+        try {
+            if (!saveDir.exists() && !saveDir.mkdirs()) return null;
+            File noMedia = new File(saveDir, NO_MEDIA);
+            if (!noMedia.exists()) {
+                if (!noMedia.createNewFile())
+                    Log.w(TAG, "Could not create " + NO_MEDIA);
+            }
+            migrateLegacySaves(saveDir);
+            sPublicSaveDir = saveDir.getAbsolutePath();
+        } catch (IOException | SecurityException e) {
+            Log.e(TAG, "Failed to prepare public save directory", e);
+            return null;
+        }
+        return sPublicSaveDir;
+    }
+
+    private void migrateLegacySaves(File targetDir) {
+        if (sLegacyMigrated) return;
+        // Old builds saved directly under SDL_GetPrefPath's private folder,
+        // which SDL places at <files- or external-dir>/.local/share/krkrsdl2
+        // (an app leaf).  Only migrate files that actually look like save
+        // data (KRKR save thumbnails / config); do not sweep the whole
+        // private root, which could move unrelated files.
+        java.util.List<File> candidates = new java.util.ArrayList<>();
+        if (mLegacySaveDir != null) candidates.add(new File(mLegacySaveDir));
+        File intRoot = getFilesDir();
+        candidates.add(new File(intRoot, ".local/share/krkrsdl2"));
+        candidates.add(new File(intRoot, "krkrsdl2/krkrsdl2"));
+        File ext = getExternalFilesDir(null);
+        if (ext != null) {
+            candidates.add(new File(ext, ".local/share/krkrsdl2"));
+            candidates.add(new File(ext, "krkrsdl2/krkrsdl2"));
+        }
+
+        for (File legacy : candidates) {
+            if (!legacy.isDirectory()) continue;
+            File[] files = legacy.listFiles();
+            if (files == null) continue;
+            for (File file : files) {
+                if (!file.isFile()) continue;
+                if (!isSaveArtifact(file.getName())) continue;
+                // Never overwrite a save already in the public dir.
+                File dest = new File(targetDir, file.getName());
+                if (dest.exists()) continue;
+                if (copyFile(file, dest)) {
+                    file.delete();
+                } else {
+                    Log.w(TAG, "Failed to migrate save " + file.getName());
+                }
+            }
+        }
+        sLegacyMigrated = true;
+    }
+
+    /** True for files that belong to the save system: KRKR save thumbnails
+     *  (save\d\d_\d\d\d.bmp), quick/auto saves and the per-user config. */
+    private static boolean isSaveArtifact(String name) {
+        if (name.equals(NO_MEDIA)) return false;
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".bmp")) {
+            // save00_000.bmp / saveNN_NNN.bmp, asave.bmp, qsave.bmp, vsave*.bmp
+            return lower.startsWith("save") || lower.startsWith("asave")
+                || lower.startsWith("qsave") || lower.startsWith("vsave");
+        }
+        return lower.endsWith(".cfu"); // per-user configuration
+    }
+
+    private boolean copyFile(File src, File dst) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(src);
+             java.io.FileOutputStream out = new java.io.FileOutputStream(dst)) {
+            byte[] buffer = new byte[65536];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+            out.getFD().sync();
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == STORAGE_PERMISSION_REQUEST
+                && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            // Re-run public dir setup now that permission is granted.
+            getPublicSaveDataPath();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // If the user returns from the system Settings screen (where they
+        // granted MANAGE_EXTERNAL_STORAGE on Android 11+), try to set up the
+        // public save directory now.  The native helper re-queries this
+        // method, so an in-session grant takes effect without a restart.
+        if (sPublicSaveDir == null && hasPublicStorageAccess())
+            getPublicSaveDataPath();
     }
 
     /**

@@ -141,6 +141,20 @@ jobs:
             --cache "$RUNNER_TEMP/content-manifest-cache.json" \
             --full
 
+      # Restore the development signing keystore from the Actions cache so
+      # every build (with or without release secrets) signs with the SAME
+      # key.  Without this, the build falls back to the Android debug key
+      # which is regenerated on every fresh runner, so installing a new APK
+      # over an older one fails with "signatures do not match".
+      - name: Restore development signing keystore
+        id: keystore-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/krkrsdl2-development.jks
+          key: krkrsdl2-android-signing-v1
+          restore-keys: |
+            krkrsdl2-android-signing-
+
       - name: Configure release signing
         id: signing
         shell: bash
@@ -162,26 +176,56 @@ jobs:
             [[ -n "$value" ]] && configured=$((configured + 1))
           done
 
-          if [[ "$configured" -eq 0 ]]; then
-            echo 'No release signing secrets found; using the Android debug key.'
-            echo 'mode=development' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ "$configured" -ne 4 ]]; then
+          if [[ "$configured" -ne 0 && "$configured" -ne 4 ]]; then
             echo 'Android signing secrets are only partially configured.' >&2
             exit 1
           fi
 
-          keystore="$RUNNER_TEMP/yosuga-release.jks"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
-          chmod 600 "$keystore"
+          if [[ "$configured" -eq 4 ]]; then
+            # Release signing secrets are present: use the production key.
+            keystore="$RUNNER_TEMP/yosuga-release.jks"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            chmod 600 "$keystore"
+            {
+              echo "ANDROID_KEYSTORE_PATH=$keystore"
+              echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo 'mode=release' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Development mode: reuse the cached keystore so every CI build
+          # signs identically (and matches whatever the user last installed).
+          dev_keystore="$RUNNER_TEMP/krkrsdl2-development.jks"
+          if [[ ! -f "$dev_keystore" ]]; then
+            echo 'Generating a new development signing keystore (cached for future builds).'
+            keytool -genkeypair -v \
+              -keystore "$dev_keystore" \
+              -storepass krkrsdl2-dev \
+              -alias krkrsdl2 \
+              -keypass krkrsdl2-dev \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=Kirikiri SDL2 Development, OU=krkrsdl2, O=krkrsdl2, L=Internet, ST=Internet, C=US'
+          fi
+          chmod 600 "$dev_keystore"
           {
-            echo "ANDROID_KEYSTORE_PATH=$keystore"
-            echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
-            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
-            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+            echo "ANDROID_KEYSTORE_PATH=$dev_keystore"
+            echo "ANDROID_KEYSTORE_PASSWORD=krkrsdl2-dev"
+            echo "ANDROID_KEY_ALIAS=krkrsdl2"
+            echo "ANDROID_KEY_PASSWORD=krkrsdl2-dev"
           } >> "$GITHUB_ENV"
-          echo 'mode=release' >> "$GITHUB_OUTPUT"
+          echo 'mode=development' >> "$GITHUB_OUTPUT"
+
+      # Persist the development keystore so later builds reuse the exact same
+      # key (cache/save is a no-op when the key already exists).
+      - name: Save development signing keystore
+        if: steps.keystore-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/krkrsdl2-development.jks
+          key: krkrsdl2-android-signing-v1
 
       - name: Build optimized ARM64 release APK
         working-directory: android-project

@@ -3000,8 +3000,8 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 					   like a right-click on desktop.  The second finger press
 					   sends mbRight down, and when fingers drop below two the
 					   corresponding up is delivered. */
-					bool right_pressed = event.tfinger.numFingers >= 2;
-					if (event.tfinger.type == SDL_FINGERDOWN && right_pressed)
+					int fingerCount = SDL_GetNumTouchFingers(event.tfinger.touchId);
+					if (event.tfinger.type == SDL_FINGERDOWN && fingerCount >= 2)
 					{
 						this->lastMouseX = static_cast<int>(event.tfinger.x * this->GetWidth());
 						this->lastMouseY = static_cast<int>(event.tfinger.y * this->GetHeight());
@@ -3011,7 +3011,7 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 						s |= ssRight;
 						TVPPostInputEvent(new tTVPOnMouseDownInputEvent(this->TJSNativeInstance, this->lastMouseX, this->lastMouseY, tTVPMouseButton::mbRight, s));
 					}
-					else if (event.tfinger.type == SDL_FINGERUP && !right_pressed)
+					else if (event.tfinger.type == SDL_FINGERUP && fingerCount <= 1)
 					{
 						this->lastMouseX = static_cast<int>(event.tfinger.x * this->GetWidth());
 						this->lastMouseY = static_cast<int>(event.tfinger.y * this->GetHeight());

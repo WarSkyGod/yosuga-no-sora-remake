@@ -944,13 +944,14 @@ static void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 		tjs_string name = prefix + TJS_W("patch");
 		if(i > 1) name += ttstr((tjs_int)i).AsStdString();
 		name += TJS_W(".xp3");
-		if(TVPCheckExistentLocalFile(name))
+		ttstr nativeName = ttstr(name);
+		if(TVPCheckExistentLocalFile(nativeName))
 		{
 			// Register the archive (trailing '>' marks an archive file).
 			ttstr archiveName = ttstr(name + TJS_W(">"));
 			TVPAddAutoPath(archiveName);
 			ttstr log(TJS_W("(info) Loaded patch archive: "));
-			log += ttstr(name);
+			log += nativeName;
 			TVPAddImportantLog(log);
 		}
 	}

@@ -33,8 +33,6 @@ public class KirikiriSDL2Activity extends SDLActivity {
     private static final String NO_MEDIA = ".nomedia";
     // Cached public save directory absolute path (UTF-8), shared with native.
     private static String sPublicSaveDir = null;
-    private static boolean sLegacyMigrated = false;
-    private String mLegacySaveDir = null;
 
     private TextureView movieView;
     private MediaPlayer moviePlayer;
@@ -78,19 +76,14 @@ public class KirikiriSDL2Activity extends SDLActivity {
             ViewGroup.LayoutParams.MATCH_PARENT);
         mLayout.addView(movieView, params);
 
-        // Legacy saves lived in the app's private container (SDL_GetPrefPath
-        // points at a folder under the internal/external private storage).
-        // Remember the candidates so the first run of an upgraded install can
-        // migrate them into the public Downloads folder.
-        mLegacySaveDir = new File(getFilesDir(), "savedata").getAbsolutePath();
-
         // Ask for the storage permission needed to write to public Downloads.
         // On Android 11+ that means MANAGE_EXTERNAL_STORAGE (opens system
         // settings); on older versions the WRITE/READ pair is requested.
         requestStoragePermissionIfNeeded();
 
-        // Build the public save directory and migrate old saves.  Safe to
-        // call even before permission is granted -- falls back cleanly.
+        // Build the public save directory (and .nomedia marker) so saves live
+        // in a user-reachable folder.  Old saves are NOT auto-migrated here;
+        // a fresh install simply starts using the new location.
         getPublicSaveDataPath();
     }
 
@@ -138,10 +131,9 @@ public class KirikiriSDL2Activity extends SDLActivity {
     /**
      * Returns the public Downloads save folder path, creating it (plus a
      * .nomedia marker so the media scanner never publishes the save thumbnails
-     * into the system gallery) if needed.  Old saves from the private data
-     * directory are migrated here on the first run of an upgraded install so
-     * progress is not lost.  Returns null when public access is unavailable.
-     * Called from native through JNI; keep it public and side-effect safe.
+     * into the system gallery) if needed.  Returns null when public access is
+     * unavailable.  Called from native through JNI; keep it public and
+     * side-effect safe.
      */
     public String getPublicSaveDataPath() {
         if (sPublicSaveDir != null) return sPublicSaveDir;
@@ -173,79 +165,12 @@ public class KirikiriSDL2Activity extends SDLActivity {
                 if (!noMedia.createNewFile())
                     Log.w(TAG, "Could not create " + NO_MEDIA);
             }
-            migrateLegacySaves(saveDir);
             sPublicSaveDir = saveDir.getAbsolutePath();
         } catch (IOException | SecurityException e) {
             Log.e(TAG, "Failed to prepare public save directory", e);
             return null;
         }
         return sPublicSaveDir;
-    }
-
-    private void migrateLegacySaves(File targetDir) {
-        if (sLegacyMigrated) return;
-        // Old builds saved directly under SDL_GetPrefPath's private folder,
-        // which SDL places at <files- or external-dir>/.local/share/krkrsdl2
-        // (an app leaf).  Only migrate files that actually look like save
-        // data (KRKR save thumbnails / config); do not sweep the whole
-        // private root, which could move unrelated files.
-        java.util.List<File> candidates = new java.util.ArrayList<>();
-        if (mLegacySaveDir != null) candidates.add(new File(mLegacySaveDir));
-        File intRoot = getFilesDir();
-        candidates.add(new File(intRoot, ".local/share/krkrsdl2"));
-        candidates.add(new File(intRoot, "krkrsdl2/krkrsdl2"));
-        File ext = getExternalFilesDir(null);
-        if (ext != null) {
-            candidates.add(new File(ext, ".local/share/krkrsdl2"));
-            candidates.add(new File(ext, "krkrsdl2/krkrsdl2"));
-        }
-
-        for (File legacy : candidates) {
-            if (!legacy.isDirectory()) continue;
-            File[] files = legacy.listFiles();
-            if (files == null) continue;
-            for (File file : files) {
-                if (!file.isFile()) continue;
-                if (!isSaveArtifact(file.getName())) continue;
-                // Never overwrite a save already in the public dir.
-                File dest = new File(targetDir, file.getName());
-                if (dest.exists()) continue;
-                if (copyFile(file, dest)) {
-                    file.delete();
-                } else {
-                    Log.w(TAG, "Failed to migrate save " + file.getName());
-                }
-            }
-        }
-        sLegacyMigrated = true;
-    }
-
-    /** True for files that belong to the save system: KRKR save thumbnails
-     *  (save\d\d_\d\d\d.bmp), quick/auto saves and the per-user config. */
-    private static boolean isSaveArtifact(String name) {
-        if (name.equals(NO_MEDIA)) return false;
-        String lower = name.toLowerCase();
-        if (lower.endsWith(".bmp")) {
-            // save00_000.bmp / saveNN_NNN.bmp, asave.bmp, qsave.bmp, vsave*.bmp
-            return lower.startsWith("save") || lower.startsWith("asave")
-                || lower.startsWith("qsave") || lower.startsWith("vsave");
-        }
-        return lower.endsWith(".cfu"); // per-user configuration
-    }
-
-    private boolean copyFile(File src, File dst) {
-        try (java.io.FileInputStream in = new java.io.FileInputStream(src);
-             java.io.FileOutputStream out = new java.io.FileOutputStream(dst)) {
-            byte[] buffer = new byte[65536];
-            int read;
-            while ((read = in.read(buffer)) > 0) {
-                out.write(buffer, 0, read);
-            }
-            out.getFD().sync();
-            return true;
-        } catch (IOException e) {
-            return false;
-        }
     }
 
     @Override

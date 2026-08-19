@@ -927,34 +927,66 @@ static void TVPInitRandomGenerator()
 //---------------------------------------------------------------------------
 void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 {
-	if(!saveDirUtf8 || !*saveDirUtf8) return;
+#if defined(__ANDROID__)
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+		"Patch scan start, saveDir=%s", saveDirUtf8 ? saveDirUtf8 : "(null)");
+#endif
+	/* The public save folder may not be resolvable yet (JNI/permission), so
+	   build a list of candidate patch folders: the parent of the save folder
+	   plus a few well-known public locations.  Each is scanned for patch.xp3,
+	   patch2.xp3, ... and every step is logged for diagnosis. */
+	std::vector<tjs_string> candidates;
 
-	tjs_string saveDirU16;
-	if(!TVPUtf8ToUtf16(saveDirU16, std::string(saveDirUtf8))) return;
-	if(saveDirU16.empty()) return;
-
-	// Parent directory of the save folder = the public game data folder.
-	tjs_string parent = ExtractFileDir(saveDirU16);
-	if(parent.empty()) return;
-
-	tjs_string prefix = IncludeTrailingBackslash(parent);
-	// Scan patch.xp3, patch2.xp3, ... (up to 32).
-	for(int i = 1; i <= 32; ++i)
+	if(saveDirUtf8 && *saveDirUtf8)
 	{
-		tjs_string name = prefix + TJS_W("patch");
-		if(i > 1) name += ttstr((tjs_int)i).AsStdString();
-		name += TJS_W(".xp3");
-		ttstr nativeName = ttstr(name);
-		if(TVPCheckExistentLocalFile(nativeName))
+		tjs_string saveDirU16;
+		if(TVPUtf8ToUtf16(saveDirU16, std::string(saveDirUtf8)) && !saveDirU16.empty())
 		{
-			// Register the archive (trailing '>' marks an archive file).
-			ttstr archiveName = ttstr(name + TJS_W(">"));
-			TVPAddAutoPath(archiveName);
-			ttstr log(TJS_W("(info) Loaded patch archive: "));
-			log += nativeName;
-			TVPAddImportantLog(log);
+			tjs_string parent = ExtractFileDir(saveDirU16);
+			if(!parent.empty())
+				candidates.push_back(parent);
 		}
 	}
+	else
+	{
+		TVPAddImportantLog(TJS_W("(info) Patch scan: no public save dir resolved; using fallback locations."));
+	}
+	/* Fallbacks for Android: /sdcard/Download/YosugaSoraHD and /sdcard/Download. */
+#if defined(__ANDROID__)
+	candidates.push_back(tjs_string(TJS_W("/sdcard/Download/YosugaSoraHD")));
+	candidates.push_back(tjs_string(TJS_W("/sdcard/Download")));
+#endif
+
+	bool any = false;
+	for(size_t c = 0; c < candidates.size(); ++c)
+	{
+		tjs_string prefix = IncludeTrailingBackslash(candidates[c]);
+		ttstr folderLog(TJS_W("(info) Patch scan folder: "));
+		folderLog += ttstr(candidates[c]);
+		TVPAddImportantLog(folderLog);
+		for(int i = 1; i <= 32; ++i)
+		{
+			tjs_string name = prefix + TJS_W("patch");
+			if(i > 1) name += ttstr((tjs_int)i).AsStdString();
+			name += TJS_W(".xp3");
+			ttstr nativeName = ttstr(name);
+			if(TVPCheckExistentLocalFile(nativeName))
+			{
+				ttstr archiveName = ttstr(name + TJS_W(">"));
+				TVPAddAutoPath(archiveName);
+				ttstr log(TJS_W("(info) Loaded patch archive: "));
+				log += nativeName;
+				TVPAddImportantLog(log);
+				any = true;
+			}
+			else
+			{
+				TVPAddImportantLog(TJS_W("(info) Patch scan: not found ") + nativeName);
+			}
+		}
+	}
+	if(!any)
+		TVPAddImportantLog(TJS_W("(info) Patch scan: no patch archives found."));
 }
 
 //---------------------------------------------------------------------------

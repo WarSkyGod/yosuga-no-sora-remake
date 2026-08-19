@@ -226,8 +226,9 @@ struct Index {
           const doneTotal = doneBytes + downloaded;
           const elapsed = Math.max(1, (Date.now() - startTime) / 1000);
           const speed = doneTotal / elapsed;
-          this.progressValue = Math.min(99, Math.floor(doneTotal * 100 / Math.max(1, totalBytes)));
-          this.progressText = '正在下载 ' + asset.name + '  ' +
+          const pct = Math.min(99, Math.floor(doneTotal * 100 / Math.max(1, totalBytes)));
+          this.progressValue = pct;
+          this.progressText = '正在下载 ' + asset.name + '  ' + pct + '%  ' +
             this.fmtSize(doneTotal) + ' / ' + this.fmtSize(totalBytes) +
             '  (' + this.fmtSpeed(speed) + ')';
         });
@@ -364,7 +365,15 @@ struct Index {
   /** Copy from a document picker uri (file:// or datashare://) to a sandbox
    * path. Plain copyFileSync fails on picker uris with error 13900002. */
   copyFromUri(uri: string, dest: string): void {
-    const src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+    let src: fs.File | null = null;
+    try {
+      src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+    } catch (e) {
+      // Some systems hand out datashare:// uris that openSync rejects; the
+      // copyFile helper understands more uri schemes.
+      fs.copyFileSync(uri, dest);
+      return;
+    }
     const dst = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
     const buf = new ArrayBuffer(1024 * 1024);
     try {
@@ -460,8 +469,9 @@ struct Index {
         }
       } catch (e) {
         this.bootState = 2;
-        this.message = '导入失败：' + name + '（' + JSON.stringify(e) + '）';
-        await this.showNotice('导入失败', JSON.stringify(e));
+        const detail = JSON.stringify(e);
+        this.message = '导入失败：' + name + '\n' + detail + '\nuri: ' + uri;
+        await this.showNotice('导入失败', detail);
         return;
       }
       await this.delay(50);
@@ -530,13 +540,24 @@ struct Index {
             .onChange((value: string) => {
               this.baseUrl = value;
             })
-          TextInput({ text: this.proxyUrl, placeholder: '加速代理前缀（留空=直连，如 https://gh-proxy.cn/ ）' })
+          TextInput({ text: this.proxyUrl, placeholder: '加速代理前缀（留空=直连）' })
             .width('86%')
             .fontSize(12)
             .onChange((value: string) => {
               this.proxyUrl = value;
             })
-          Text('提示：可留空直连，或用 https://proxy.craft-hello.top/proxy/ 或 https://gh-proxy.cn/ 加速').fontSize(11).fontColor(Color.Gray).maxLines(2)
+          Row({ space: 8 }) {
+            Button('直连').fontSize(12).height(32).backgroundColor('#666666').onClick(() => {
+              this.proxyUrl = '';
+            })
+            Button('gh-proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
+              this.proxyUrl = 'https://gh-proxy.cn/';
+            })
+            Button('我的代理').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
+              this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
+            })
+          }
+          Text('留空=直连 GitHub；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
           Button('下载游戏数据').width(220).height(52).onClick(() => {
             this.downloadAll();
           })
@@ -552,8 +573,10 @@ struct Index {
         .justifyContent(FlexAlign.Center)
       } else if (this.bootState === 3 || this.bootState === 4) {
         Column({ space: 14 }) {
+          // Progress component may not repaint on some system versions;
+          // the percentage text is the reliable progress indicator.
+          Text(this.progressText).fontSize(15).fontColor(Color.White).maxLines(3)
           Progress({ value: this.progressValue, total: 100 }).width(260).color(Color.White)
-          Text(this.progressText).fontSize(13).fontColor(Color.Gray)
         }
       } else {
         Column({ space: 14 }) {

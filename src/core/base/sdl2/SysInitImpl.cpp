@@ -947,8 +947,11 @@ static void TVPLoadExternalPatchArchives(const char *saveDirUtf8)
 		if(TVPCheckExistentLocalFile(name))
 		{
 			// Register the archive (trailing '>' marks an archive file).
-			TVPAddAutoPath(name + TJS_W(">"));
-			TVPAddImportantLog(TJS_W("(info) Loaded patch archive: ") + name);
+			ttstr archiveName = ttstr(name + TJS_W(">"));
+			TVPAddAutoPath(archiveName);
+			ttstr log(TJS_W("(info) Loaded patch archive: "));
+			log += ttstr(name);
+			TVPAddImportantLog(log);
 		}
 	}
 }

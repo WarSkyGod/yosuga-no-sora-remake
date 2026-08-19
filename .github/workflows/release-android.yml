@@ -219,9 +219,11 @@ jobs:
           echo 'mode=development' >> "$GITHUB_OUTPUT"
 
       # Persist the development keystore so later builds reuse the exact same
-      # key (cache/save is a no-op when the key already exists).
+      # key.  save is only attempted when the restore missed; a save race on
+      # the same key (e.g. parallel runs) must not fail the whole build.
       - name: Save development signing keystore
         if: steps.keystore-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/krkrsdl2-development.jks

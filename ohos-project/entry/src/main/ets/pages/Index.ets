@@ -86,51 +86,26 @@ struct Index {
     // content (black screen). Permissions are requested on demand when the
     // user taps download/import instead.
 
-    // The game data and savedata should live in the public Download folder;
-    // when the platform refuses (denied permission or a changed path model),
-    // fall back to the sandbox so the app always boots.
+    // CRITICAL: do NOT touch the public Download folder here. On HarmonyOS 7
+    // (API 26) a fs.mkdirSync call on /storage/Users/currentUser/Download
+    // (unwritable without media permission) freezes the UI thread and blanks
+    // the page. The sandbox works unconditionally; the public folder is only
+    // created later inside ensurePublic() when the user taps download/import.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    let publicOk = false;
+    this.baseDir = this.sandboxFiles;
+    this.saveDir = this.sandboxFiles + '/savedata';
+    this.dataDir = this.sandboxFiles + '/data';
     try {
-      fs.mkdirSync(this.appDir, true);
-      fs.accessSync(this.appDir);
-      publicOk = true;
-      this.log('public appDir ok: ' + this.appDir);
+      fs.mkdirSync(this.saveDir, true);
     } catch (e) {
-      this.log('public appDir unusable: ' + JSON.stringify(e));
+      // already exists
     }
-    if (publicOk) {
-      this.baseDir = this.appDir;
-      this.saveDir = this.appDir + '/savedata';
-      this.dataDir = this.appDir + '/data';
-      try {
-        fs.mkdirSync(this.saveDir, true);
-      } catch (e) {
-        // already exists
-      }
-      try {
-        fs.mkdirSync(this.dataDir, true);
-      } catch (e) {
-        // already exists
-      }
-      this.message = '';
-    } else {
-      this.baseDir = this.sandboxFiles;
-      this.saveDir = this.sandboxFiles + '/savedata';
-      this.dataDir = this.sandboxFiles + '/data';
-      try {
-        fs.mkdirSync(this.saveDir, true);
-      } catch (e) {
-        // already exists
-      }
-      try {
-        fs.mkdirSync(this.dataDir, true);
-      } catch (e) {
-        // already exists
-      }
-      this.message = '未获得公共下载目录访问权限，游戏数据将存放在应用私有目录';
-      this.log('sandbox fallback: ' + this.baseDir);
+    try {
+      fs.mkdirSync(this.dataDir, true);
+    } catch (e) {
+      // already exists
     }
+    this.message = '游戏数据将存放在应用私有目录；点击下载/导入时可授权使用公共下载目录';
 
     const ready = this.dataReady();
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
@@ -519,7 +494,6 @@ struct Index {
         }
       }
     }
-    .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')
     .height('100%')
     .backgroundColor(Color.Black)

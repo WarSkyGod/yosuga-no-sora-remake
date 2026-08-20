@@ -2176,6 +2176,8 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 #else
 		TVPDataPath = TVPNormalizeStorageName(TVPNativeDataPath);
 #endif
+		/* OHOS debug: log TVPDataPath. */
+		{ const char *dd5 = getenv("KRKR_OHOS_DATA_DIR"); if (dd5 && *dd5) { FILE *lf = fopen((std::string(dd5) + "/save-debug.log").c_str(), "a"); if (lf) { std::string dp8; TVPUtf16ToUtf8(dp8, TVPDataPath.AsStdString()); fprintf(lf, "TVPDataPath=%s\n", dp8.c_str()); fclose(lf); } } }
 		TVPAddImportantLog( TVPFormatMessage( TVPInfoDataPath, TVPDataPath) );
 
 		// set log output directory

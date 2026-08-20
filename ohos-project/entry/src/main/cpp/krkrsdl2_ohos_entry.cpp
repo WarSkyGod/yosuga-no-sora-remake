@@ -456,8 +456,11 @@ static void EngineMain()
 	OHOS_Entry_LogNative("engine: data ok, starting krkrsdl2 platform");
 	try
 	{
+		OHOS_Entry_LogNative("engine: pre_init_platform enter");
 		krkrsdl2_pre_init_platform();
+		OHOS_Entry_LogNative("engine: pre_init_platform done");
 		krkrsdl2_convert_set_args(1, argv);
+		OHOS_Entry_LogNative("engine: init_platform enter");
 		if (krkrsdl2_init_platform())
 		{
 			// The application asked to terminate during startup.
@@ -465,6 +468,7 @@ static void EngineMain()
 			g_engine_running = false;
 			return;
 		}
+		OHOS_Entry_LogNative("engine: init_platform done");
 		OHOS_Entry_LogNative("engine: entering main loop");
 		krkrsdl2_run_main_loop();
 		krkrsdl2_cleanup();

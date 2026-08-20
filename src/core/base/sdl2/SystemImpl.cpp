@@ -1117,7 +1117,12 @@ TJS_BEGIN_NATIVE_PROP_DECL(dataPath)
 				if (lf) { std::string dp8; TVPUtf16ToUtf8(dp8, TVPDataPath.AsStdString()); fprintf(lf, "System.dataPath=%s\n", dp8.c_str()); fclose(lf); }
 			}
 		}
+#if defined(__OHOS__)
+		/* OHOS: return the public save dir directly. */
+		{ const char *sv = getenv("KRKR_OHOS_SAVE_DIR"); FILE *lf = fopen("/data/local/tmp/yosuga-dp.log", "a"); if (lf) { fprintf(lf, "dataPath getter: sv=%s tvp=%s\n", sv ? sv : "(null)", ""); fclose(lf); } if (sv && *sv) { tjs_string p16; if (TVPUtf8ToUtf16(p16, std::string(sv))) { *result = p16; return TJS_S_OK; } } }
+#else
 		*result = TVPDataPath;
+#endif
 		return TJS_S_OK;
 	}
 	TJS_END_NATIVE_PROP_GETTER

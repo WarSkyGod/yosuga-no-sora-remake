@@ -528,9 +528,15 @@ struct Index {
     });
   }
 
-  /** Copy from a document picker uri (file:// or datashare://) to a sandbox
-   * path. Plain copyFileSync fails on picker uris with error 13900002. */
+  /** Copy from a document picker uri (file:// or datashare://) to a path.
+   * Plain copyFileSync fails on picker uris with error 13900002, and a
+   * pre-existing destination triggers 13900015, so remove it first. */
   copyFromUri(uri: string, dest: string): void {
+    try {
+      fs.unlinkSync(dest);
+    } catch (e) {
+      // destination may not exist yet - fine
+    }
     let src: fs.File | null = null;
     try {
       src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
@@ -617,6 +623,13 @@ struct Index {
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
           this.copyFromUri(uri, tmp);
+          // Clear a stale data.xp3 so decompress won't hit a conflict
+          // (error 900002), then extract.
+          try {
+            fs.unlinkSync(this.baseDir + '/data.xp3');
+          } catch (e) {
+            // none present
+          }
           await this.unzipTo(tmp, this.baseDir);
           // A zip may contain data.xp3 at its root (no data/ prefix);
           // move it into the data folder so readiness checks pass.

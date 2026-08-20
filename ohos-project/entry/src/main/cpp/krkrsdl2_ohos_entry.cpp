@@ -72,13 +72,14 @@ void OnSurfaceCreated(OH_NativeXComponent *component, void *window)
 	(void)component;
 	(void)window;
 	Log(LOG_INFO, "XComponent surface created");
+	OHOS_Entry_LogNative("engine: OnSurfaceCreated called");
 }
 
 void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
 {
 	uint64_t width = 0;
 	uint64_t height = 0;
-	OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
+	int32_t sz = OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
 
 	pthread_mutex_lock(&g_lock);
 	g_surface_width = width;
@@ -90,7 +91,18 @@ void OnSurfaceChanged(OH_NativeXComponent *component, void *window)
 	pthread_cond_broadcast(&g_cond);
 	pthread_mutex_unlock(&g_lock);
 
-	SDL_OHOS_OnSurfaceChanged(static_cast<int>(width), static_cast<int>(height));
+	char sdiag[192];
+	snprintf(sdiag, sizeof(sdiag),
+		"engine: OnSurfaceChanged w=%llu h=%llu window=%p size_ret=%d",
+		static_cast<unsigned long long>(width),
+		static_cast<unsigned long long>(height),
+		static_cast<void *>(window), static_cast<int>(sz));
+	OHOS_Entry_LogNative(sdiag);
+
+	if (g_window_ready)
+	{
+		SDL_OHOS_OnSurfaceChanged(static_cast<int>(width), static_cast<int>(height));
+	}
 
 	Log(LOG_INFO, "XComponent surface changed: %llux%llu window=%p",
 		static_cast<unsigned long long>(width),
@@ -324,28 +336,10 @@ void OHOS_Entry_AttachXComponent(void *component)
 	snprintf(regmsg, sizeof(regmsg), "engine: XComponent RegisterCallback result=%d", static_cast<int>(reg));
 	OHOS_Entry_LogNative(regmsg);
 
-	// The surface callbacks fire while the surface is being created; if
-	// onLoad runs after the surface already exists, query the current size
-	// to detect an already-present surface so the engine does not block.
-	uint64_t w = 0, h = 0;
-	int32_t size_ret = OH_NativeXComponent_GetXComponentSize(native, nullptr, &w, &h);
-	if (size_ret == 0 && w > 0 && h > 0)
-	{
-		OHOS_Entry_LogNative("engine: surface already present at attach, triggering window ready");
-		pthread_mutex_lock(&g_lock);
-		g_window_ready = true;
-		g_surface_width = w;
-		g_surface_height = h;
-		pthread_cond_broadcast(&g_cond);
-		pthread_mutex_unlock(&g_lock);
-	}
-	else
-	{
-		char sizemsg[128];
-		snprintf(sizemsg, sizeof(sizemsg), "engine: surface not present at attach (size_ret=%d w=%llu h=%llu)", static_cast<int>(size_ret), static_cast<unsigned long long>(w), static_cast<unsigned long long>(h));
-		OHOS_Entry_LogNative(sizemsg);
-	}
 
+	// NOTE: do NOT call OH_NativeXComponent_GetXComponentSize with a null
+	// window here: on this system that triggers SIGBUS on the UI thread.
+	// The surface callbacks deliver the window; we wait for them instead.
 	Log(LOG_INFO, "XComponent attached");
 }
 

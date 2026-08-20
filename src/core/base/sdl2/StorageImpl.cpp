@@ -320,6 +320,8 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 {
 	ttstr name(_name);
 	GetLocalName(name);
+	// OHOS debug: log the directory being enumerated.
+	{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { std::string n8; TVPUtf16ToUtf8(n8, name.AsStdString()); fprintf(lf, "engine: GetListAt dir=%s\n", n8.c_str()); fclose(lf); } } }
 #ifdef _WIN32
 	name += TJS_W("*.*");
 
@@ -376,7 +378,11 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 #if defined(__vita__)
 				if (SCE_S_ISREG(entry.d_stat.st_mode))
 #else
+#if defined(__OHOS__)
+				if( entry->d_type == DT_REG || entry->d_type == DT_UNKNOWN )
+#else
 				if( entry->d_type == DT_REG )
+#endif
 #endif
 				{
 					tjs_char fname[256];

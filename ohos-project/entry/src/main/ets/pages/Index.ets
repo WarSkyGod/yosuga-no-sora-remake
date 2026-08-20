@@ -102,7 +102,7 @@ struct Index {
     try {
       const p = this.sandboxFiles + '/debug.log';
       const fd = fs.openSync(p, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
-      fs.writeSync(fd, line + '\n');
+      fs.writeSync(fd.fd, line + '\n');
       fs.closeSync(fd);
     } catch (e) {
       // logging must never break the app

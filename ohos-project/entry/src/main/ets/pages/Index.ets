@@ -153,13 +153,31 @@ struct Index {
     this.log('bootstrap page shown');
   }
 
+  /** Read the build-time-injected default base URL from rawfile
+   *  default-manifest.json (contains the current repository's Release path).
+   *  Returns '' when absent. */
+  readDefaultBaseUrl(): string {
+    try {
+      const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
+      const bytes = manager.getRawFileContentSync('default-manifest.json');
+      const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
+      const parsed = JSON.parse(text) as { baseUrl: string };
+      return parsed.baseUrl || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
   /** Fetch the data manifest from <baseUrl>data-assets.json so the app gets
    *  the real asset names/sizes/hashes without the build needing to bundle
    *  game data. baseUrl is user-editable (direct link or a proxy prefix). */
   async loadManifest(): Promise<void> {
     try {
       if (this.baseUrl.trim() === '') {
-        this.baseUrl = 'https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/latest/download/';
+        // Default download root was injected at build time (so forks/renames
+        // track the current repository); fall back to the project URL.
+        this.baseUrl = this.readDefaultBaseUrl() ||
+          'https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/latest/download/';
       }
       const manifestUrl = this.baseUrl + 'data-assets.json';
       const req = http.createHttp();

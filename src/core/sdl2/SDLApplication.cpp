@@ -959,6 +959,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	{
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateRenderer -> %s (err=%s)\n", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); fclose(lf); } } }
 		if (!this->renderer)
 		{
 			TVPAddLog(ttstr("Cannot create SDL renderer: ") + ttstr(SDL_GetError()));

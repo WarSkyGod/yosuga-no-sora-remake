@@ -44,12 +44,17 @@ SDL_GLContext OHOS_GL_CreateContext(_THIS, SDL_Window *window)
 		return NULL;
 	}
 
+	FILE *glf = fopen("/data/local/tmp/yosuga-egl.log", "a");
+	if (glf) { fprintf(glf, "OHOS_GL_CreateContext: native_window=%p\n", (void*)native_window); fclose(glf); }
 	data->egl_surface = (EGLSurface)SDL_EGL_CreateSurface(_this, (NativeWindowType)native_window);
+	if (glf) { fprintf(glf, "  egl_surface=%p (NO_SURFACE=%p)\n", (void*)data->egl_surface, (void*)EGL_NO_SURFACE); fclose(glf); }
 	if (data->egl_surface == EGL_NO_SURFACE)
 	{
 		return NULL;
 	}
-	return SDL_EGL_CreateContext(_this, data->egl_surface);
+	SDL_GLContext ctx = SDL_EGL_CreateContext(_this, data->egl_surface);
+	if (glf) { fprintf(glf, "  context=%p\n", (void*)ctx); fclose(glf); }
+	return ctx;
 }
 
 int OHOS_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext context)
@@ -82,6 +87,14 @@ int OHOS_GL_SwapWindow(_THIS, SDL_Window *window)
 	if (data == NULL)
 	{
 		return SDL_SetError("Window has no driver data");
+	}
+	{
+		static int swap_count = 0;
+		if (++swap_count <= 5 || swap_count % 300 == 0)
+		{
+			FILE *sf = fopen("/data/local/tmp/yosuga-egl.log", "a");
+			if (sf) { fprintf(sf, "swap #%d egl_surface=%p\n", swap_count, (void*)data->egl_surface); fclose(sf); }
+		}
 	}
 	return SDL_EGL_SwapBuffers(_this, data->egl_surface);
 }

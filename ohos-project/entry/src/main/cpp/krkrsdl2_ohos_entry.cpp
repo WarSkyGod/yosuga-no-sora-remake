@@ -450,6 +450,14 @@ static void EngineMain()
 		Log(LOG_WARN, "chdir(%{public}s) failed", base_dir.c_str());
 	}
 
+	if (!base_dir.empty())
+	{
+		// Let the engine core find the data without a cross-library symbol:
+		// the environment survives the libentry -> libkrkrsdl2 boundary.
+		setenv("KRKR_OHOS_DATA_DIR", base_dir.c_str(), 1);
+		OHOS_Entry_LogNative(("engine: KRKR_OHOS_DATA_DIR=" + base_dir).c_str());
+	}
+
 	char app_name[] = "krkrsdl2";
 	char *argv[] = {app_name, nullptr};
 

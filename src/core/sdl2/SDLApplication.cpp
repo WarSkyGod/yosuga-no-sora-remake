@@ -921,6 +921,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	window_flags |= SDL_WINDOW_HIDDEN;
 #endif
 
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: calling SDL_CreateWindow w=%d h=%d flags=%u\n", new_window_w, new_window_h, (unsigned)window_flags); fclose(lf); } }
 	this->window = SDL_CreateWindow("krkrsdl2", new_window_x, new_window_y, new_window_w, new_window_h, window_flags);
 	if (!this->window)
 	{

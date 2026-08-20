@@ -544,9 +544,20 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 	// unchanged to avoid the fragile domain/path parsing below.
 	if (nname.length() >= 2 && nname[0] == '.' && (nname[1] == '/' || nname[1] == '\\'))
 	{
+		// "./" is krkrz's local-domain marker ("file://./") followed by an
+		// absolute path. Strip the marker but KEEP the leading slash, so
+		// stat/open resolve against the filesystem root instead of the
+		// current directory (which fails after chdir into the public folder).
 		std::string rel(nname.begin() + 2, nname.end());
+		if (rel.empty() || (rel[0] != '/' && rel[0] != '\\'))
+			rel = "/" + rel;
 		tjs_string w;
 		if (TVPUtf8ToUtf16(w, rel)) { name = ttstr(w); return; }
+	}
+	// any other path: pass through unchanged (already absolute or relative).
+	{
+		tjs_string w;
+		if (TVPUtf8ToUtf16(w, nname)) { name = ttstr(w); return; }
 	}
 	name.Clear();
 	return;

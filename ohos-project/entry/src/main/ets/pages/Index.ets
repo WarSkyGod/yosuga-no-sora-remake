@@ -132,12 +132,16 @@ struct Index {
       this.message = '';
       this.log('data dir: public ' + this.appDir);
     } else {
+      // Public folder not granted yet: request it automatically on first
+      // launch (DocumentViewPicker.save DOWNLOAD mode). Until granted, use
+      // the sandbox so downloads/imports always work.
       this.baseDir = this.sandboxFiles;
       this.saveDir = this.sandboxFiles + '/savedata';
       this.dataDir = this.sandboxFiles + '/data';
-      this.needInit = true;
-      this.message = '数据暂存于应用私有目录。请点击「初始化下载目录」在系统下载目录建专属文件夹（便于连接电脑管理）';
-      this.log('data dir: sandbox (public not granted)');
+      this.needInit = false;
+      this.message = '正在申请系统下载目录…';
+      this.log('data dir: sandbox (public not granted), auto-initing');
+      this.initPublicDir();
     }
     try {
       fs.mkdirSync(this.saveDir, true);
@@ -464,8 +468,27 @@ struct Index {
     } catch (e) {
       this.log('dataDir list failed: ' + JSON.stringify(e));
     }
+    // data.xp3 inside the data folder.
+    if (this.fileExists(this.dataDir + '/data.xp3')) {
+      return true;
+    }
+    // A user may have copied data.xp3 straight onto the app folder root;
+    // move it into data/ so the engine (which reads <base>/data) finds it.
+    if (this.fileExists(this.baseDir + '/data.xp3')) {
+      try {
+        fs.mkdirSync(this.dataDir, true);
+        fs.renameSync(this.baseDir + '/data.xp3', this.dataDir + '/data.xp3');
+        return true;
+      } catch (e) {
+        this.log('move root data.xp3 failed: ' + JSON.stringify(e));
+      }
+    }
+    return false;
+  }
+
+  private fileExists(path: string): boolean {
     try {
-      fs.accessSync(this.dataDir + '/data.xp3');
+      fs.accessSync(path);
       return true;
     } catch (e) {
       return false;

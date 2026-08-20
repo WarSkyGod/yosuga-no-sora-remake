@@ -48,9 +48,10 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 	}
 
 	// The onLoad context carries the OH_NativeXComponent. Older systems wrap
-	// it with napi_wrap (unwrap path); newer systems may hand it out as a
-	// napi external instead. Try both. NEVER throw from here: on HarmonyOS 7
-	// a JS exception escapes and kills the app.
+	// it with napi_wrap (unwrap path); newer systems hand it out as a
+	// napi external instead. Try all known paths and dump the object shape
+	// so a failure is diagnosable. NEVER throw from here: on HarmonyOS 7 a
+	// JS exception escapes and kills the app.
 	OH_NativeXComponent *component = nullptr;
 	napi_valuetype value_type = napi_undefined;
 	napi_typeof(env, args[0], &value_type);
@@ -65,11 +66,53 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 			component = static_cast<OH_NativeXComponent *>(external);
 		}
 	}
-	char diagnostic[160];
+
+	// Dump the context object property names to understand its shape.
+	std::string props = "?";
+	if (value_type == napi_object)
+	{
+		napi_value names = nullptr;
+		if (napi_get_property_names(env, args[0], &names) == napi_ok)
+		{
+			uint32_t len = 0;
+			napi_get_array_length(env, names, &len);
+			props = "";
+			for (uint32_t i = 0; i < len && i < 24; ++i)
+			{
+				napi_value name = nullptr;
+				napi_get_element(env, names, i, &name);
+				char buf[128] = {0};
+				size_t n = 0;
+				if (napi_get_value_string_utf8(env, name, buf, sizeof(buf), &n) == napi_ok)
+				{
+					if (i > 0) props += ",";
+					props += buf;
+				}
+			}
+		}
+	}
+
+	std::string sid = "?";
+	if (value_type == napi_object)
+	{
+		napi_value sid_val = nullptr;
+		if (napi_get_named_property(env, args[0], "surfaceId", &sid_val) == napi_ok)
+		{
+			char buf[128] = {0};
+			size_t n = 0;
+			if (napi_get_value_string_utf8(env, sid_val, buf, sizeof(buf), &n) == napi_ok)
+			{
+				sid = buf;
+			}
+		}
+	}
+
+	char diagnostic[256];
 	snprintf(diagnostic, sizeof(diagnostic),
-		"XComponent OnLoad: type=%d unwrap=%d external=%d native=%s",
+		"XComponent OnLoad: type=%d unwrap=%d external=%d native=%s props=%s surfaceId=%s",
 		static_cast<int>(value_type), static_cast<int>(unwrap_status),
-		static_cast<int>(external_status), component != nullptr ? "yes" : "no");
+		static_cast<int>(external_status), component != nullptr ? "yes" : "no",
+		props.c_str(), sid.c_str());
 	OHOS_Entry_LogNative(diagnostic);
 	if (component == nullptr)
 	{

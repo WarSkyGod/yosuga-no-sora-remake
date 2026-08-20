@@ -37,8 +37,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tag", required=True, help="Release tag, e.g. v0.1.0-test.1")
     parser.add_argument("--out", type=Path, required=True, help="Directory for the zip assets")
     parser.add_argument("--max-size", type=int, default=1800, help="Max raw size per zip in MiB")
-    parser.add_argument("--compress-level", type=int, default=6, choices=range(0, 10),
-                        help="zip deflate level (0 = store)")
+    parser.add_argument("--compress-level", type=int, default=0, choices=range(0, 10),
+                        help="zip deflate level (0 = store, default)")
+    parser.add_argument("--manifest-only", action="store_true",
+                        help="compute the batch layout and write data-assets.json without archiving "
+                             "(used by the HAP build job, which runs parallel to the packaging job); "
+                             "sha256 is left empty and sizes are the raw batch sizes")
     return parser.parse_args()
 
 
@@ -132,22 +136,35 @@ def main() -> int:
     for index, batch in enumerate(batches, start=1):
         name = "Yosuga-no-Sora-HD-Remake-OpenHarmony-data-%02d-%s.zip" % (index, args.tag)
         archive = args.out / name
-        print("archiving %s ..." % name)
         file_count = 0
-        with zipfile.ZipFile(str(archive), "w", compression, compresslevel=args.compress_level) as zf:
-            for pack_id, files in batch:
-                for relative in files:
-                    zf.write(str(root / relative), "data/" + relative)
-                    file_count += 1
-        size = archive.stat().st_size
+        for pack_id, files in batch:
+            file_count += len(files)
+        if args.manifest_only:
+            # Parallel HAP job: just report the layout; sizes are the raw
+            # batch sizes (exact for store) and sha256 is deferred to the
+            # packaging job that actually writes the archives.
+            size = sum((root / f).stat().st_size for pack_id, files in batch for f in files)
+            raw_size = size
+            sha256 = ""
+            print("manifest-only %s: raw %d bytes, packs=%s" % (name, size, ",".join(p for p, _ in batch)))
+        else:
+            print("archiving %s ..." % name)
+            with zipfile.ZipFile(str(archive), "w", compression, compresslevel=args.compress_level) as zf:
+                for pack_id, files in batch:
+                    for relative in files:
+                        zf.write(str(root / relative), "data/" + relative)
+            raw_size = sum((root / f).stat().st_size for pack_id, files in batch for f in files)
+            size = archive.stat().st_size
+            sha256 = sha256_file(archive)
+            print("asset %s: %d bytes (raw %d), packs=%s" % (name, size, raw_size, ",".join(p for p, _ in batch)))
         assets.append({
             "name": name,
             "size": size,
-            "sha256": sha256_file(archive),
+            "sha256": sha256,
+            "rawSize": raw_size,
             "packs": [pack_id for pack_id, _ in batch],
             "fileCount": file_count,
         })
-        print("asset %s: %d bytes, packs=%s" % (name, size, ",".join(assets[-1]["packs"])))
 
     manifest = {
         "schemaVersion": 2,

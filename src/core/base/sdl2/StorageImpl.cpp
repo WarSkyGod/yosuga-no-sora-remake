@@ -372,11 +372,11 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 			while( sceIoDread( dr, &entry ) > 0 )
 #else
 			struct dirent* entry;
+			int ohos_enum_limit = 0;
 			while( ( entry = readdir( dr ) ) != nullptr )
 #endif
 			{
 				// OHOS: limit enumeration to avoid crashing/hanging on huge dirs.
-				int ohos_enum_limit = 0;
 				if (++ohos_enum_limit > 5000) { break; }
 #if defined(__vita__)
 				if (SCE_S_ISREG(entry.d_stat.st_mode))

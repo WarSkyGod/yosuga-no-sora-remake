@@ -14,6 +14,8 @@
 #include "StorageIntf.h"
 #include "CharacterSet.h"
 #include <SDL.h>
+#include <cstdio>
+#include <cstdlib>
 
 #if defined(__APPLE__) && TARGET_OS_IPHONE
 extern "C" const char *TVPIOSGetDocumentsDirectory(void);
@@ -90,6 +92,14 @@ public:
 		datapath = ReplaceStringAll(datapath, TJS_W("$(savedgamespath)"), savedgamespath);
 		return IncludeTrailingBackslash(ExpandUNCFileName(datapath));
 #else
+		/* OHOS debug: log datapath and OHOS save env. */
+		{
+			const char *dd3 = getenv("KRKR_OHOS_SAVE_DIR");
+			std::string dp8;
+			TVPUtf16ToUtf8(dp8, datapath);
+			FILE *lf = fopen("/data/local/tmp/yosuga-save.log", "a");
+			if (lf) { fprintf(lf, "GetDataPathDirectory datapath=%s saveEnv=%s\n", dp8.c_str(), dd3 ? dd3 : "(null)"); fclose(lf); }
+		}
 		if (datapath != TJS_W(""))
 		{
 			return datapath;

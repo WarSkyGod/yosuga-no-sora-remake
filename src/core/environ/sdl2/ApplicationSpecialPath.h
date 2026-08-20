@@ -115,6 +115,23 @@ public:
 		ttstr nativeDataPath = ttstr(TVPGetAppPath().AsStdString());
 		nativeDataPath += TJS_W("/savedata/");
 		return nativeDataPath.AsStdString();
+#elif defined(__OHOS__)
+		/* OHOS: saves live in the public Download app folder (set via
+		   SDL_OHOS_SetSaveDir from the NAPI shell) so users can reach them
+		   through the file manager. Fall back to the sandbox otherwise. */
+		{
+			const char *ohosSave = getenv("KRKR_OHOS_SAVE_DIR");
+			if(ohosSave && *ohosSave)
+			{
+				tjs_string path;
+				if(TVPUtf8ToUtf16(path, std::string(ohosSave)))
+				{
+					if(path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+						path += TJS_W('/');
+					return path;
+				}
+			}
+		}
 #elif defined(__ANDROID__)
 		/* Android: keep saves in the public Downloads folder (falling back
 		   to the private data dir when public access is unavailable).  The

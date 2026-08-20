@@ -1868,6 +1868,19 @@ bool TVPTerminateOnNoWindowStartup = false;
 int TVPTerminateCode = 0;
 //---------------------------------------------------------------------------
 void TVPTerminateAsync(int code)
+	// OHOS debug: trace termination source.
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+			if (lf)
+			{
+				fprintf(lf, "engine: TVPTerminateAsync code=%d caller=%p\n", code, __builtin_return_address(0));
+				fclose(lf);
+			}
+		}
+	}
 {
 	// do "A"synchronous temination of application
 	TVPTerminated = true;

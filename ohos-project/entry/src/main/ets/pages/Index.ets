@@ -107,6 +107,8 @@ struct Index {
     if (this.baseDir !== '' && this.baseDir !== this.sandboxFiles) {
       this.appendLog(this.baseDir + '/debug.log', line);
     }
+    // 3) /data/local/tmp mirror for hdc shell debugging
+    this.appendLog('/data/local/tmp/yosuga.log', line);
   }
 
   private appendLog(path: string, line: string): void {

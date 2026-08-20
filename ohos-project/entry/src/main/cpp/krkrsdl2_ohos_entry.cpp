@@ -272,9 +272,21 @@ void OHOS_Entry_LogNative(const char *message)
 {
 	const char *text = message != nullptr ? message : "(null)";
 	Log(LOG_INFO, "%s", text);
-	if (!g_data_dir.empty())
+	// Write to the sandbox files dir (readable via hdc as shell) and, when
+	// granted, to the public Download app folder.
+	const char *targets[3] = {g_files_dir.c_str(), g_data_dir.c_str(), "/data/local/tmp"};
+	for (int i = 0; i < 3; ++i)
 	{
-		std::string log_path = g_data_dir + "/engine.log";
+		if (targets[i] == nullptr || targets[i][0] == '\0')
+		{
+			continue;
+		}
+		std::string dir_name = std::string(targets[i]);
+		std::string log_path = dir_name + "/engine.log";
+		if (i == 2)
+		{
+			log_path = "/data/local/tmp/yosuga-engine.log";
+		}
 		FILE *file = fopen(log_path.c_str(), "a");
 		if (file != nullptr)
 		{
@@ -315,14 +327,16 @@ void OHOS_Entry_AttachXComponent(void *component)
 static void EngineMain()
 {
 	g_engine_running = true;
-	Log(LOG_INFO, "engine thread started");
+	OHOS_Entry_LogNative("engine: thread started");
 
 	if (!SDL_OHOS_WaitForNativeWindow(60000))
 	{
 		Log(LOG_ERROR, "timed out waiting for the XComponent native window");
+		OHOS_Entry_LogNative("engine: FAILED waiting for XComponent native window (60s timeout)");
 		g_engine_running = false;
 		return;
 	}
+	OHOS_Entry_LogNative("engine: XComponent native window ready");
 
 	// Determine the engine base directory. The ArkTS shell may have set an
 	// external (public Download) base with game data at <base>/data and
@@ -338,9 +352,21 @@ static void EngineMain()
 		std::string startup = base_dir + "/data/startup.tjs";
 		std::string system_dir = base_dir + "/data/system";
 		std::string xp3 = base_dir + "/data.xp3";
-		data_ok = ((stat(startup.c_str(), &st) == 0 && S_ISREG(st.st_mode)) &&
-		           (stat(system_dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode))) ||
-		          (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode));
+		bool has_startup = stat(startup.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+		bool has_system = stat(system_dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+		bool has_xp3 = stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+		data_ok = (has_startup && has_system) || has_xp3;
+		char diag[384];
+		snprintf(diag, sizeof(diag),
+			"engine: base=%s startup=%s system=%s xp3=%s data_ok=%d",
+			base_dir.c_str(), has_startup ? "yes" : "no",
+			has_system ? "yes" : "no", has_xp3 ? "yes" : "no",
+			data_ok ? 1 : 0);
+		OHOS_Entry_LogNative(diag);
+	}
+	else
+	{
+		OHOS_Entry_LogNative("engine: base_dir is EMPTY");
 	}
 	if (!data_ok)
 	{
@@ -367,6 +393,7 @@ static void EngineMain()
 	char app_name[] = "krkrsdl2";
 	char *argv[] = {app_name, nullptr};
 
+	OHOS_Entry_LogNative("engine: data ok, starting krkrsdl2 platform");
 	try
 	{
 		krkrsdl2_pre_init_platform();
@@ -374,19 +401,23 @@ static void EngineMain()
 		if (krkrsdl2_init_platform())
 		{
 			// The application asked to terminate during startup.
+			OHOS_Entry_LogNative("engine: init_platform requested termination");
 			g_engine_running = false;
 			return;
 		}
+		OHOS_Entry_LogNative("engine: entering main loop");
 		krkrsdl2_run_main_loop();
 		krkrsdl2_cleanup();
 	}
 	catch (...)
 	{
 		Log(LOG_ERROR, "uncaught exception escaped the Kirikiri engine");
+		OHOS_Entry_LogNative("engine: UNCAUGHT EXCEPTION escaped Kirikiri engine");
 	}
 
 	g_engine_running = false;
 	Log(LOG_INFO, "engine thread finished");
+	OHOS_Entry_LogNative("engine: thread finished");
 }
 
 void OHOS_Entry_StartEngine(void)

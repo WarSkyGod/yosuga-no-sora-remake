@@ -914,6 +914,25 @@ bool TVPCheckExistentLocalFile(const ttstr &name)
 #else
 	std::string filename;
 	if( TVPUtf16ToUtf8( filename, name.AsStdString() ) ) {
+
+#if defined(__OHOS__)
+	// OHOS debug: log why the check fails.
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+			if (lf)
+			{
+				struct stat st2;
+				int r = stat(filename.c_str(), &st2);
+				fprintf(lf, "engine: CheckExistentLocalFile name=%s stat=%d errno=%d\n", filename.c_str(), r, r==0?0:errno);
+				fclose(lf);
+			}
+		}
+	}
+#endif
+
 #if defined(__vita__)
 		SceIoStat st;
 		if( sceIoGetstat( filename.c_str(), &st) >= 0)

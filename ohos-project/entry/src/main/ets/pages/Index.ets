@@ -144,27 +144,55 @@ struct Index {
       this.startGame();
       return;
     }
-    this.loadManifest();
-    this.log('manifest loaded, assets=' + this.assets.length);
+    this.loadManifest().catch(() => {
+      // manifest loads in the background; the bootstrap page shows first
+    });
     this.bootState = 2;
     this.progressText = '需要下载或导入游戏数据';
     this.uiEpoch++;
     this.log('bootstrap page shown');
   }
 
-  loadManifest(): void {
+  /** Fetch the data manifest from <baseUrl>data-assets.json so the app gets
+   *  the real asset names/sizes/hashes without the build needing to bundle
+   *  game data. baseUrl is user-editable (direct link or a proxy prefix). */
+  async loadManifest(): Promise<void> {
     try {
-      // Synchronous: an async rawfile read that never settles would leave the
-      // UI thread stuck on some system versions (black screen).
-      const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
-      const bytes = manager.getRawFileContentSync('data-assets.json');
-      const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
-      const parsed = JSON.parse(text) as DataManifest;
-      this.manifest = parsed;
-      this.baseUrl = parsed.baseUrl;
-      this.assets = parsed.assets;
+      if (this.baseUrl.trim() === '') {
+        this.baseUrl = 'https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/latest/download/';
+      }
+      const manifestUrl = this.baseUrl + 'data-assets.json';
+      const req = http.createHttp();
+      let parsed: DataManifest | null = null;
+      try {
+        const resp: http.HttpResponse = await req.request(manifestUrl, {
+          method: http.RequestMethod.GET,
+          expectDataType: http.HttpDataType.STRING,
+          connectTimeout: 30000,
+          readTimeout: 60000
+        });
+        if (resp.responseCode === 200) {
+          parsed = JSON.parse(resp.result as string) as DataManifest;
+        } else {
+          this.message = '获取数据清单失败（HTTP ' + resp.responseCode + '），请检查下载地址';
+        }
+      } finally {
+        req.destroy();
+      }
+      if (parsed !== null) {
+        // Keep the user's base (direct or proxy); only adopt the bundled
+        // release URL if the user left it empty.
+        if (this.baseUrl.indexOf('github.com') < 0 && parsed.baseUrl) {
+          this.baseUrl = parsed.baseUrl + '/';
+        }
+        this.manifest = parsed;
+        this.assets = parsed.assets;
+        this.message = '';
+        this.log('manifest fetched, assets=' + this.assets.length);
+      }
     } catch (e) {
-      this.message = '读取数据清单失败，请手动设置下载地址';
+      this.message = '获取数据清单失败：' + JSON.stringify(e);
+      this.assets = [];
     }
   }
 
@@ -251,7 +279,7 @@ struct Index {
 
   async downloadAll(): Promise<void> {
     if (this.assets.length === 0) {
-      this.loadManifest();
+      await this.loadManifest();
     }
     if (this.assets.length === 0) {
       this.message = '下载清单为空，请检查网络或稍后重试';

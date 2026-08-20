@@ -1889,7 +1889,7 @@ void TVPTerminateAsync(int code)
 	// posting dummy message will prevent "missing WM_QUIT bug" in Direct3D framework.
 	if(TVPSystemControl) TVPSystemControl->CallDeliverAllEventsOnIdle();
 
-	Application->Terminate();
+
 
 	if(TVPSystemControl) TVPSystemControl->CallDeliverAllEventsOnIdle();
 }

@@ -28,9 +28,10 @@ export default class EntryAbility extends UIAbility {
       hilog.info(DOMAIN, TAG, '%{public}s', 'Succeeded in loading content');
     });
     windowStage.getMainWindow().then((mainWindow: window.Window) => {
-      // The bootstrap page stays in portrait fullscreen; the game switches
-      // to landscape when it starts.
-      mainWindow.setWindowLayoutFullScreen(true);
+      // The bootstrap page is NOT fullscreen so the status bar stays visible
+      // (content would otherwise be hidden under the notification bar). The
+      // game switches to fullscreen landscape in startGame().
+      mainWindow.setWindowLayoutFullScreen(false);
       mainWindow.setPreferredOrientation(window.Orientation.PORTRAIT);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'Failed to configure main window: %{public}s', JSON.stringify(err));

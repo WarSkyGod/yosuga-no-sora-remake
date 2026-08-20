@@ -30,6 +30,7 @@ interface DataManifest {
 // (unlike arbitrary paths under Download), and shows under the app name in
 // the file manager. The system creates it automatically.
 const APP_FOLDER = 'com.lightwinder.yosuganosora.hdremake';
+const DOWNLOAD_ROOT = '/storage/Users/currentUser/Download';
 
 @Entry
 @Component
@@ -41,6 +42,7 @@ struct Index {
   @State baseUrl: string = '';
   @State proxyUrl: string = '';
   @State message: string = '';
+  @State needInit: boolean = false;
   @State uiEpoch: number = 0;
   private sandboxFiles: string = '';
   private baseDir: string = '';
@@ -90,31 +92,34 @@ struct Index {
     // content (black screen). Permissions are requested on demand when the
     // user taps download/import instead.
 
-    // Public Download access needs a user-granted folder on NEXT; until the
-    // picker-authorised folder feature lands, keep everything in the sandbox
-    // so the app always works. (fs.getPublicDirectory is not in the API 12
-    // SDK used to build this project.)
-    this.appDir = this.sandboxFiles + '/app';
+    // Prefer the user-granted public Download/<bundleName> folder: after
+    // initPublicDir() runs (DocumentViewPicker.save DOWNLOAD mode) the system
+    // creates Download/<bundleName>/ and grants the app persistent access
+    // without any media permission. Probe it; fall back to the sandbox.
+    this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
     let publicOk = false;
     try {
-      fs.mkdirSync(this.appDir, true);
+      fs.mkdirSync(this.appDir + '/data', true);
+      fs.mkdirSync(this.appDir + '/savedata', true);
       fs.accessSync(this.appDir);
       publicOk = true;
     } catch (e) {
-      this.log('public app dir unusable: ' + JSON.stringify(e));
+      this.log('public app dir not granted yet: ' + JSON.stringify(e));
     }
     if (publicOk) {
       this.baseDir = this.appDir;
       this.saveDir = this.appDir + '/savedata';
       this.dataDir = this.appDir + '/data';
+      this.needInit = false;
       this.message = '';
       this.log('data dir: public ' + this.appDir);
     } else {
       this.baseDir = this.sandboxFiles;
       this.saveDir = this.sandboxFiles + '/savedata';
       this.dataDir = this.sandboxFiles + '/data';
-      this.message = '公共下载目录不可用，数据将存放在应用私有目录';
-      this.log('data dir: sandbox ' + this.sandboxFiles);
+      this.needInit = true;
+      this.message = '未初始化下载目录——请点击「初始化下载目录」以便在系统下载目录存放游戏数据（便于连接电脑管理）';
+      this.log('data dir: sandbox (public not granted)');
     }
     try {
       fs.mkdirSync(this.saveDir, true);
@@ -154,6 +159,47 @@ struct Index {
       this.assets = parsed.assets;
     } catch (e) {
       this.message = '读取数据清单失败，请手动设置下载地址';
+    }
+  }
+
+  /** Ask the user once to grant the app-owned Download/<bundleName> folder.
+   *  documentViewPicker.save() with DOWNLOAD mode makes the system create
+   *  Download/<bundleName>/ and grants persistent access without any media
+   *  permission. Returns true when the public folder became usable. */
+  async initPublicDir(): Promise<boolean> {
+    this.message = '';
+    try {
+      const dp = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
+      const opts = new picker.DocumentSaveOptions();
+      opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
+      opts.newFileNames = ['YosugaNoSoraHD.initialized'];
+      await dp.save(opts);
+      // The system created Download/<bundleName>/ and granted access.
+      this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+      try {
+        fs.mkdirSync(this.appDir + '/data', true);
+      } catch (e) {
+        // may already exist / not file-writable yet
+      }
+      try {
+        fs.mkdirSync(this.appDir + '/savedata', true);
+      } catch (e) {
+        // may already exist
+      }
+      this.baseDir = this.appDir;
+      this.saveDir = this.appDir + '/savedata';
+      this.dataDir = this.appDir + '/data';
+      this.needInit = false;
+      this.log('public dir initialised: ' + this.appDir);
+      return true;
+    } catch (e) {
+      this.message = '初始化下载目录失败：' + JSON.stringify(e);
+      this.log('initPublicDir failed: ' + JSON.stringify(e));
+      return false;
+    } finally {
+      // The picker is a UIExtension; rebuild after it closes so the page is
+      // not left blank.
+      this.uiEpoch++;
     }
   }
 
@@ -612,6 +658,12 @@ struct Index {
             })
           }
           Text('留空=直连 GitHub；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
+          if (this.needInit) {
+            Button('初始化下载目录（在系统下载目录建专属文件夹）')
+              .width('88%').height(48).backgroundColor('#2E5A88').onClick(() => {
+                this.initPublicDir();
+              })
+          }
           Button('下载游戏数据').width(220).height(52).onClick(() => {
             this.downloadAll();
           })

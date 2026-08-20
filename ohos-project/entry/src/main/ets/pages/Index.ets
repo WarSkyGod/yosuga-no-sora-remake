@@ -96,12 +96,18 @@ struct Index {
     // initPublicDir() runs (DocumentViewPicker.save DOWNLOAD mode) the system
     // creates Download/<bundleName>/ and grants the app persistent access
     // without any media permission. Probe it; fall back to the sandbox.
+    // The public Download/<bundleName>/ folder only becomes usable after
+    // initPublicDir() (DocumentViewPicker.save DOWNLOAD mode) runs: the system
+    // then creates it and grants persistent access. We self-check by looking
+    // for a marker file we write there; do NOT blindly mkdir the public path
+    // (that can appear to succeed yet be unwritable). Until granted, use the
+    // sandbox so downloads/imports always work, and surface the init button.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
     let publicOk = false;
     try {
+      fs.accessSync(this.appDir + '/.granted');
       fs.mkdirSync(this.appDir + '/data', true);
-      fs.mkdirSync(this.appDir + '/savedata', true);
-      fs.accessSync(this.appDir);
+      fs.accessSync(this.appDir + '/data');
       publicOk = true;
     } catch (e) {
       this.log('public app dir not granted yet: ' + JSON.stringify(e));
@@ -118,7 +124,7 @@ struct Index {
       this.saveDir = this.sandboxFiles + '/savedata';
       this.dataDir = this.sandboxFiles + '/data';
       this.needInit = true;
-      this.message = '未初始化下载目录——请点击「初始化下载目录」以便在系统下载目录存放游戏数据（便于连接电脑管理）';
+      this.message = '数据暂存于应用私有目录。请点击「初始化下载目录」在系统下载目录建专属文件夹（便于连接电脑管理）';
       this.log('data dir: sandbox (public not granted)');
     }
     try {
@@ -185,6 +191,15 @@ struct Index {
         fs.mkdirSync(this.appDir + '/savedata', true);
       } catch (e) {
         // may already exist
+      }
+      // Write a marker that proves we have write access; prepare() relies on
+      // it to decide whether to use the public folder on later launches.
+      try {
+        const marker = fs.openSync(this.appDir + '/.granted', fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        fs.writeSync(marker.fd, 'granted');
+        fs.closeSync(marker);
+      } catch (e) {
+        this.log('marker write failed: ' + JSON.stringify(e));
       }
       this.baseDir = this.appDir;
       this.saveDir = this.appDir + '/savedata';
@@ -701,6 +716,7 @@ struct Index {
     .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')
     .height('100%')
-    .backgroundColor(Color.Black)
+    .backgroundColor('#000000')
+    .expandSafeArea([SafeAreaType.SYSTEM])
   }
 };

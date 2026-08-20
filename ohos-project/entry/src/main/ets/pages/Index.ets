@@ -90,15 +90,13 @@ struct Index {
     // content (black screen). Permissions are requested on demand when the
     // user taps download/import instead.
 
-    // Use the public Download folder the system exposes to this app
-    // (fs.getPublicDirectory), then the app-owned Download/<bundleName>
-    // subfolder, which NEXT keeps writable WITHOUT any permission. Directly
-    // hardcoding /storage/... and mkdir-ing does not work on newer systems.
+    // Public Download access needs a user-granted folder on NEXT; until the
+    // picker-authorised folder feature lands, keep everything in the sandbox
+    // so the app always works. (fs.getPublicDirectory is not in the API 12
+    // SDK used to build this project.)
+    this.appDir = this.sandboxFiles + '/app';
     let publicOk = false;
     try {
-      const dl = fs.getPublicDirectory(fs.DirectoryType.DIR_DOWNLOAD);
-      this.appDir = dl + '/' + APP_FOLDER;
-      this.log('public download root: ' + dl);
       fs.mkdirSync(this.appDir, true);
       fs.accessSync(this.appDir);
       publicOk = true;

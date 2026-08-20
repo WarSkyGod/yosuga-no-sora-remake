@@ -49,7 +49,7 @@ concurrency:
 jobs:
   package-data:
     name: Package game data
-    if: inputs.skip_data != 'true'
+    if: inputs.skip_data == false
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:

@@ -133,6 +133,8 @@ public:
 			if (ohosSave && *ohosSave)
 			{
 				tjs_string path;
+				/* OHOS debug: log conversion result. */
+				{ FILE *lf = fopen((std::string(getenv("KRKR_OHOS_DATA_DIR") ? getenv("KRKR_OHOS_DATA_DIR") : "/data/local/tmp") + "/save-debug.log").c_str(), "a"); if (lf) { fprintf(lf, "  convertSave: %s\n", TVPUtf8ToUtf16(path, std::string(ohosSave)) ? "ok" : "FAIL"); fclose(lf); } }
 				if (TVPUtf8ToUtf16(path, std::string(ohosSave)))
 				{
 					if (path.length() > 0 && path[path.length() - 1] != TJS_W('/'))

@@ -15,7 +15,11 @@
 
 int OHOS_GL_LoadLibrary(_THIS, const char *path)
 {
-	return SDL_EGL_LoadLibrary(_this, path, (NativeDisplayType)EGL_DEFAULT_DISPLAY, 0);
+	(void)path;
+	/* EGL/GLES are linked directly into the app (libEGL.so / libGLESv3.so),
+	 * so SDL's dlopen-based EGL loader fails inside the app sandbox. Bypass
+	 * the library lookup and initialize SDL's EGL bookkeeping directly. */
+	return SDL_EGL_LoadLibrary(_this, NULL, (NativeDisplayType)EGL_DEFAULT_DISPLAY, 0);
 }
 
 void *OHOS_GL_GetProcAddress(_THIS, const char *proc)

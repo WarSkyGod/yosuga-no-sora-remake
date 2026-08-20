@@ -45,6 +45,9 @@ set(SDL_VIDEO_OPENGL_ES2 ON CACHE BOOL "" FORCE)
 set(SDL_VIDEO_RENDER_OGL ON CACHE BOOL "" FORCE)
 set(SDL_VIDEO_RENDER_OGL_ES ON CACHE BOOL "" FORCE)
 set(SDL_VIDEO_RENDER_OGL_ES2 ON CACHE BOOL "" FORCE)
+# OHOS: EGL/GLES are linked into the app; use link-time symbols in SDL's EGL
+# loader instead of dlopen (sandbox blocks dlopen of system GLES libraries).
+set(SDL_VIDEO_STATIC_ANGLE ON CACHE BOOL "" FORCE)
 set(SDL_VIDEO_DRIVER_DUMMY ON CACHE BOOL "" FORCE)
 set(SDL_AUDIO_DRIVER_DUMMY ON CACHE BOOL "" FORCE)
 set(SDL_LOADSO_DLOPEN ON CACHE BOOL "" FORCE)
@@ -60,6 +63,11 @@ elseif(TARGET SDL2)
 else()
 	message(FATAL_ERROR "The vendored SDL2 build produced neither SDL2 nor SDL2-static")
 endif()
+
+# OHOS: EGL/GLES are linked into the app; make SDL's EGL loader use link-time
+# symbols (LOAD_FUNC(NAME) = NAME) instead of dlopen, which the app sandbox
+# blocks for system GLES libraries ("Could not initialize OpenGL / GLES library").
+target_compile_definitions(${SDL2_TARGET} PRIVATE SDL_VIDEO_STATIC_ANGLE=1)
 
 # Help FAudio compile its SDL2 backend against the vendored SDL2. When the
 # target exposes no interface include directories the hint is a no-op and

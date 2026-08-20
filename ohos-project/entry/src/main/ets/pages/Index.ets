@@ -5,7 +5,7 @@ import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
 import { util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { promptAction } from '@kit.ArkUI';
+import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 /** data-assets.json entry. */
@@ -231,6 +231,9 @@ struct Index {
           this.progressText = '正在下载 ' + asset.name + '  ' + pct + '%  ' +
             this.fmtSize(doneTotal) + ' / ' + this.fmtSize(totalBytes) +
             '  (' + this.fmtSpeed(speed) + ')';
+          // Force a rebuild so the progress text is repainted even if the
+          // state-driven refresh fails on this system version.
+          this.uiEpoch++;
         });
         if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {
           throw new Error('SHA-256 校验失败，请重试');
@@ -416,14 +419,21 @@ struct Index {
       const result = await documentPicker.select({ maxSelectNumber: 20 });
       uris = result;
     } catch (e) {
-      // User cancelled the picker: force a rebuild so the picker (also a
-      // UIExtension) cannot leave the page blank.
-      this.uiEpoch++;
-      this.bootState = 2;
+      // User cancelled the picker: rebuild the whole bootstrap page so the
+      // picker (also a UIExtension) cannot leave it blank.
       this.message = '未选择文件';
+      this.prepare();
       return;
     }
-    this.uiEpoch++; // force a rebuild after the picker closes
+    if (uris.length === 0) {
+      this.message = '未选择文件';
+      this.prepare();
+      return;
+    }
+    // Force a rebuild after the picker (UIExtension) closes so the page is
+    // not left blank, then continue importing.
+    this.uiEpoch++;
+    this.bootState = 4;
     const cacheDir = this.sandboxFiles + '/cache';
     try {
       fs.mkdirSync(cacheDir, true);
@@ -503,6 +513,19 @@ struct Index {
     }
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
     this.bootState = 6;
+    // The game uses a fixed 1920x1080 coordinate system: switch to
+    // landscape fullscreen now that the bootstrap page is left behind.
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      ctx.getHostWindow().then((mainWindow: window.Window) => {
+        mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
+        mainWindow.setWindowLayoutFullScreen(true);
+      }).catch(() => {
+        // best effort
+      });
+    } catch (e) {
+      // best effort
+    }
   }
 
   build() {
@@ -531,18 +554,27 @@ struct Index {
           .width('100%')
           .height('100%')
       } else if (this.bootState === 2) {
-        Column({ space: 14 }) {
+        Scroll() {
+          Column({ space: 12 }) {
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Gray)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（GitHub Release 页面）' })
             .width('86%')
             .fontSize(12)
+            .fontColor(Color.White)
+            .placeholderColor(Color.Gray)
+            .caretColor(Color.White)
+            .backgroundColor('#333333')
             .onChange((value: string) => {
               this.baseUrl = value;
             })
           TextInput({ text: this.proxyUrl, placeholder: '加速代理前缀（留空=直连）' })
             .width('86%')
             .fontSize(12)
+            .fontColor(Color.White)
+            .placeholderColor(Color.Gray)
+            .caretColor(Color.White)
+            .backgroundColor('#333333')
             .onChange((value: string) => {
               this.proxyUrl = value;
             })
@@ -568,14 +600,18 @@ struct Index {
             this.prepare();
           })
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(4)
+          }
         }
         .width('100%')
-        .justifyContent(FlexAlign.Center)
+        .padding({ top: 20, bottom: 40 })
       } else if (this.bootState === 3 || this.bootState === 4) {
         Column({ space: 14 }) {
           // Progress component may not repaint on some system versions;
           // the percentage text is the reliable progress indicator.
-          Text(this.progressText).fontSize(15).fontColor(Color.White).maxLines(3)
+          Text(this.progressText).fontSize(16).fontWeight(FontWeight.Medium)
+            .fontColor(Color.White).maxLines(4)
+            .backgroundColor('#333333').padding(12).borderRadius(8)
+            .textAlign(TextAlign.Center)
           Progress({ value: this.progressValue, total: 100 }).width(260).color(Color.White)
         }
       } else {

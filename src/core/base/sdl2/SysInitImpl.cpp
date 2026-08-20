@@ -1466,6 +1466,29 @@ void TVPBeforeSystemInit()
 #endif
 	tjs_string base_path_utf16;
 	TVPUtf8ToUtf16(base_path_utf16, base_path_utf8);
+
+#if defined(__OHOS__)
+	// OHOS debug: log each data-folder probe result.
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		std::string logpath = dd && dd[0] ? std::string(dd) + "/engine.log" : "/data/local/tmp/yosuga-engine.log";
+		FILE *lf = fopen(logpath.c_str(), "a");
+		if (lf)
+		{
+			tjs_string b16 = base_path_utf16;
+			fprintf(lf, "engine: search base=%s\n", std::string(base_path_utf8).c_str());
+			fprintf(lf, "engine:   content-data file=%d folder=%d\n",
+				TVPCheckExistentLocalFile(b16 + TJS_W("content-data")) ? 1 : 0,
+				TVPCheckExistentLocalFolder(b16 + TJS_W("content-data")) ? 1 : 0);
+			fprintf(lf, "engine:   data.xp3 file=%d folder=%d\n",
+				TVPCheckExistentLocalFile(b16 + TJS_W("data.xp3")) ? 1 : 0,
+				TVPCheckExistentLocalFolder(b16 + TJS_W("data.xp3")) ? 1 : 0);
+			fprintf(lf, "engine:   data folder=%d\n",
+				TVPCheckExistentLocalFolder(b16 + TJS_W("data")) ? 1 : 0);
+			fclose(lf);
+		}
+	}
+#endif
 	if (base_path_utf16.length() != 0 && !TVPGetCommandLine(TJS_W("-nosel")))
 	{
 		tjs_string found_dir;

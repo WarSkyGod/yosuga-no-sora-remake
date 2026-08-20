@@ -857,6 +857,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	{
 		if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_Init(VIDEO) FAILED: %s\n", SDL_GetError()); fclose(lf); } }
 			TVPThrowExceptionMessage(TJS_W("Cannot initialize SDL video subsystem: %1"), ttstr(SDL_GetError()));
 		}
 		refresh_controllers();
@@ -923,6 +924,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	this->window = SDL_CreateWindow("krkrsdl2", new_window_x, new_window_y, new_window_w, new_window_h, window_flags);
 	if (!this->window)
 	{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateWindow FAILED w=%d h=%d: %s\n", new_window_w, new_window_h, SDL_GetError()); fclose(lf); } }
 		TVPThrowExceptionMessage(TJS_W("Cannot create SDL window: %1"), ttstr(SDL_GetError()));
 	}
 #if defined(__EMSCRIPTEN__) && defined(KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE)

@@ -1363,6 +1363,20 @@ static void STDCALL TVP_Stub_dd13d4bc2b48540a92f047bf015b829b(const ttstr & name
 	return TVPExecuteStorage(name, result, isexpression, modestr);
 }
 static void STDCALL TVP_Stub_0ff502d492598d2211405180bfb4d1e1(const ttstr & name , iTJSDispatch2 * context , tTJSVariant * result = NULL , bool isexpression = false , const tjs_char * modestr = NULL)
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+			if (lf)
+			{
+				std::string n;
+				TVPUtf16ToUtf8(n, name.AsStdString());
+				fprintf(lf, "engine: execStorageCtx %s\n", n.c_str());
+				fclose(lf);
+			}
+		}
+	}
 {
 	return TVPExecuteStorage(name, context, result, isexpression, modestr);
 }

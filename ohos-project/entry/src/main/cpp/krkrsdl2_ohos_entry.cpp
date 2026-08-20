@@ -43,25 +43,34 @@ static void OHOS_CrashHandler(int sig, siginfo_t *si, void *uc)
 		fprintf(lf, "===== CRASH signal=%d (%s) =====\r\n", sig, strsignal(sig));
 		if (si) fprintf(lf, "  fault addr = %p\r\n", si->si_addr);
 #if defined(__aarch64__)
-		/* musl does not expose ucontext_t fields here; grab PC/LR/SP plus a
-		 * couple of callee-saved registers directly from the kernel's
-		 * sigcontext layout (fault_address, regs[31], sp, pc, pstate). */
+		/* musl does not expose ucontext_t fields here. Read the kernel
+		 * sigcontext directly: aarch64 musl ucontext_t is
+		 *   uc_flags(8) uc_link(8) uc_stack(24) uc_sigmask(128) uc_mcontext
+		 * and struct sigcontext is
+		 *   fault_address(8) regs[31](248) sp(8) pc(8) pstate(8).
+		 * So uc_mcontext sits at offset 168 and pc at 168+8+248+8 = 432. */
 		if (uc)
 		{
-			unsigned long *r = (unsigned long *)uc;
-			/* ucontext_t on aarch64 musl: uc_flags, uc_link, uc_stack,
-			 * uc_sigmask, then uc_mcontext (struct sigcontext). Dump the
-			 * first words around it defensively. */
-			fprintf(lf, "  uctx words: %lx %lx %lx %lx %lx %lx %lx %lx\r\n",
-				r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
+			const unsigned char *b = (const unsigned char *)uc;
+			unsigned long pc = 0, sp = 0, lr = 0, fp = 0;
+			memcpy(&pc, b + 432, 8);
+			memcpy(&sp, b + 424, 8);
+			memcpy(&lr, b + 432 - 8, 8);  /* regs[30] = LR */
+			memcpy(&fp, b + 432 - 16, 8); /* regs[29] = FP */
+			fprintf(lf, "  pc=%p sp=%p lr(x30)=%p fp(x29)=%p\r\n",
+				(void *)pc, (void *)sp, (void *)lr, (void *)fp);
+			/* also dump the first sigcontext words in case offsets drift */
+			fprintf(lf, "  mctx[0..3]=%lx %lx %lx %lx\r\n",
+				*(unsigned long *)(b + 168 + 0),
+				*(unsigned long *)(b + 168 + 8),
+				*(unsigned long *)(b + 168 + 16),
+				*(unsigned long *)(b + 168 + 24));
 		}
+		else
 		{
 			register unsigned long r_pc __asm__("x30");
 			register unsigned long r_sp __asm__("sp");
-			register unsigned long r_x0 __asm__("x0");
-			register unsigned long r_x1 __asm__("x1");
-			fprintf(lf, "  lr(x30)=%p sp=%p x0=%p x1=%p\r\n",
-				(void *)r_pc, (void *)r_sp, (void *)r_x0, (void *)r_x1);
+			fprintf(lf, "  (no uc) lr(x30)=%p sp=%p\r\n", (void *)r_pc, (void *)r_sp);
 		}
 #else
 		if (uc) fprintf(lf, "  (ucontext dump not implemented on this arch)\r\n");

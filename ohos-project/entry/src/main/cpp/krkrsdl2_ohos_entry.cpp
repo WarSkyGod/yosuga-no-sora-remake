@@ -27,12 +27,12 @@
 #include <thread>
 #include <unistd.h>
 #include <csignal>
-#include <execinfo.h>
+#include <ucontext.h>
 #include <dlfcn.h>
 
 /* OHOS debug: catch native crashes and dump a backtrace to the public
  * Download folder so crashes can be diagnosed without root/faultlog. */
-static void OHOS_CrashHandler(int sig)
+static void OHOS_CrashHandler(int sig, siginfo_t *si, void *uc)
 {
 	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 	std::string out = (dd && dd[0]) ? std::string(dd) + "/crash.txt"
@@ -41,15 +41,31 @@ static void OHOS_CrashHandler(int sig)
 	if (lf)
 	{
 		fprintf(lf, "===== CRASH signal=%d (%s) =====\r\n", sig, strsignal(sig));
-		void *frames[64];
-		int n = backtrace(frames, 64);
-		char **syms = backtrace_symbols(frames, n);
-		for (int i = 0; i < n; i++)
+		if (si) fprintf(lf, "  fault addr = %p\r\n", si->si_addr);
+#if defined(__aarch64__)
+		/* musl does not expose ucontext_t fields here; grab PC/LR/SP plus a
+		 * couple of callee-saved registers directly from the kernel's
+		 * sigcontext layout (fault_address, regs[31], sp, pc, pstate). */
+		if (uc)
 		{
-			if (syms && syms[i]) fprintf(lf, "  %s\r\n", syms[i]);
-			else fprintf(lf, "  [frame %d]\r\n", i);
+			unsigned long *r = (unsigned long *)uc;
+			/* ucontext_t on aarch64 musl: uc_flags, uc_link, uc_stack,
+			 * uc_sigmask, then uc_mcontext (struct sigcontext). Dump the
+			 * first words around it defensively. */
+			fprintf(lf, "  uctx words: %lx %lx %lx %lx %lx %lx %lx %lx\r\n",
+				r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
 		}
-		if (syms) free(syms);
+		{
+			register unsigned long r_pc __asm__("x30");
+			register unsigned long r_sp __asm__("sp");
+			register unsigned long r_x0 __asm__("x0");
+			register unsigned long r_x1 __asm__("x1");
+			fprintf(lf, "  lr(x30)=%p sp=%p x0=%p x1=%p\r\n",
+				(void *)r_pc, (void *)r_sp, (void *)r_x0, (void *)r_x1);
+		}
+#else
+		if (uc) fprintf(lf, "  (ucontext dump not implemented on this arch)\r\n");
+#endif
 		fprintf(lf, "===== end crash =====\r\n");
 		fflush(lf);
 		fclose(lf);
@@ -61,9 +77,9 @@ static void OHOS_InstallCrashHandler(void)
 {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = OHOS_CrashHandler;
+	sa.sa_sigaction = OHOS_CrashHandler;
 	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_RESETHAND;
+	sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
 	sigaction(SIGSEGV, &sa, nullptr);
 	sigaction(SIGABRT, &sa, nullptr);
 	sigaction(SIGBUS, &sa, nullptr);

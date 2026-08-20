@@ -268,6 +268,23 @@ void *OHOS_Entry_GetResourceManager(void)
 	return static_cast<void *>(g_resource_manager);
 }
 
+void OHOS_Entry_LogNative(const char *message)
+{
+	const char *text = message != nullptr ? message : "(null)";
+	Log(LOG_INFO, "%s", text);
+	if (!g_data_dir.empty())
+	{
+		std::string log_path = g_data_dir + "/engine.log";
+		FILE *file = fopen(log_path.c_str(), "a");
+		if (file != nullptr)
+		{
+			fputs(text, file);
+			fputc('\n', file);
+			fclose(file);
+		}
+	}
+}
+
 void OHOS_Entry_AttachXComponent(void *component)
 {
 	OH_NativeXComponent *native = static_cast<OH_NativeXComponent *>(component);

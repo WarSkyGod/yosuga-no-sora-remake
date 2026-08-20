@@ -146,7 +146,6 @@ struct Index {
       const entries = fs.listFileSync(this.appDir);
       publicOk = entries.indexOf('.granted') >= 0;
       if (publicOk) {
-        fs.mkdirSync(this.appDir + '/data', true);
         fs.mkdirSync(this.appDir + '/savedata', true);
       }
     } catch (e) {
@@ -179,12 +178,6 @@ struct Index {
     } catch (e) {
       // already exists
     }
-    try {
-      fs.mkdirSync(this.dataDir, true);
-    } catch (e) {
-      // already exists
-    }
-
     const ready = this.dataReady();
     this.readyForGame = ready;
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
@@ -289,11 +282,6 @@ struct Index {
       this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
       this.log('initPublicDir: appDir=' + this.appDir);
       try {
-        fs.mkdirSync(this.appDir + '/data', true);
-      } catch (e) {
-        // may already exist / not file-writable yet
-      }
-      try {
         fs.mkdirSync(this.appDir + '/savedata', true);
       } catch (e) {
         // may already exist
@@ -315,7 +303,7 @@ struct Index {
       // trace the data layout so we can see what the engine will find
       this.log('baseDir list: ' + JSON.stringify(this.tryList(this.baseDir)));
       this.log('dataDir list: ' + JSON.stringify(this.tryList(this.dataDir)));
-      this.log('root data.xp3? ' + this.fileExists(this.baseDir + '/data.xp3'));
+      this.log('root data.xp3? ' + this.hasDirEntry(this.baseDir, 'data.xp3'));
       return true;
     } catch (e) {
       this.message = '初始化下载目录失败：' + JSON.stringify(e);
@@ -332,12 +320,14 @@ struct Index {
    *  platform allows it without permissions; otherwise keep the sandbox.
    *  Returns true when the public folder is usable. */
   async ensurePublic(): Promise<boolean> {
-    try {
-      fs.mkdirSync(this.appDir, true);
-      fs.accessSync(this.appDir);
-    } catch (e) {
-      this.log('public app dir unusable: ' + JSON.stringify(e));
-      return false;
+    // Never create this public path directly and never use accessSync here:
+    // on this device accessSync reports nonexistent paths as present. The
+    // .granted marker is only written after the system DOWNLOAD picker grants
+    // this app-owned directory.
+    const entries = this.tryList(this.appDir);
+    if (entries.indexOf('.granted') < 0) {
+      this.log('public app dir unavailable: marker missing; requesting grant');
+      return await this.initPublicDir();
     }
     if (this.baseDir !== this.appDir) {
       this.baseDir = this.appDir;
@@ -348,15 +338,10 @@ struct Index {
       } catch (e) {
         // already exists
       }
-      try {
-        fs.mkdirSync(this.dataDir, true);
-      } catch (e) {
-        // already exists
-      }
       this.message = '';
       this.log('switched to public dir: ' + this.baseDir);
     }
-    return this.baseDir === this.appDir;
+    return true;
   }
 
   async downloadAll(): Promise<void> {
@@ -499,35 +484,21 @@ struct Index {
     await zlib.decompressFile(srcZip, outDir);
   }
 
-  /** True when the data folder holds a complete data tree or a data.xp3. */
+  /** True only when the Windows krkrz-style root contains data.xp3, or
+   *  when a complete loose data tree exists in <base>/data/. */
   dataReady(): boolean {
-    // Fully synchronous: async probes that never settle on some system
-    // versions would freeze the UI thread (black screen).
-    // A complete tree has startup.tjs plus the system scripts; a bare
-    // startup.tjs (e.g. leftover from an old mini test build) is not enough.
-    try {
-      const entries = fs.listFileSync(this.dataDir);
-      this.log('dataDir entries: ' + JSON.stringify(entries).slice(0, 300));
-      const hasStartup = entries.indexOf('startup.tjs') >= 0;
-      const hasSystem = entries.indexOf('system') >= 0;
-      if (hasStartup && hasSystem) {
-        return true;
-      }
-    } catch (e) {
-      this.log('dataDir list failed: ' + JSON.stringify(e));
-    }
-    // data.xp3: the engine reads it from the app root (like Windows krkrz),
-    // so accept it both at <base>/data/data.xp3 and at <base>/data.xp3.
-    const dp = this.fileExists(this.dataDir + '/data.xp3');
-    const rp = this.fileExists(this.baseDir + '/data.xp3');
-    this.log('dataReady: baseDir=' + this.baseDir +
-      ' dataDir=' + this.dataDir +
-      ' dataDir/xp3=' + dp + ' baseDir/xp3=' + rp +
-      ' data base list=' + JSON.stringify(this.tryList(this.dataDir)));
-    if (dp || rp) {
-      return true;
-    }
-    return false;
+    // Do not use accessSync: this device reports nonexistent paths as present.
+    // listFileSync gives us the actual directory entries instead.
+    const rootEntries = this.tryList(this.baseDir);
+    const dataEntries = this.tryList(this.dataDir);
+    const hasRootXp3 = rootEntries.indexOf('data.xp3') >= 0;
+    const hasStartup = dataEntries.indexOf('startup.tjs') >= 0;
+    const hasSystem = dataEntries.indexOf('system') >= 0;
+    const hasLooseTree = hasStartup && hasSystem;
+    this.log('dataReady: root=' + JSON.stringify(rootEntries).slice(0, 300) +
+      ' data=' + JSON.stringify(dataEntries).slice(0, 300) +
+      ' root/data.xp3=' + hasRootXp3 + ' loose-tree=' + hasLooseTree);
+    return hasRootXp3 || hasLooseTree;
   }
 
   private tryList(path: string): string[] {
@@ -538,13 +509,8 @@ struct Index {
     }
   }
 
-  private fileExists(path: string): boolean {
-    try {
-      fs.accessSync(path);
-      return true;
-    } catch (e) {
-      return false;
-    }
+  private hasDirEntry(dir: string, name: string): boolean {
+    return this.tryList(dir).indexOf(name) >= 0;
   }
 
   async verifySha256(path: string, expected: string): Promise<boolean> {
@@ -714,9 +680,14 @@ struct Index {
 
   finishData(): void {
     if (this.dataReady()) {
-      // Data verified: jump straight into the game. Next launch skips this
-      // screen because onPageShow finds the data ready.
-      this.startGame();
+      // Do not launch automatically: keep the verified state visible and let
+      // the user start the native renderer explicitly.
+      this.readyForGame = true;
+      this.bootState = 2;
+      this.progressText = '游戏数据已就绪';
+      this.message = '';
+      this.uiEpoch++;
+      this.log('import/download complete; waiting for explicit game start');
       return;
     }
     this.bootState = 2;

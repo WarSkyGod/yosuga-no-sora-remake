@@ -50,6 +50,8 @@ struct Index {
   @State message: string = '';
   @State needInit: boolean = false;
   @State uiEpoch: number = 0;
+  @State debugOut: string = '';
+  private autoInitTried: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
   private saveDir: string = '';
@@ -68,7 +70,11 @@ struct Index {
   }
 
   onPageShow(): void {
-    // Do not auto-check on page show; keep the bootstrap screen visible.
+    // Auto-run the data check / public-dir init shortly after the bootstrap
+    // page is visible (avoid stalling startup). Log every step to debug.log.
+    setTimeout(() => {
+      this.prepare();
+    }, 600);
   }
 
   async prepare(): Promise<void> {
@@ -89,6 +95,18 @@ struct Index {
 
   private log(msg: string): void {
     hilog.info(0x0000, 'YosugaOHOS', '%{public}s', msg);
+    // Mirror onto the on-screen debug area and append to a file so the flow
+    // can be traced even without a connected host.
+    const line = Date.now() % 100000 + ': ' + msg;
+    this.debugOut = (this.debugOut + '\n' + line).slice(-800);
+    try {
+      const p = this.sandboxFiles + '/debug.log';
+      const fd = fs.openSync(p, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
+      fs.writeSync(fd, line + '\n');
+      fs.closeSync(fd);
+    } catch (e) {
+      // logging must never break the app
+    }
   }
 
   prepareInternal(): void {
@@ -139,9 +157,12 @@ struct Index {
       this.saveDir = this.sandboxFiles + '/savedata';
       this.dataDir = this.sandboxFiles + '/data';
       this.needInit = false;
-      this.message = '正在申请系统下载目录…';
-      this.log('data dir: sandbox (public not granted), auto-initing');
-      this.initPublicDir();
+      this.message = '数据暂存于应用私有目录，可点击「初始化下载目录」改为系统下载目录';
+      if (!this.autoInitTried) {
+        this.autoInitTried = true;
+        this.log('data dir: sandbox (public not granted), auto-initing once');
+        this.initPublicDir();
+      }
     }
     try {
       fs.mkdirSync(this.saveDir, true);
@@ -241,9 +262,18 @@ struct Index {
       const opts = new picker.DocumentSaveOptions();
       opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
       opts.newFileNames = ['YosugaNoSoraHD.initialized'];
-      await dp.save(opts);
+      this.log('initPublicDir: opening save (DOWNLOAD mode)');
+      try {
+        await dp.save(opts);
+      } catch (e) {
+        this.log('initPublicDir: save rejected/canceled: ' + JSON.stringify(e));
+        this.message = '初始化下载目录未确认（可稍后在引导页点击「初始化下载目录」）';
+        return false;
+      }
+      this.log('initPublicDir: save returned (user confirmed)');
       // The system created Download/<bundleName>/ and granted access.
       this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+      this.log('initPublicDir: appDir=' + this.appDir);
       try {
         fs.mkdirSync(this.appDir + '/data', true);
       } catch (e) {
@@ -268,6 +298,10 @@ struct Index {
       this.dataDir = this.appDir + '/data';
       this.needInit = false;
       this.log('public dir initialised: ' + this.appDir);
+      // trace the data layout so we can see what the engine will find
+      this.log('baseDir list: ' + JSON.stringify(this.tryList(this.baseDir)));
+      this.log('dataDir list: ' + JSON.stringify(this.tryList(this.dataDir)));
+      this.log('root data.xp3? ' + this.fileExists(this.baseDir + '/data.xp3'));
       return true;
     } catch (e) {
       this.message = '初始化下载目录失败：' + JSON.stringify(e);
@@ -470,11 +504,24 @@ struct Index {
     }
     // data.xp3: the engine reads it from the app root (like Windows krkrz),
     // so accept it both at <base>/data/data.xp3 and at <base>/data.xp3.
-    if (this.fileExists(this.dataDir + '/data.xp3') ||
-        this.fileExists(this.baseDir + '/data.xp3')) {
+    const dp = this.fileExists(this.dataDir + '/data.xp3');
+    const rp = this.fileExists(this.baseDir + '/data.xp3');
+    this.log('dataReady: baseDir=' + this.baseDir +
+      ' dataDir=' + this.dataDir +
+      ' dataDir/xp3=' + dp + ' baseDir/xp3=' + rp +
+      ' data base list=' + JSON.stringify(this.tryList(this.dataDir)));
+    if (dp || rp) {
       return true;
     }
     return false;
+  }
+
+  private tryList(path: string): string[] {
+    try {
+      return fs.listFileSync(path);
+    } catch (e) {
+      return ['<err:' + JSON.stringify(e) + '>'];
+    }
   }
 
   private fileExists(path: string): boolean {

@@ -546,7 +546,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 				fclose(lf);
 			}
 		}
+		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: startup script BEGIN\n"); fclose(lf); } } }
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
+		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: startup script DONE (windows=%d)\n", TVPGetWindowCount()); fclose(lf); } } }
 
 #if 0
 		Run();

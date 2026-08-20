@@ -132,6 +132,23 @@ public:
 				}
 			}
 		}
+		/* OHOS fallback: env not set yet - use SDL_GetPrefPath so we always
+		   return a valid path (never fall through to undefined behaviour). */
+		{
+			char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");
+			if (pref_path)
+			{
+				std::string pp = pref_path;
+				SDL_free(pref_path);
+				tjs_string p16;
+				if (TVPUtf8ToUtf16(p16, pp)) return p16;
+			}
+		}
+		{
+			ttstr ndp = ttstr(TVPGetAppPath().AsStdString());
+			ndp += TJS_W("/savedata/");
+			return ndp.AsStdString();
+		}
 #elif defined(__ANDROID__)
 		/* Android: keep saves in the public Downloads folder (falling back
 		   to the private data dir when public access is unavailable).  The

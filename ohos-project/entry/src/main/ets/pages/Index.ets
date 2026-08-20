@@ -1,5 +1,5 @@
 import entryNapi from 'libentry.so';
-import { common, abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
+import { common } from '@kit.AbilityKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import zlib from '@ohos.zlib';
@@ -25,7 +25,11 @@ interface DataManifest {
   assets: DataAsset[];
 }
 
-const APP_FOLDER = '缘之空高清重制';
+// The app-owned public Download folder: Download/<bundleName>. On HarmonyOS
+// NEXT this exact per-app folder is writable WITHOUT any permission
+// (unlike arbitrary paths under Download), and shows under the app name in
+// the file manager. The system creates it automatically.
+const APP_FOLDER = 'com.lightwinder.yosuganosora.hdremake';
 const DOWNLOAD_ROOT = '/storage/Users/currentUser/Download';
 
 @Entry
@@ -87,15 +91,31 @@ struct Index {
     // content (black screen). Permissions are requested on demand when the
     // user taps download/import instead.
 
-    // CRITICAL: do NOT touch the public Download folder here. On HarmonyOS 7
-    // (API 26) a fs.mkdirSync call on /storage/Users/currentUser/Download
-    // (unwritable without media permission) freezes the UI thread and blanks
-    // the page. The sandbox works unconditionally; the public folder is only
-    // created later inside ensurePublic() when the user taps download/import.
+    // Prefer the app-owned public Download folder (Download/<bundleName>),
+    // which NEXT keeps writable WITHOUT any permission. If the platform does
+    // not expose it, fall back to the sandbox so the app always boots.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
-    this.baseDir = this.sandboxFiles;
-    this.saveDir = this.sandboxFiles + '/savedata';
-    this.dataDir = this.sandboxFiles + '/data';
+    let publicOk = false;
+    try {
+      fs.mkdirSync(this.appDir, true);
+      fs.accessSync(this.appDir);
+      publicOk = true;
+    } catch (e) {
+      this.log('public app dir unusable: ' + JSON.stringify(e));
+    }
+    if (publicOk) {
+      this.baseDir = this.appDir;
+      this.saveDir = this.appDir + '/savedata';
+      this.dataDir = this.appDir + '/data';
+      this.message = '';
+      this.log('data dir: public ' + this.appDir);
+    } else {
+      this.baseDir = this.sandboxFiles;
+      this.saveDir = this.sandboxFiles + '/savedata';
+      this.dataDir = this.sandboxFiles + '/data';
+      this.message = '公共下载目录不可用，数据将存放在应用私有目录';
+      this.log('data dir: sandbox ' + this.sandboxFiles);
+    }
     try {
       fs.mkdirSync(this.saveDir, true);
     } catch (e) {
@@ -106,7 +126,6 @@ struct Index {
     } catch (e) {
       // already exists
     }
-    this.message = '游戏数据将存放在应用私有目录；点击下载/导入时可授权使用公共下载目录';
 
     const ready = this.dataReady();
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
@@ -138,40 +157,15 @@ struct Index {
     }
   }
 
-  /** Request media permissions on demand and switch to the public
-   *  Download app folder when granted. Returns true when usable. */
+  /** Use the app-owned public Download folder (Download/<bundleName>) if the
+   *  platform allows it without permissions; otherwise keep the sandbox.
+   *  Returns true when the public folder is usable. */
   async ensurePublic(): Promise<boolean> {
-    const context = getContext(this) as common.UIAbilityContext;
-    const atManager = abilityAccessCtrl.createAtManager();
-    const missing: Array<Permissions> = [];
-    const perms: Array<Permissions> = ['ohos.permission.READ_MEDIA', 'ohos.permission.WRITE_MEDIA'];
-    for (const perm of perms) {
-      try {
-        const state: number = await atManager.checkAccessToken(context.applicationInfo.accessTokenId, perm);
-        if (state !== 0) {
-          missing.push(perm);
-        }
-      } catch (e) {
-        missing.push(perm);
-      }
-    }
-    if (missing.length > 0) {
-      try {
-        const result: PermissionRequestResult = await atManager.requestPermissionsFromUser(context, missing);
-        if (!result.authResults.every((code: number) => code === 0)) {
-          this.log('permission denied');
-          return false;
-        }
-      } catch (e) {
-        this.log('permission request failed: ' + JSON.stringify(e));
-        return false;
-      }
-    }
     try {
       fs.mkdirSync(this.appDir, true);
       fs.accessSync(this.appDir);
     } catch (e) {
-      this.log('public dir still unusable: ' + JSON.stringify(e));
+      this.log('public app dir unusable: ' + JSON.stringify(e));
       return false;
     }
     if (this.baseDir !== this.appDir) {
@@ -191,7 +185,7 @@ struct Index {
       this.message = '';
       this.log('switched to public dir: ' + this.baseDir);
     }
-    return true;
+    return this.baseDir === this.appDir;
   }
 
   async downloadAll(): Promise<void> {

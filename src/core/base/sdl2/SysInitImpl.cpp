@@ -54,6 +54,7 @@
 #include "TickCount.h"
 #include <SDL.h>
 #include <errno.h>
+#include <stdlib.h>
 #ifdef __APPLE__
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -1445,11 +1446,11 @@ void TVPBeforeSystemInit()
 		SDL_free(base_path);
 	}
 #if defined(__OHOS__)
-	// OpenHarmony: the game data lives in the public Download app folder
 	// OpenHarmony: the game data lives in the public Download app folder.
 	// The NAPI shell exports it via KRKR_OHOS_DATA_DIR (set before
 	// StartApplication) so the engine finds startup.tjs / data.xp3 there
 	// instead of the bundle directory or the empty sandbox files dir.
+	{
 		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 		if (dd != nullptr && dd[0] != '\0')
 		{

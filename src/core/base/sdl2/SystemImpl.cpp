@@ -76,7 +76,9 @@ static void TVPShowSimpleMessageBox(const ttstr & text, const ttstr & caption)
 	std::string c_utf8;
 	if (TVPUtf16ToUtf8(t_utf8, t_utf16) && TVPUtf16ToUtf8(c_utf8, c_utf16))
 	{
+#if !defined(__OHOS__)
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, c_utf8.c_str(), t_utf8.c_str(), nullptr);
+#endif
 	}
 }
 //---------------------------------------------------------------------------
@@ -885,6 +887,7 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/inform)
 	else
 		caption = TJS_W("Information");
 
+		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { std::string t; TVPUtf16ToUtf8(t, text.AsStdString()); fprintf(lf, "engine: System.inform: %s\n", t.c_str()); fclose(lf); } } }
 	TVPShowSimpleMessageBox(text, caption);
 
 	if(result) result->Clear();

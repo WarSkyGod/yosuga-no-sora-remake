@@ -120,7 +120,9 @@ jobs:
             [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
             gh "${args[@]}" || true
           fi
-          gh release upload "$RELEASE_TAG" "$DATA_DIR"/*.zip --repo "$GH_REPOSITORY" --clobber
+          # Upload the data archives plus the manifest the app fetches.
+          up=("$DATA_DIR"/*.zip "$DATA_DIR"/data-assets.json)
+          gh release upload "$RELEASE_TAG" "${up[@]}" --repo "$GH_REPOSITORY" --clobber
   build-app:
     name: Build OpenHarmony HAP
     runs-on: ubuntu-24.04
@@ -188,19 +190,9 @@ jobs:
             echo "sign-mode=$sign_mode"
             echo "data-mode=${{ inputs.data_mode }}"
           } >> "$GITHUB_OUTPUT"
-      - name: Verify Git LFS content
-        shell: bash
-        run: |
-          set -euo pipefail
-          git lfs pull
-          git lfs fsck
-      - name: Generate and validate the content manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tools/generate_content_manifest.py --root data \
-            --output data/content-manifest.json --config content-packs.json \
-            --cache "$RUNNER_TEMP/content-manifest-cache.json" --full
+      # build-app does not need game data (external mode): NO git lfs pull,
+      # no content/asset manifest generation. The app fetches data-assets.json
+      # from the Release at runtime, so the HAP build never touches data/.
       - name: Restore cached OHOS SDK
         id: sdk-cache
         uses: actions/cache/restore@v4
@@ -258,34 +250,22 @@ jobs:
         with:
           path: ohos-sdk-cache
           key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
-      - name: Generate the in-HAP data manifest
-        id: manifest
-        if: steps.release.outputs.data-mode == 'external'
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          set -euo pipefail
-          out_dir="$RUNNER_TEMP/hap-manifest"
-          mkdir -p "$out_dir"
-          python3 tools/package_data_release.py \
-            --root data --config content-packs.json \
-            --tag "$RELEASE_TAG" --out "$out_dir" --manifest-only
-          echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
       - name: Prepare the OpenHarmony project
         shell: bash
         env:
           DATA_MODE: ${{ steps.release.outputs.data-mode }}
-          ASSETS_DIR: ${{ steps.manifest.outputs.assets-dir }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          assets_arg=""
-          if [[ -n "${ASSETS_DIR:-}" ]]; then
-            assets_arg="--assets-file $ASSETS_DIR/data-assets.json"
-          fi
+          # external mode: the HAP does not bundle data and does not need a
+          # bundled data-assets.json (the app fetches it from the Release at
+          # runtime). Only mini/bundled (diagnostic) modes need LFS data.
           data_arg=""
-          if [[ "$DATA_MODE" == 'bundled' ]]; then data_arg="--data-link"; fi
-          python3 tools/setup_ohos_project.py $data_arg $assets_arg
+          if [[ "$DATA_MODE" != 'external' ]]; then
+            git lfs pull
+            if [[ "$DATA_MODE" == 'bundled' ]]; then data_arg="--data-link"; fi
+          fi
+          python3 tools/setup_ohos_project.py $data_arg
           if [[ "$DATA_MODE" == 'mini' ]]; then
             rm -f ohos-project/entry/src/main/resources/rawfile/data
             mkdir -p ohos-project/entry/src/main/resources/rawfile/data
@@ -416,8 +396,12 @@ jobs:
           unzip -t "$hap" >/dev/null
           mapfile -t contents < <(unzip -Z1 "$hap")
           content_list="$(printf '%s\n' "${contents[@]}")"
-          if [[ "$DATA_MODE" == 'bundled' ]]; then rawfile_check='resources/rawfile/data/startup.tjs'; else rawfile_check='resources/rawfile/data-assets.json'; fi
-          for required in 'libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' "$rawfile_check"; do
+          if [[ "$DATA_MODE" == 'bundled' ]]; then
+            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so' 'resources/rawfile/data/startup.tjs')
+          else
+            required_list=('libs/arm64-v8a/libentry.so' 'libs/arm64-v8a/libkrkrsdl2.so')
+          fi
+          for required in "${required_list[@]}"; do
             grep -Fxq "$required" <<<"$content_list" || { echo "HAP missing $required" >&2; exit 1; }
           done
           if [[ "$DATA_MODE" == 'mini' ]]; then data_suffix="-mini"; else data_suffix=""; fi

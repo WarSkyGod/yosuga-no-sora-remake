@@ -294,9 +294,20 @@ void OHOS_Entry_SetSurfaceId(const char *surface_id)
 		pthread_mutex_lock(&g_lock);
 		g_native_window = window;
 		g_window_ready = true;
+		// The surface callbacks that would deliver the size do not fire on
+		// this system, so set a sensible landscape default for SDL.
+		if (g_surface_width == 0 || g_surface_height == 0)
+		{
+			g_surface_width = 1280;
+			g_surface_height = 720;
+		}
 		pthread_cond_broadcast(&g_cond);
 		pthread_mutex_unlock(&g_lock);
-		OHOS_Entry_LogNative("engine: native window created from surfaceId");
+		char wmsg[128];
+		snprintf(wmsg, sizeof(wmsg), "engine: native window created from surfaceId (%llux%llu)",
+			static_cast<unsigned long long>(g_surface_width),
+			static_cast<unsigned long long>(g_surface_height));
+		OHOS_Entry_LogNative(wmsg);
 	}
 	else
 	{

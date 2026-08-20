@@ -927,6 +927,9 @@ void tTVPApplication::SetTitle( const tjs_string& caption ) {
 }
 
 void tTVPApplication::Terminate() {
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: Terminate() called\n"); fclose(lf); } }
+	}
 #if 0
 	::PostQuitMessage(0);
 #endif

@@ -290,7 +290,7 @@ struct Index {
             } else if (response.responseCode === 200) {
               // Server ignored the Range: write the whole body from the start.
               const data = response.result as ArrayBuffer;
-              fs.ftruncateSync(file.fd, 0);
+              fs.truncateSync(file.fd, 0);
               fs.writeSync(file.fd, data, { offset: 0 });
               offset = totalSize;
               got = true;
@@ -538,7 +538,7 @@ struct Index {
     // landscape fullscreen now that the bootstrap page is left behind.
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
-      ctx.getHostWindow().then((mainWindow: window.Window) => {
+      window.getLastWindow(ctx).then((mainWindow: window.Window) => {
         mainWindow.setPreferredOrientation(window.Orientation.LANDSCAPE);
         mainWindow.setWindowLayoutFullScreen(true);
       }).catch(() => {

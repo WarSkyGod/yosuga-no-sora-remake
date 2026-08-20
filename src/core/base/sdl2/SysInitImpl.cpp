@@ -2137,6 +2137,12 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 			tjs_string config_datapath;
 			if(TVPGetCommandLine(TJS_W("-datapath"), &val))
 				config_datapath = ((ttstr)val).AsStdString();
+
+#if defined(__OHOS__)
+			// OHOS: ignore any configured -datapath so GetDataPathDirectory
+			// falls through to the public-Download savedata branch.
+			config_datapath.clear();
+#endif
 			TVPNativeDataPath = ApplicationSpecialPath::GetDataPathDirectory(config_datapath, ExePath());
 
 			if(stop_after_datapath_got) return;

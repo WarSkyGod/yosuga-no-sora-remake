@@ -7,6 +7,8 @@
 #include "tjsCommHead.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 #include <assert.h>
@@ -508,6 +510,20 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		image_load_thread_->StartTread();
 #endif
 
+		// OHOS debug: log the selected project dir before startup script.
+		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			const char *logpath = "/data/local/tmp/yosuga-engine.log";
+			if (dd && dd[0]) { std::string lp = std::string(dd) + "/engine.log"; logpath = lp.c_str(); }
+			FILE *lf = fopen(logpath, "a");
+			if (lf)
+			{
+				extern tjs_string TVPNativeProjectDir;
+				fprintf(lf, "engine: TVPProjectDirSelected=%d nativeProjectDir=%s\n",
+					TVPProjectDirSelected ? 1 : 0, TVPNativeProjectDir.c_str());
+				fclose(lf);
+			}
+		}
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
 
 #if 0

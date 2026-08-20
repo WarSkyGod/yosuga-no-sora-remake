@@ -731,12 +731,10 @@ struct Index {
             })
           }
           Text('留空=直连 GitHub；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
-          if (this.needInit) {
-            Button('初始化下载目录（在系统下载目录建专属文件夹）')
-              .width('88%').height(48).backgroundColor('#2E5A88').onClick(() => {
-                this.initPublicDir();
-              })
-          }
+          Button(this.needInit ? '初始化下载目录（在系统下载目录建专属文件夹）' : '已初始化下载目录（可重新确认）')
+            .width('88%').height(48).backgroundColor('#2E5A88').onClick(() => {
+              this.initPublicDir();
+            })
           Button('下载游戏数据').width(220).height(52).onClick(() => {
             this.downloadAll();
           })

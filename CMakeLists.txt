@@ -736,6 +736,9 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "OHOS" OR ${CMAKE_SYSTEM_NAME} STREQUAL "Op
 # On OpenHarmony the engine ships as a native library that the NAPI entry
 # module (ohos-project/entry) links and starts from its own thread.
 add_library(${KRKRSDL2_NAME} SHARED)
+list(APPEND KRKRSDL2COMMON_INCLUDES
+	${KRKRSDL2_REPO_DIR}/ohos-project/entry/src/main/cpp/sdl_ohos
+)
 else()
 add_executable(${KRKRSDL2_NAME})
 if(WIN32)

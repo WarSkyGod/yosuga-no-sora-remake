@@ -1442,10 +1442,21 @@ void TVPBeforeSystemInit()
 		base_path_utf8 = base_path;
 		SDL_free(base_path);
 	}
-#if defined(__ANDROID__) || defined(__OHOS__)
-	// Special case for Android and OpenHarmony when SDL_GetBasePath returns NULL.
-	// On OpenHarmony SDL_GetBasePath normally returns the application sandbox
-	// files directory, which already contains the extracted game data.
+#if defined(__OHOS__)
+	// OpenHarmony: the game data lives in the public Download app folder
+	// (set via SDL_OHOS_SetDataDir from the NAPI shell). Use it as the
+	// engine base path so startup.tjs / data.xp3 are found there instead of
+	// the bundle directory or the empty sandbox files dir.
+	extern "C" const char *SDL_OHOS_GetDataDir(void);
+	{
+		const char *dd = SDL_OHOS_GetDataDir();
+		if (dd != nullptr && dd[0] != '\0')
+		{
+			base_path_utf8 = dd;
+		}
+	}
+#endif
+#if defined(__ANDROID__)
 	if (base_path_utf8.length() == 0)
 	{
 		base_path_utf8 = "/";

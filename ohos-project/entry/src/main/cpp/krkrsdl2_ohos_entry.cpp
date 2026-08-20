@@ -34,9 +34,9 @@
  * Download folder so crashes can be diagnosed without root/faultlog. */
 static void OHOS_CrashHandler(int sig)
 {
-	const char *name = g_data_dir.empty() ? nullptr : g_data_dir.c_str();
-	std::string out = (name && name[0]) ? std::string(name) + "/crash.txt"
-	                                    : "/data/local/tmp/yosuga-crash.txt";
+	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+	std::string out = (dd && dd[0]) ? std::string(dd) + "/crash.txt"
+	                              : "/data/local/tmp/yosuga-crash.txt";
 	FILE *lf = fopen(out.c_str(), "a");
 	if (lf)
 	{

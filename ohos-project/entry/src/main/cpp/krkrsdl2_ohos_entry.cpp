@@ -319,7 +319,32 @@ void OHOS_Entry_AttachXComponent(void *component)
 	callback.OnSurfaceChanged = OnSurfaceChanged;
 	callback.OnSurfaceDestroyed = OnSurfaceDestroyed;
 	callback.DispatchTouchEvent = OnTouchEvent;
-	OH_NativeXComponent_RegisterCallback(native, &callback);
+	int32_t reg = OH_NativeXComponent_RegisterCallback(native, &callback);
+	char regmsg[96];
+	snprintf(regmsg, sizeof(regmsg), "engine: XComponent RegisterCallback result=%d", static_cast<int>(reg));
+	OHOS_Entry_LogNative(regmsg);
+
+	// The surface callbacks fire while the surface is being created; if
+	// onLoad runs after the surface already exists, query the current size
+	// to detect an already-present surface so the engine does not block.
+	uint64_t w = 0, h = 0;
+	int32_t size_ret = OH_NativeXComponent_GetXComponentSize(native, nullptr, &w, &h);
+	if (size_ret == 0 && w > 0 && h > 0)
+	{
+		OHOS_Entry_LogNative("engine: surface already present at attach, triggering window ready");
+		pthread_mutex_lock(&g_lock);
+		g_window_ready = true;
+		g_surface_width = w;
+		g_surface_height = h;
+		pthread_cond_broadcast(&g_cond);
+		pthread_mutex_unlock(&g_lock);
+	}
+	else
+	{
+		char sizemsg[128];
+		snprintf(sizemsg, sizeof(sizemsg), "engine: surface not present at attach (size_ret=%d w=%llu h=%llu)", static_cast<int>(size_ret), static_cast<unsigned long long>(w), static_cast<unsigned long long>(h));
+		OHOS_Entry_LogNative(sizemsg);
+	}
 
 	Log(LOG_INFO, "XComponent attached");
 }

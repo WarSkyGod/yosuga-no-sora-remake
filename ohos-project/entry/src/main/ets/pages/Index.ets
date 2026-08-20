@@ -52,6 +52,7 @@ struct Index {
   @State uiEpoch: number = 0;
   @State debugOut: string = '';
   private autoInitTried: boolean = false;
+  private readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
   private saveDir: string = '';
@@ -99,9 +100,18 @@ struct Index {
     // can be traced even without a connected host.
     const line = Date.now() % 100000 + ': ' + msg;
     this.debugOut = (this.debugOut + '\n' + line).slice(-800);
+    // 1) sandbox debug.log (always writable)
+    this.appendLog(this.sandboxFiles + '/debug.log', line);
+    // 2) public Download app folder debug.log when granted (so it can be
+    //    opened from the file manager without a host connection)
+    if (this.baseDir !== '' && this.baseDir !== this.sandboxFiles) {
+      this.appendLog(this.baseDir + '/debug.log', line);
+    }
+  }
+
+  private appendLog(path: string, line: string): void {
     try {
-      const p = this.sandboxFiles + '/debug.log';
-      const fd = fs.openSync(p, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
+      const fd = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.APPEND);
       fs.writeSync(fd.fd, line + '\n');
       fs.closeSync(fd);
     } catch (e) {
@@ -176,16 +186,22 @@ struct Index {
     }
 
     const ready = this.dataReady();
+    this.readyForGame = ready;
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
-    if (ready) {
-      this.startGame();
-      return;
-    }
+    // Do NOT auto-start: on this system an automatic engine start flips to
+    // landscape + black screen. Show the bootstrap page with a ready state
+    // and let the user tap a start button.
     this.loadManifest().catch(() => {
       // manifest loads in the background; the bootstrap page shows first
     });
-    this.bootState = 2;
-    this.progressText = '需要下载或导入游戏数据';
+    if (ready) {
+      this.bootState = 2;
+      this.progressText = '游戏数据已就绪';
+      this.message = '';
+    } else {
+      this.bootState = 2;
+      this.progressText = '需要下载或导入游戏数据';
+    }
     this.uiEpoch++;
     this.log('bootstrap page shown');
   }
@@ -798,20 +814,27 @@ struct Index {
               this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
             })
           }
-          Text('留空=直连 GitHub；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
-          Button(this.needInit ? '初始化下载目录（在系统下载目录建专属文件夹）' : '已初始化下载目录（可重新确认）')
-            .width('88%').height(48).backgroundColor('#2E5A88').onClick(() => {
-              this.initPublicDir();
+          if (this.readyForGame) {
+            Button('开始游戏（竖屏切换为横屏）').width(240).height(56).fontSize(18).onClick(() => {
+              this.startGame();
             })
-          Button('下载游戏数据').width(220).height(52).onClick(() => {
-            this.downloadAll();
-          })
-          Button('从本地压缩包导入').width(220).height(52).backgroundColor('#3A5BA0').onClick(() => {
-            this.importLocal();
-          })
-          Button('重新检查').width(220).height(44).backgroundColor('#555555').onClick(() => {
-            this.prepare();
-          })
+            Text('数据已就绪，点击开始。若黑屏请截图 debug 日志').fontSize(12).fontColor(Color.Gray).maxLines(2)
+          } else {
+            Text('留空=直连 GitHub；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Gray).maxLines(2)
+            Button(this.needInit ? '初始化下载目录（在系统下载目录建专属文件夹）' : '已初始化下载目录（可重新确认）')
+              .width('88%').height(48).backgroundColor('#2E5A88').onClick(() => {
+                this.initPublicDir();
+              })
+            Button('下载游戏数据').width(220).height(52).onClick(() => {
+              this.downloadAll();
+            })
+            Button('从本地压缩包导入').width(220).height(52).backgroundColor('#3A5BA0').onClick(() => {
+              this.importLocal();
+            })
+            Button('重新检查').width(220).height(44).backgroundColor('#555555').onClick(() => {
+              this.prepare();
+            })
+          }
           Text(this.message).fontSize(12).fontColor(Color.Red).maxLines(4)
           }
         }

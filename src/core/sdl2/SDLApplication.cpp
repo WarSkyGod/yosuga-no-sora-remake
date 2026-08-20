@@ -3145,6 +3145,15 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 }
 
 void sdl_process_events()
+	// OHOS debug: log event processing.
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+			if (lf) { fprintf(lf, "engine: sdl_process_events win=%p init_events=%d\n", (void*)_currentWindowWindow, SDL_WasInit(SDL_INIT_EVENTS)); fclose(lf); }
+		}
+	}
 {
 	if (!SDL_WasInit(SDL_INIT_EVENTS))
 	{

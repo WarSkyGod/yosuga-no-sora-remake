@@ -822,6 +822,15 @@ extern "C" void EMSCRIPTEN_KEEPALIVE emscripten_syncfs_is_finished()
 #endif
 
 void tTVPApplication::Run() {
+	// OHOS debug: trace main-loop exit.
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+			if (lf) { fprintf(lf, "engine: Run() enter tarminate=%d windows=%d\n", tarminate_ ? 1 : 0, TVPGetWindowCount()); fclose(lf); }
+		}
+	}
 #if 0
 	TVPTerminateCode = 0;
 

@@ -286,7 +286,7 @@ struct Index {
               const data = response.result as ArrayBuffer;
               const length = data.byteLength;
               if (length > 0) {
-                fs.pwriteSync(file.fd, data, offset);
+                fs.writeSync(file.fd, data, { offset: offset });
                 offset += length;
                 if (onProgress) {
                   onProgress(offset);
@@ -297,7 +297,7 @@ struct Index {
               // Server ignored the Range: write the whole body from the start.
               const data = response.result as ArrayBuffer;
               fs.ftruncateSync(file.fd, 0);
-              fs.pwriteSync(file.fd, data, 0);
+              fs.writeSync(file.fd, data, { offset: 0 });
               offset = totalSize;
               got = true;
               if (onProgress) {
@@ -311,7 +311,10 @@ struct Index {
             }
           } catch (e) {
             if (attempt === 3) {
-              throw e;
+              if (e instanceof Error) {
+                throw e;
+              }
+              throw new Error(String(e));
             }
           } finally {
             httpRequest.destroy();

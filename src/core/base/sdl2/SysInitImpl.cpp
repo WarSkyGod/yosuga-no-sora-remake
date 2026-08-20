@@ -61,11 +61,6 @@
 #include <time.h>
 #endif
 
-#ifdef __OHOS__
-/* Exposed by the OpenHarmony NAPI entry module (libentry.so) via the
- * sdl_ohos_bridge; returns the public Download game-data folder. */
-extern "C" const char *SDL_OHOS_GetDataDir(void);
-#endif
 
 
 //---------------------------------------------------------------------------
@@ -1451,11 +1446,11 @@ void TVPBeforeSystemInit()
 	}
 #if defined(__OHOS__)
 	// OpenHarmony: the game data lives in the public Download app folder
-	// (set via SDL_OHOS_SetDataDir from the NAPI shell). Use it as the
-	// engine base path so startup.tjs / data.xp3 are found there instead of
-	// the bundle directory or the empty sandbox files dir.
-	{
-		const char *dd = SDL_OHOS_GetDataDir();
+	// OpenHarmony: the game data lives in the public Download app folder.
+	// The NAPI shell exports it via KRKR_OHOS_DATA_DIR (set before
+	// StartApplication) so the engine finds startup.tjs / data.xp3 there
+	// instead of the bundle directory or the empty sandbox files dir.
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 		if (dd != nullptr && dd[0] != '\0')
 		{
 			base_path_utf8 = dd;

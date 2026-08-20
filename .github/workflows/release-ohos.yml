@@ -272,6 +272,20 @@ jobs:
             cp data/startup.tjs ohos-project/entry/src/main/resources/rawfile/data/
             find data -maxdepth 1 -type f -size -5M -exec cp {} ohos-project/entry/src/main/resources/rawfile/data/ \;
           fi
+      - name: Inject default manifest URL
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Write the current repository's Release download root into the HAP
+          # so forks/renames track the right repo without editing code.
+          mkdir -p ohos-project/entry/src/main/resources/rawfile
+          printf '{"baseUrl":"https://github.com/%s/releases/latest/download/","releaseTag":"%s"}\n' \
+            "$REPO" "$RELEASE_TAG" \
+            > ohos-project/entry/src/main/resources/rawfile/default-manifest.json
+          cat ohos-project/entry/src/main/resources/rawfile/default-manifest.json
       - name: Build the release HAP
         id: build
         shell: bash

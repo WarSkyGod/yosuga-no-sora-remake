@@ -1863,7 +1863,7 @@ bool TVPTerminateOnWindowClose = false;
 bool TVPTerminateOnNoWindowStartup = false;
 #else
 bool TVPTerminateOnWindowClose = true;
-bool TVPTerminateOnNoWindowStartup = true;
+bool TVPTerminateOnNoWindowStartup = false;
 #endif
 int TVPTerminateCode = 0;
 //---------------------------------------------------------------------------

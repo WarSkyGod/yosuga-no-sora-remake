@@ -2170,7 +2170,12 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 
 
 		// set data path
+#if defined(__OHOS__)
+		// OHOS: keep the raw absolute public path (normalize would mis-handle it).
+		TVPDataPath = TVPNativeDataPath;
+#else
 		TVPDataPath = TVPNormalizeStorageName(TVPNativeDataPath);
+#endif
 		TVPAddImportantLog( TVPFormatMessage( TVPInfoDataPath, TVPDataPath) );
 
 		// set log output directory

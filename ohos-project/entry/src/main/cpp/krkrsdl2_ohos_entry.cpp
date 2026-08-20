@@ -323,7 +323,7 @@ void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir)
 	SDL_OHOS_SetDataDir(base_dir);
 	SDL_OHOS_SetSaveDir(save_dir);
 	if (save_dir != nullptr && save_dir[0] != '\0') { setenv("KRKR_OHOS_SAVE_DIR", save_dir, 1); }
-	OHOS_Entry_LogNative(("engine: setenv KRKR_OHOS_SAVE_DIR=" + (save_dir ? save_dir : "")).c_str());
+	OHOS_Entry_LogNative((std::string("engine: setenv KRKR_OHOS_SAVE_DIR=") + (save_dir ? save_dir : "")).c_str());
 	Log(LOG_INFO, "external baseDir: %{public}s  saveDir: %{public}s",
 		base_dir != nullptr ? base_dir : "(null)",
 		save_dir != nullptr ? save_dir : "(null)");

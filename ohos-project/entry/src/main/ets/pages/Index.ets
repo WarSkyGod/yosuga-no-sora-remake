@@ -735,6 +735,19 @@ struct Index {
         })
           .onLoad((context: object) => {
             try {
+              // Log what the API-26 onLoad context actually looks like.
+              let ctxDesc = 'type=' + typeof context;
+              try {
+                if (context !== null && context !== undefined) {
+                  const c = context as object;
+                  const keys = Object.keys(c);
+                  ctxDesc += ' keys=' + JSON.stringify(keys).slice(0, 200);
+                  ctxDesc += ' json=' + JSON.stringify(c).slice(0, 200);
+                }
+              } catch (e2) {
+                ctxDesc += ' descErr=' + JSON.stringify(e2);
+              }
+              this.log('onLoad context: ' + ctxDesc);
               const ok: boolean = entryNapi.onLoad(context) as boolean;
               if (ok) {
                 entryNapi.startEngine();

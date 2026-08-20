@@ -7,6 +7,7 @@
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <napi/native_api.h>
 
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -51,15 +52,25 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 	// napi external instead. Try both. NEVER throw from here: on HarmonyOS 7
 	// a JS exception escapes and kills the app.
 	OH_NativeXComponent *component = nullptr;
-	napi_status status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
-	if (status != napi_ok || component == nullptr)
+	napi_valuetype value_type = napi_undefined;
+	napi_typeof(env, args[0], &value_type);
+	napi_status unwrap_status = napi_unwrap(env, args[0], reinterpret_cast<void **>(&component));
+	napi_status external_status = napi_invalid_arg;
+	if (unwrap_status != napi_ok || component == nullptr)
 	{
 		void *external = nullptr;
-		if (napi_get_value_external(env, args[0], &external) == napi_ok && external != nullptr)
+		external_status = napi_get_value_external(env, args[0], &external);
+		if (external_status == napi_ok && external != nullptr)
 		{
 			component = static_cast<OH_NativeXComponent *>(external);
 		}
 	}
+	char diagnostic[160];
+	snprintf(diagnostic, sizeof(diagnostic),
+		"XComponent OnLoad: type=%d unwrap=%d external=%d native=%s",
+		static_cast<int>(value_type), static_cast<int>(unwrap_status),
+		static_cast<int>(external_status), component != nullptr ? "yes" : "no");
+	OHOS_Entry_LogNative(diagnostic);
 	if (component == nullptr)
 	{
 		napi_value result = nullptr;
@@ -67,6 +78,7 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 		return result;
 	}
 	OHOS_Entry_AttachXComponent(component);
+	OHOS_Entry_LogNative("XComponent OnLoad: attached");
 	napi_value ok = nullptr;
 	napi_get_boolean(env, true, &ok);
 	return ok;

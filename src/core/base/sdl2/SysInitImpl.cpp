@@ -1455,6 +1455,12 @@ void TVPBeforeSystemInit()
 		if (dd != nullptr && dd[0] != '\0')
 		{
 			base_path_utf8 = dd;
+			// The engine appends names without a separator (base + "data.xp3"),
+			// so the base must end with a slash.
+			if (base_path_utf8.length() > 0 && base_path_utf8[base_path_utf8.length() - 1] != '/')
+			{
+				base_path_utf8 += "/";
+			}
 		}
 	}
 #endif

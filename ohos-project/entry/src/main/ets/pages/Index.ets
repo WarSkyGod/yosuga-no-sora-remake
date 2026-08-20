@@ -109,14 +109,20 @@ struct Index {
     // (that can appear to succeed yet be unwritable). Until granted, use the
     // sandbox so downloads/imports always work, and surface the init button.
     this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+    // Only treat the public folder as usable when the marker we wrote after
+    // initPublicDir() is actually listed there. listFileSync on a missing
+    // folder throws, so an un-granted platform reliably falls into the
+    // sandbox branch and shows the init button.
     let publicOk = false;
     try {
-      fs.accessSync(this.appDir + '/.granted');
-      fs.mkdirSync(this.appDir + '/data', true);
-      fs.accessSync(this.appDir + '/data');
-      publicOk = true;
+      const entries = fs.listFileSync(this.appDir);
+      publicOk = entries.indexOf('.granted') >= 0;
+      if (publicOk) {
+        fs.mkdirSync(this.appDir + '/data', true);
+        fs.mkdirSync(this.appDir + '/savedata', true);
+      }
     } catch (e) {
-      this.log('public app dir not granted yet: ' + JSON.stringify(e));
+      this.log('public app dir not granted: ' + JSON.stringify(e));
     }
     if (publicOk) {
       this.baseDir = this.appDir;

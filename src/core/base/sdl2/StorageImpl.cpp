@@ -393,6 +393,7 @@ void TJS_INTF_METHOD tTVPFileMedia::GetListAt(const ttstr &_name, iTVPStorageLis
 #endif
 					fname[count] = TJS_W('\0');
 					ttstr file(fname);
+					{ static int ohos_list_count = 0; if (++ohos_list_count <= 5 || ohos_list_count % 1000 == 0) { const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: GetListAt add=%d name=%s\n", ohos_list_count, entry->d_name); fclose(lf); } } } }
 					lister->Add(file);
 				}
 				// entry->d_type == DT_UNKNOWN

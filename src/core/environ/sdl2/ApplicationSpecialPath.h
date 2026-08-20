@@ -117,23 +117,30 @@ public:
 		return nativeDataPath.AsStdString();
 #elif defined(__OHOS__)
 		/* OHOS: saves live in the public Download app folder (set via
-		   SDL_OHOS_SetSaveDir from the NAPI shell) so users can reach them
-		   through the file manager. Fall back to the sandbox otherwise. */
+		   KRKR_OHOS_SAVE_DIR from the NAPI shell). */
 		{
 			const char *ohosSave = getenv("KRKR_OHOS_SAVE_DIR");
-			if(ohosSave && *ohosSave)
+			if (ohosSave && *ohosSave)
 			{
 				tjs_string path;
-				if(TVPUtf8ToUtf16(path, std::string(ohosSave)))
+				if (TVPUtf8ToUtf16(path, std::string(ohosSave)))
 				{
-					if(path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+					if (path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
 						path += TJS_W('/');
 					return path;
 				}
 			}
 		}
-		/* OHOS fallback: env not set yet - use SDL_GetPrefPath so we always
-		   return a valid path (never fall through to undefined behaviour). */
+		/* OHOS fallback: use the public data dir env + savedata. */
+		{
+			const char *dd2 = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd2 && *dd2)
+			{
+				tjs_string p16;
+				if (TVPUtf8ToUtf16(p16, std::string(dd2) + "/savedata/"))
+					return p16;
+			}
+		}
 		{
 			char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");
 			if (pref_path)
@@ -150,25 +157,19 @@ public:
 			return ndp.AsStdString();
 		}
 #elif defined(__ANDROID__)
-		/* Android: keep saves in the public Downloads folder (falling back
-		   to the private data dir when public access is unavailable).  The
-		   Java activity creates <Download>/YosugaSoraHD/savedata, writes
-		   .nomedia so the media scanner ignores the save thumbnails, and
-		   migrates the old private-dir saves here on upgrade. */
+		/* Android: keep saves in the public Downloads folder. */
 		{
 			const char *androidDir = TVPAndroidGetPublicSaveDirectory();
 			tjs_string path;
-			if(androidDir && *androidDir &&
+			if (androidDir && *androidDir &&
 				TVPUtf8ToUtf16(path, std::string(androidDir)))
 			{
-				if(path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
+				if (path.length() > 0 && path[path.length() - 1] != TJS_W('/'))
 					path += TJS_W('/');
 				return path;
 			}
 		}
 		{
-			/* No public access (yet): keep the exact legacy behaviour so an
-			   older install's save location is preserved until migration. */
 			char *pref_path = SDL_GetPrefPath(NULL, "krkrsdl2");
 			std::string pref_path_utf8;
 			if (pref_path)

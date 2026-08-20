@@ -2145,6 +2145,24 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 #endif
 			TVPNativeDataPath = ApplicationSpecialPath::GetDataPathDirectory(config_datapath, ExePath());
 
+#if defined(__OHOS__)
+			// OHOS: set the save dir directly from the NAPI env (bypasses the
+			// fragile GetDataPathDirectory branch chain entirely).
+			{
+				const char *save_env = getenv("KRKR_OHOS_SAVE_DIR");
+				if (save_env && *save_env)
+				{
+					std::string se(save_env);
+					if (se[se.length() - 1] != '/') se += "/";
+					tjs_string se16;
+					if (TVPUtf8ToUtf16(se16, se))
+					{
+						TVPNativeDataPath = se16;
+					}
+				}
+			}
+#endif
+
 			if(stop_after_datapath_got) return;
 
 			// read per-user configuration file

@@ -33,6 +33,11 @@ name: Release OpenHarmony / HarmonyOS HAP
           - external
           - bundled
           - mini
+      skip_data:
+        description: 'Skip the data packaging job (fast HAP iteration)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -44,6 +49,7 @@ concurrency:
 jobs:
   package-data:
     name: Package game data
+    if: inputs.skip_data != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:

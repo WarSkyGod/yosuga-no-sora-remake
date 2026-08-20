@@ -510,17 +510,37 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		image_load_thread_->StartTread();
 #endif
 
-		// OHOS debug: log the selected project dir before startup script.
+		// OHOS debug: log the selected project dir + probe data.xp3 access.
 		{
 			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-			const char *logpath = "/data/local/tmp/yosuga-engine.log";
-			if (dd && dd[0]) { std::string lp = std::string(dd) + "/engine.log"; logpath = lp.c_str(); }
-			FILE *lf = fopen(logpath, "a");
+			std::string logpath = "/data/local/tmp/yosuga-engine.log";
+			if (dd && dd[0]) { logpath = std::string(dd) + "/engine.log"; }
+			FILE *lf = fopen(logpath.c_str(), "a");
 			if (lf)
 			{
 				extern tjs_string TVPNativeProjectDir;
 				fprintf(lf, "engine: TVPProjectDirSelected=%d nativeProjectDir=%s\n",
 					TVPProjectDirSelected ? 1 : 0, TVPNativeProjectDir.c_str());
+				// Probe whether the engine can actually open data.xp3.
+				std::string xp3 = TVPNativeProjectDir.empty() ? std::string("/data.xp3") : TVPNativeProjectDir + "/data.xp3";
+				FILE *xf = fopen(xp3.c_str(), "rb");
+				if (xf)
+				{
+					fseek(xf, 0, SEEK_END);
+					long sz = ftell(xf);
+					fprintf(lf, "engine: fopen data.xp3 OK size=%ld path=%s\n", sz, xp3.c_str());
+					fclose(xf);
+				}
+				else
+				{
+					fprintf(lf, "engine: fopen data.xp3 FAILED path=%s\n", xp3.c_str());
+					if (!TVPNativeProjectDir.empty())
+					{
+						FILE *xf2 = fopen((std::string(dd ? dd : "") + "/data.xp3").c_str(), "rb");
+						if (xf2) { fprintf(lf, "engine: fopen data.xp3 via env OK\n"); fclose(xf2); }
+						else { fprintf(lf, "engine: fopen data.xp3 via env FAILED\n"); }
+					}
+				}
 				fclose(lf);
 			}
 		}

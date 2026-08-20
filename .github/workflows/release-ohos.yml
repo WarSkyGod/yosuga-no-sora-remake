@@ -190,37 +190,63 @@ jobs:
           python3 tools/generate_content_manifest.py --root data \
             --output data/content-manifest.json --config content-packs.json \
             --cache "$RUNNER_TEMP/content-manifest-cache.json" --full
+      - name: Restore cached OHOS SDK
+        id: sdk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ohos-sdk-cache
+          key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
       - name: Install the OpenHarmony 5.0 command line tools and SDK
         shell: bash
         env:
           OHOS_COMMAND_LINE_TOOLS_URL: ${{ vars.OHOS_COMMAND_LINE_TOOLS_URL }}
+          CACHE_HIT: ${{ steps.sdk-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           sdk_root="$RUNNER_TEMP/ohos-sdk"
           mkdir -p "$sdk_root"
-          cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
-          echo "Downloading command line tools"
-          curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/commandline-tools.zip" "$cli_url"
-          unzip -q -o "$RUNNER_TEMP/commandline-tools.zip" -d "$sdk_root/"
-          [[ -d "$sdk_root/command-line-tools" ]] || { echo 'command-line-tools missing' >&2; exit 1; }
-          bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
-          [[ -d "$bundled_sdk/native" && -d "$bundled_sdk/ets" ]] || { echo 'SDK components missing' >&2; exit 1; }
-          uni_json="$(find "$bundled_sdk" -maxdepth 2 -name oh-uni-package.json -print -quit)"
-          api_version="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('apiVersion',''))" "$uni_json" 2>/dev/null || echo 12)"
-          [[ -n "$api_version" ]] || api_version="12"
-          mkdir -p "$sdk_root/$api_version"
-          for component in ets js native previewer toolchains; do
-            if [[ -d "$bundled_sdk/$component" ]]; then mv "$bundled_sdk/$component" "$sdk_root/$api_version/$component"; fi
-          done
-          rm -rf "$sdk_root/command-line-tools/sdk"
-          rm -f "$RUNNER_TEMP/commandline-tools.zip"
+          if [[ "$CACHE_HIT" == 'true' && -d "ohos-sdk-cache" ]]; then
+            echo "Using cached OHOS SDK"
+            cp -r ohos-sdk-cache/. "$sdk_root/"
+            api_version="$(ls "$sdk_root" | xargs -n1 basename | grep -E '^[0-9]+$' | sort -rn | head -1)"
+          else
+            cli_url="${OHOS_COMMAND_LINE_TOOLS_URL:-https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip}"
+            echo "Downloading command line tools"
+            curl -fL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/commandline-tools.zip" "$cli_url"
+            unzip -q -o "$RUNNER_TEMP/commandline-tools.zip" -d "$sdk_root/"
+            [[ -d "$sdk_root/command-line-tools" ]] || { echo 'command-line-tools missing' >&2; exit 1; }
+            bundled_sdk="$sdk_root/command-line-tools/sdk/default/openharmony"
+            [[ -d "$bundled_sdk/native" && -d "$bundled_sdk/ets" ]] || { echo 'SDK components missing' >&2; exit 1; }
+            uni_json="$(find "$bundled_sdk" -maxdepth 2 -name oh-uni-package.json -print -quit)"
+            api_version="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('apiVersion',''))" "$uni_json" 2>/dev/null || echo 12)"
+            [[ -n "$api_version" ]] || api_version="12"
+            mkdir -p "$sdk_root/$api_version"
+            for component in ets js native previewer toolchains; do
+              if [[ -d "$bundled_sdk/$component" ]]; then mv "$bundled_sdk/$component" "$sdk_root/$api_version/$component"; fi
+            done
+            rm -rf "$sdk_root/command-line-tools/sdk"
+            rm -f "$RUNNER_TEMP/commandline-tools.zip"
+          fi
           chmod +x "$sdk_root"/command-line-tools/bin/* 2>/dev/null || true
           [[ -x "$sdk_root/command-line-tools/bin/hvigorw" ]] || { echo 'hvigorw missing' >&2; exit 1; }
-          [[ -d "$sdk_root/$api_version/native" ]] || { echo 'native missing' >&2; exit 1; }
+          [[ -n "$api_version" && -d "$sdk_root/$api_version/native" ]] || { echo 'native missing' >&2; exit 1; }
           echo "DEVECO_SDK_HOME=$sdk_root" >> "$GITHUB_ENV"
           echo "OHOS_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
           echo "OHOS_SDK_API=$api_version" >> "$GITHUB_ENV"
           ls "$sdk_root/$api_version"
+      - name: Mirror SDK for cache
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ohos-sdk-cache
+          cp -r "$RUNNER_TEMP/ohos-sdk" ohos-sdk-cache
+      - name: Save cached OHOS SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ohos-sdk-cache
+          key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
       - name: Generate the in-HAP data manifest
         id: manifest
         if: steps.release.outputs.data-mode == 'external'

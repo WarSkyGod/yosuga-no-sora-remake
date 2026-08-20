@@ -1548,7 +1548,14 @@ void TVPBeforeSystemInit()
 		}
 		if (found_dir.length() != 0)
 		{
+#if defined(__OHOS__)
+			// OHOS: keep the raw absolute public path; NormalizeStorageName
+			// would turn /storage/... into a relative path that fails to resolve
+			// after chdir into the public Download folder.
+			TVPProjectDir = found_dir;
+#else
 			TVPProjectDir = TVPNormalizeStorageName(found_dir);
+#endif
 			TVPSetCurrentDirectory(TVPProjectDir);
 			TVPNativeProjectDir = found_dir;
 			TVPProjectDirSelected = true;
@@ -1603,7 +1610,11 @@ void TVPBeforeSystemInit()
 				TVPProjectDirSelected = true;
 			}
 			dir_utf16 += TJS_W("/");
+#if defined(__OHOS__)
+			TVPProjectDir = dir_utf16;
+#else
 			TVPProjectDir = TVPNormalizeStorageName(dir_utf16);
+#endif
 			TVPSetCurrentDirectory(TVPProjectDir);
 			TVPNativeProjectDir = dir_utf16;
 		}
@@ -1629,7 +1640,11 @@ void TVPBeforeSystemInit()
 				}
 				if (TVPProjectDirSelected)
 				{
+#if defined(__OHOS__)
+					TVPProjectDir = dirbuf;
+#else
 					TVPProjectDir = TVPNormalizeStorageName(dirbuf);
+#endif
 					TVPSetCurrentDirectory(TVPProjectDir);
 					TVPNativeProjectDir = dirbuf.AsStdString();
 				}

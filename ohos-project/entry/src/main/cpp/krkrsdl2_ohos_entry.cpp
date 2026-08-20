@@ -21,6 +21,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <string>
 #include <sys/stat.h>
 #include <thread>
@@ -265,6 +266,46 @@ void OHOS_Entry_SetFilesDir(const char *files_dir)
 	SDL_OHOS_SetFilesDir(files_dir);
 	Log(LOG_INFO, "filesDir: %{public}s", files_dir != nullptr ? files_dir : "(null)");
 }
+void OHOS_Entry_SetSurfaceId(const char *surface_id)
+{
+	if (surface_id == nullptr || surface_id[0] == '\0')
+	{
+		OHOS_Entry_LogNative("engine: SetSurfaceId called with empty id");
+		return;
+	}
+	uint64_t id = 0;
+	try
+	{
+		id = static_cast<uint64_t>(std::strtoull(surface_id, nullptr, 10));
+	}
+	catch (...)
+	{
+		OHOS_Entry_LogNative("engine: SetSurfaceId parse failed");
+		return;
+	}
+	char msg[128];
+	snprintf(msg, sizeof(msg), "engine: SetSurfaceId=%s parsed=%llu", surface_id, static_cast<unsigned long long>(id));
+	OHOS_Entry_LogNative(msg);
+
+	OHNativeWindow *window = nullptr;
+	int32_t ret = OH_NativeWindow_CreateNativeWindowFromSurfaceId(id, &window);
+	if (ret == 0 && window != nullptr)
+	{
+		pthread_mutex_lock(&g_lock);
+		g_native_window = window;
+		g_window_ready = true;
+		pthread_cond_broadcast(&g_cond);
+		pthread_mutex_unlock(&g_lock);
+		OHOS_Entry_LogNative("engine: native window created from surfaceId");
+	}
+	else
+	{
+		char fmsg[128];
+		snprintf(fmsg, sizeof(fmsg), "engine: CreateNativeWindowFromSurfaceId failed ret=%d", static_cast<int>(ret));
+		OHOS_Entry_LogNative(fmsg);
+	}
+}
+
 
 void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir)
 {

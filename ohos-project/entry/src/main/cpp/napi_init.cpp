@@ -163,6 +163,23 @@ static napi_value StartEngine(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+static napi_value SetSurfaceId(napi_env env, napi_callback_info info)
+{
+	size_t argc = 1;
+	napi_value args[1] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	size_t length = 0;
+	if (argc < 1 ||
+		napi_get_value_string_utf8(env, args[0], nullptr, 0, &length) != napi_ok)
+	{
+		return nullptr;
+	}
+	std::string surface_id(length, '\0');
+	napi_get_value_string_utf8(env, args[0], &surface_id[0], length + 1, &length);
+	OHOS_Entry_SetSurfaceId(surface_id.c_str());
+	return nullptr;
+}
+
 /* setExternalDirs(baseDir, saveDir): point the engine at the public Download
  * app folder (game data at <baseDir>/data) and the savedata folder. Either
  * argument may be an empty string or omitted. */
@@ -209,6 +226,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"initResourceManager", nullptr, InitResourceManager, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"onLoad", nullptr, OnLoad, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"startEngine", nullptr, StartEngine, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"setSurfaceId", nullptr, SetSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setExternalDirs", nullptr, SetExternalDirs, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

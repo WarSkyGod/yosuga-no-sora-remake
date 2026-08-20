@@ -60,6 +60,7 @@ struct Index {
   private dataDir: string = '';
   private assets: DataAsset[] = [];
   private manifest: DataManifest | null = null;
+  private xcController: XComponentController = new XComponentController();
 
   aboutToAppear(): void {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
@@ -731,23 +732,22 @@ struct Index {
         XComponent({
           id: 'gameview',
           type: XComponentType.SURFACE,
-          libraryname: 'entry'
+          libraryname: 'entry',
+          controller: this.xcController
         })
           .onLoad((context: object) => {
             try {
-              // Log what the API-26 onLoad context actually looks like.
-              let ctxDesc = 'type=' + typeof context;
+              // Try to hand the engine a surfaceId so it can create the
+              // native window directly (the legacy surface callbacks do not
+              // fire on this system).
+              let sid = '';
               try {
-                if (context !== null && context !== undefined) {
-                  const c = context as object;
-                  const keys = Object.keys(c);
-                  ctxDesc += ' keys=' + JSON.stringify(keys).slice(0, 200);
-                  ctxDesc += ' json=' + JSON.stringify(c).slice(0, 200);
-                }
-              } catch (e2) {
-                ctxDesc += ' descErr=' + JSON.stringify(e2);
+                sid = this.xcController.getXComponentSurfaceId();
+              } catch (e3) {
+                this.log('getXComponentSurfaceId failed: ' + JSON.stringify(e3));
               }
-              this.log('onLoad context: ' + ctxDesc);
+              this.log('onLoad surfaceId=' + sid);
+              entryNapi.setSurfaceId(sid);
               const ok: boolean = entryNapi.onLoad(context) as boolean;
               if (ok) {
                 entryNapi.startEngine();

@@ -67,6 +67,36 @@ static napi_value OnLoad(napi_env env, napi_callback_info info)
 		}
 	}
 
+	// API 26: the real OH_NativeXComponent is hidden in the
+	// __NATIVE_XCOMPONENT_OBJ__ property of the onLoad context object.
+	if (component == nullptr)
+	{
+		napi_value native_obj = nullptr;
+		if (napi_get_named_property(env, args[0], "__NATIVE_XCOMPONENT_OBJ__", &native_obj) == napi_ok)
+		{
+			void *raw = nullptr;
+			// It may be a plain external or a napi_wrap'ed object.
+			if (napi_get_value_external(env, native_obj, &raw) == napi_ok && raw != nullptr)
+			{
+				component = static_cast<OH_NativeXComponent *>(raw);
+				OHOS_Entry_LogNative("XComponent OnLoad: got component via __NATIVE_XCOMPONENT_OBJ__ external");
+			}
+			else if (napi_unwrap(env, native_obj, &raw) == napi_ok && raw != nullptr)
+			{
+				component = static_cast<OH_NativeXComponent *>(raw);
+				OHOS_Entry_LogNative("XComponent OnLoad: got component via __NATIVE_XCOMPONENT_OBJ__ unwrap");
+			}
+			else
+			{
+				OHOS_Entry_LogNative("XComponent OnLoad: __NATIVE_XCOMPONENT_OBJ__ present but neither external nor unwrapable");
+			}
+		}
+		else
+		{
+			OHOS_Entry_LogNative("XComponent OnLoad: __NATIVE_XCOMPONENT_OBJ__ property MISSING");
+		}
+	}
+
 	// Dump the context object property names to understand its shape.
 	std::string props = "?";
 	if (value_type == napi_object)

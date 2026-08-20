@@ -97,7 +97,7 @@ public:
 			const char *dd3 = getenv("KRKR_OHOS_SAVE_DIR");
 			std::string dp8;
 			TVPUtf16ToUtf8(dp8, datapath);
-			FILE *lf = fopen("/data/local/tmp/yosuga-save.log", "a");
+			FILE *lf = fopen((std::string(getenv("KRKR_OHOS_DATA_DIR") ? getenv("KRKR_OHOS_DATA_DIR") : "/data/local/tmp") + "/save-debug.log").c_str(), "a");
 			if (lf) { fprintf(lf, "GetDataPathDirectory datapath=%s saveEnv=%s\n", dp8.c_str(), dd3 ? dd3 : "(null)"); fclose(lf); }
 		}
 		if (datapath != TJS_W(""))

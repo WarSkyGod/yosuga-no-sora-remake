@@ -1108,6 +1108,15 @@ TJS_BEGIN_NATIVE_PROP_DECL(dataPath)
 {
 	TJS_BEGIN_NATIVE_PROP_GETTER
 	{
+		/* OHOS debug: log the dataPath value. */
+		{
+			const char *dd4 = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd4 && *dd4)
+			{
+				FILE *lf = fopen((std::string(dd4) + "/save-debug.log").c_str(), "a");
+				if (lf) { std::string dp8; TVPUtf16ToUtf8(dp8, TVPDataPath.AsStdString()); fprintf(lf, "System.dataPath=%s\n", dp8.c_str()); fclose(lf); }
+			}
+		}
 		*result = TVPDataPath;
 		return TJS_S_OK;
 	}

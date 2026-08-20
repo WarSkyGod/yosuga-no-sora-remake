@@ -314,12 +314,13 @@ static void EngineMain()
 	bool data_ok = false;
 	if (!base_dir.empty())
 	{
-		// The engine needs a complete data tree (startup.tjs plus the system
-		// scripts) or a bundled data.xp3.
+		// Mirrors the Windows krkrz layout: the engine reads from the app
+		// root, so data.xp3 sits at <base>/data.xp3 and loose files live in
+		// <base>/data/.
 		struct stat st;
 		std::string startup = base_dir + "/data/startup.tjs";
 		std::string system_dir = base_dir + "/data/system";
-		std::string xp3 = base_dir + "/data/data.xp3";
+		std::string xp3 = base_dir + "/data.xp3";
 		data_ok = ((stat(startup.c_str(), &st) == 0 && S_ISREG(st.st_mode)) &&
 		           (stat(system_dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode))) ||
 		          (stat(xp3.c_str(), &st) == 0 && S_ISREG(st.st_mode));

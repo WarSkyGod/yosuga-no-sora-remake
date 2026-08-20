@@ -103,13 +103,24 @@ jobs:
           python3 tools/package_data_release.py             --root data --config content-packs.json             --tag "$RELEASE_TAG" --out "$out_dir"
           echo "assets-dir=$out_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$out_dir"
-      - name: Upload data assets
+      - name: Publish data assets to Release
         if: steps.meta.outputs.external == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: data-assets
-          path: ${{ steps.data.outputs.assets-dir }}
-          if-no-files-found: error
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          DATA_DIR: ${{ steps.data.outputs.assets-dir }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" >/dev/null 2>&1; then
+            args=(release create "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft --title "$RELEASE_TAG")
+            [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
+            gh "${args[@]}" || true
+          fi
+          gh release upload "$RELEASE_TAG" "$DATA_DIR"/*.zip --repo "$GH_REPOSITORY" --clobber
   build-app:
     name: Build OpenHarmony HAP
     runs-on: ubuntu-24.04
@@ -435,12 +446,27 @@ jobs:
           EOF
           echo "asset-directory=$asset_dir" >> "$GITHUB_OUTPUT"
           ls -lh "$asset_dir"
-      - name: Upload HAP package
-        uses: actions/upload-artifact@v4
-        with:
-          name: hap-assets
-          path: ${{ steps.package.outputs.asset-directory }}
-          if-no-files-found: error
+      - name: Publish HAP to Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          ASSET_DIR: ${{ steps.package.outputs.asset-directory }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" >/dev/null 2>&1; then
+            args=(release create "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft --title "$RELEASE_TAG" --generate-notes)
+            [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
+            gh "${args[@]}" || true
+          fi
+          assets=("$ASSET_DIR"/*)
+          [[ "${#assets[@]}" -gt 0 ]] || { echo 'no hap assets' >&2; exit 1; }
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GH_REPOSITORY" --clobber
 
   release:
     name: Publish GitHub Release
@@ -448,61 +474,34 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - name: Download HAP package
-        uses: actions/download-artifact@v4
-        with:
-          name: hap-assets
-          path: hap-assets
-      - name: Download data assets
-        if: needs.package-data.outputs.external == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: data-assets
-          path: data-assets
-      - name: Create or update GitHub Release
+      - name: Publish the GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.package-data.outputs.release-tag }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
           EVENT_NAME: ${{ github.event_name }}
-          COMMIT_SHA: ${{ github.sha }}
           GH_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
+          # Both package-data and build-app already uploaded their assets to
+          # the (draft) release; this job simply flips it to published once
+          # everything is in place.
           if [[ "$EVENT_NAME" == 'push' ]]; then
             if [[ "$RELEASE_TAG" == *-* ]]; then IS_PRERELEASE=true; else IS_PRERELEASE=false; fi
           else
             IS_PRERELEASE="$INPUT_PRERELEASE"
           fi
-          asset_dir="hap-assets"
-          if [[ -d "data-assets" ]]; then
-            for f in data-assets/*; do [[ -e "$f" ]] && cp "$f" "$asset_dir/"; done
-          fi
-          assets=("$asset_dir"/*)
-          [[ "${#assets[@]}" -gt 0 ]] || { echo 'no assets' >&2; exit 1; }
-          exists=false; is_draft=false
-          if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" --json isDraft 2>/dev/null); then
-            exists=true
-            is_draft=$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' <<<"$json")
-          else
-            args=(release create "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft --title "$RELEASE_TAG" --generate-notes)
-            [[ "$EVENT_NAME" == 'push' ]] && args+=(--verify-tag) || args+=(--target "$COMMIT_SHA")
-            [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
-            if ! gh "${args[@]}"; then
-              for ((attempt=1; attempt<=12; attempt++)); do
-                if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" --json isDraft 2>/dev/null); then
-                  exists=true; is_draft=$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' <<<"$json"); break
-                fi
-                echo "Waiting for release ($attempt/12)."; sleep 5
-              done
-              [[ "$exists" == 'true' ]] || exit 1
+          exists=false
+          for ((attempt=1; attempt<=20; attempt++)); do
+            if json=$(gh release view "$RELEASE_TAG" --repo "$GH_REPOSITORY" --json isDraft 2>/dev/null); then
+              exists=true; break
             fi
-          fi
-          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GH_REPOSITORY" --clobber
-          if [[ "$exists" == 'false' || "$is_draft" == 'true' ]]; then
-            gh release edit "$RELEASE_TAG" --repo "$GH_REPOSITORY" --draft=false
-          fi
+            echo "Waiting for release to be created ($attempt/20)."; sleep 5
+          done
+          [[ "$exists" == 'true' ]] || exit 1
+          args=(--draft=false)
+          [[ "$IS_PRERELEASE" == 'true' ]] && args+=(--prerelease)
+          gh release edit "$RELEASE_TAG" "${args[@]}" --repo "$GH_REPOSITORY"
 
 

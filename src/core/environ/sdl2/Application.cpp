@@ -519,10 +519,12 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 			if (lf)
 			{
 				extern tjs_string TVPNativeProjectDir;
+				std::string native_dir_utf8;
+				TVPUtf16ToUtf8(native_dir_utf8, TVPNativeProjectDir);
 				fprintf(lf, "engine: TVPProjectDirSelected=%d nativeProjectDir=%s\n",
-					TVPProjectDirSelected ? 1 : 0, TVPNativeProjectDir.c_str());
+					TVPProjectDirSelected ? 1 : 0, native_dir_utf8.c_str());
 				// Probe whether the engine can actually open data.xp3.
-				std::string xp3 = TVPNativeProjectDir.empty() ? std::string("/data.xp3") : TVPNativeProjectDir + "/data.xp3";
+				std::string xp3 = native_dir_utf8.empty() ? std::string("/data.xp3") : native_dir_utf8 + "/data.xp3";
 				FILE *xf = fopen(xp3.c_str(), "rb");
 				if (xf)
 				{
@@ -534,9 +536,9 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 				else
 				{
 					fprintf(lf, "engine: fopen data.xp3 FAILED path=%s\n", xp3.c_str());
-					if (!TVPNativeProjectDir.empty())
+					if (dd && dd[0])
 					{
-						FILE *xf2 = fopen((std::string(dd ? dd : "") + "/data.xp3").c_str(), "rb");
+						FILE *xf2 = fopen((std::string(dd) + "/data.xp3").c_str(), "rb");
 						if (xf2) { fprintf(lf, "engine: fopen data.xp3 via env OK\n"); fclose(xf2); }
 						else { fprintf(lf, "engine: fopen data.xp3 via env FAILED\n"); }
 					}

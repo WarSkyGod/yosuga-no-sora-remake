@@ -26,6 +26,50 @@
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
+#include <csignal>
+#include <execinfo.h>
+#include <dlfcn.h>
+
+/* OHOS debug: catch native crashes and dump a backtrace to the public
+ * Download folder so crashes can be diagnosed without root/faultlog. */
+static void OHOS_CrashHandler(int sig)
+{
+	const char *name = g_data_dir.empty() ? nullptr : g_data_dir.c_str();
+	std::string out = (name && name[0]) ? std::string(name) + "/crash.txt"
+	                                    : "/data/local/tmp/yosuga-crash.txt";
+	FILE *lf = fopen(out.c_str(), "a");
+	if (lf)
+	{
+		fprintf(lf, "===== CRASH signal=%d (%s) =====\r\n", sig, strsignal(sig));
+		void *frames[64];
+		int n = backtrace(frames, 64);
+		char **syms = backtrace_symbols(frames, n);
+		for (int i = 0; i < n; i++)
+		{
+			if (syms && syms[i]) fprintf(lf, "  %s\r\n", syms[i]);
+			else fprintf(lf, "  [frame %d]\r\n", i);
+		}
+		if (syms) free(syms);
+		fprintf(lf, "===== end crash =====\r\n");
+		fflush(lf);
+		fclose(lf);
+	}
+	_exit(128 + sig);
+}
+
+static void OHOS_InstallCrashHandler(void)
+{
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = OHOS_CrashHandler;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = SA_RESETHAND;
+	sigaction(SIGSEGV, &sa, nullptr);
+	sigaction(SIGABRT, &sa, nullptr);
+	sigaction(SIGBUS, &sa, nullptr);
+	sigaction(SIGFPE, &sa, nullptr);
+}
+
 
 /* Kirikiri SDL2 platform hooks (see src/core/sdl2/SDLApplication.h).
  * These are plain C++ symbols; keep C++ linkage so the names match the
@@ -400,6 +444,7 @@ void OHOS_Entry_AttachXComponent(void *component)
 static void EngineMain()
 {
 	g_engine_running = true;
+	OHOS_InstallCrashHandler();
 	OHOS_Entry_LogNative("engine: thread started");
 
 	if (!SDL_OHOS_WaitForNativeWindow(60000))

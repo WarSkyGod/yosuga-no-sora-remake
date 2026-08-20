@@ -1868,6 +1868,7 @@ bool TVPTerminateOnNoWindowStartup = false;
 int TVPTerminateCode = 0;
 //---------------------------------------------------------------------------
 void TVPTerminateAsync(int code)
+{
 	// OHOS debug: trace termination source.
 	{
 		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
@@ -1881,7 +1882,6 @@ void TVPTerminateAsync(int code)
 			}
 		}
 	}
-{
 	// do "A"synchronous temination of application
 	TVPTerminated = true;
 	TVPTerminateCode = code;

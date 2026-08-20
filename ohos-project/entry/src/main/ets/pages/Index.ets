@@ -17,6 +17,12 @@ interface DataAsset {
   fileCount: number;
 }
 
+/** default-manifest.json (build-time injected download root). */
+interface DefaultManifest {
+  baseUrl: string;
+  releaseTag: string;
+}
+
 /** data-assets.json root, shipped as rawfile by the CI workflow. */
 interface DataManifest {
   schemaVersion: number;
@@ -161,7 +167,7 @@ struct Index {
       const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
       const bytes = manager.getRawFileContentSync('default-manifest.json');
       const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
-      const parsed = JSON.parse(text) as { baseUrl: string };
+      const parsed = JSON.parse(text) as DefaultManifest;
       return parsed.baseUrl || '';
     } catch (e) {
       return '';

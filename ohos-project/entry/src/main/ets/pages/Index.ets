@@ -468,20 +468,11 @@ struct Index {
     } catch (e) {
       this.log('dataDir list failed: ' + JSON.stringify(e));
     }
-    // data.xp3 inside the data folder.
-    if (this.fileExists(this.dataDir + '/data.xp3')) {
+    // data.xp3: the engine reads it from the app root (like Windows krkrz),
+    // so accept it both at <base>/data/data.xp3 and at <base>/data.xp3.
+    if (this.fileExists(this.dataDir + '/data.xp3') ||
+        this.fileExists(this.baseDir + '/data.xp3')) {
       return true;
-    }
-    // A user may have copied data.xp3 straight onto the app folder root;
-    // move it into data/ so the engine (which reads <base>/data) finds it.
-    if (this.fileExists(this.baseDir + '/data.xp3')) {
-      try {
-        fs.mkdirSync(this.dataDir, true);
-        fs.renameSync(this.baseDir + '/data.xp3', this.dataDir + '/data.xp3');
-        return true;
-      } catch (e) {
-        this.log('move root data.xp3 failed: ' + JSON.stringify(e));
-      }
     }
     return false;
   }
@@ -617,28 +608,22 @@ struct Index {
       const lower = name.toLowerCase();
       try {
         if (lower.endsWith('.xp3')) {
-          // A bare data.xp3 goes straight into the data folder.
-          fs.mkdirSync(this.dataDir, true);
-          this.copyFromUri(uri, this.dataDir + '/data.xp3');
+          // A bare data.xp3 goes straight onto the app root, beside savedata
+          // (mirrors Windows krkrz: data.xp3 lives next to the executable).
+          this.copyFromUri(uri, this.baseDir + '/data.xp3');
         } else if (lower.endsWith('.zip')) {
           const tmp = cacheDir + '/' + name;
           this.copyFromUri(uri, tmp);
           // Clear a stale data.xp3 so decompress won't hit a conflict
-          // (error 900002), then extract.
+          // (error 900002), then extract to the app root.
           try {
             fs.unlinkSync(this.baseDir + '/data.xp3');
           } catch (e) {
             // none present
           }
           await this.unzipTo(tmp, this.baseDir);
-          // A zip may contain data.xp3 at its root (no data/ prefix);
-          // move it into the data folder so readiness checks pass.
-          try {
-            fs.accessSync(this.baseDir + '/data.xp3');
-            fs.renameSync(this.baseDir + '/data.xp3', this.dataDir + '/data.xp3');
-          } catch (e) {
-            // no root-level xp3
-          }
+          // If the zip held a root-level data.xp3 it now sits beside
+          // savedata at <base>/data.xp3, which the engine reads directly.
           try {
             fs.unlinkSync(tmp);
           } catch (e) {

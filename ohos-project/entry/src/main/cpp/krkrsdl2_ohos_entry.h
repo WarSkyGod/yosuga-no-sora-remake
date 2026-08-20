@@ -28,6 +28,10 @@ void OHOS_Entry_SetFilesDir(const char *files_dir);
  * so users can reach the game data and save files. Either may be NULL. */
 void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir);
 
+/* Remember the XComponent surfaceId (API 12+) and create the native
+ * window from it, since the legacy surface callbacks do not fire here. */
+void OHOS_Entry_SetSurfaceId(const char *surface_id);
+
 /* Attach the page XComponent. Registers surface and touch callbacks so the
  * SDL video driver can obtain its native window. */
 void OHOS_Entry_AttachXComponent(void *component);

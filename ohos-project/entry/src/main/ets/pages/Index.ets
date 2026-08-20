@@ -52,7 +52,7 @@ struct Index {
   @State uiEpoch: number = 0;
   @State debugOut: string = '';
   private autoInitTried: boolean = false;
-  private readyForGame: boolean = false;
+  @State readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
   private saveDir: string = '';
@@ -188,16 +188,14 @@ struct Index {
     const ready = this.dataReady();
     this.readyForGame = ready;
     this.log('dataReady=' + ready + ' dataDir=' + this.dataDir);
-    // Do NOT auto-start: on this system an automatic engine start flips to
-    // landscape + black screen. Show the bootstrap page with a ready state
-    // and let the user tap a start button.
-    this.loadManifest().catch(() => {
-      // manifest loads in the background; the bootstrap page shows first
-    });
+    // Do NOT auto-start (avoids landscape black screen); show a start
+    // button when ready. Only fetch the download manifest when data is
+    // missing and the user actually wants to download/import.
     if (ready) {
       this.bootState = 2;
       this.progressText = '游戏数据已就绪';
       this.message = '';
+      this.assets = [];
     } else {
       this.bootState = 2;
       this.progressText = '需要下载或导入游戏数据';

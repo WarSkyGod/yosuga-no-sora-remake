@@ -222,7 +222,7 @@ struct Index {
       this.progressText = '正在下载 ' + asset.name;
       const tmp = cacheDir + '/' + asset.name;
       try {
-        await this.downloadFile(url, tmp, (downloaded: number) => {
+        await this.downloadFile(url, tmp, asset.size, (downloaded: number) => {
           const doneTotal = doneBytes + downloaded;
           const elapsed = Math.max(1, (Date.now() - startTime) / 1000);
           const speed = doneTotal / elapsed;
@@ -240,7 +240,8 @@ struct Index {
         }
       } catch (e) {
         this.bootState = 5;
-        this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）';
+        this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）\n' +
+          '若为网络问题，请返回引导页点击「gh-proxy」或「我的代理」切换加速后再下载';
         return;
       }
       await this.unzipTo(tmp, this.baseDir);
@@ -256,47 +257,70 @@ struct Index {
     await this.finishData();
   }
 
-  async downloadFile(url: string, dest: string,
+  async downloadFile(url: string, dest: string, totalSize: number,
     onProgress?: (downloaded: number) => void): Promise<void> {
-    // Range-chunked download: @ohos.net.http has no streaming end event on
-    // this SDK, and buffering multi-GiB files in memory is not an option.
-    const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+    // Range-chunked download with resume + retry. GitHub release downloads
+    // commonly drop mid-transfer; each chunk is retried a few times and
+    // written at its exact offset so a retry continues where it left off.
+    const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
     const chunkSize = 8 * 1024 * 1024;
     let offset = 0;
     try {
-      while (true) {
-        const end = offset + chunkSize - 1;
-        const httpRequest = http.createHttp();
-        try {
-          const response: http.HttpResponse = await httpRequest.request(url, {
-            method: http.RequestMethod.GET,
-            header: { 'Range': 'bytes=' + offset + '-' + end },
-            expectDataType: http.HttpDataType.ARRAY_BUFFER,
-            connectTimeout: 60000,
-            readTimeout: 180000
-          });
-          if (response.responseCode === 416) {
-            break;
+      while (offset < totalSize) {
+        const end = Math.min(offset + chunkSize - 1, totalSize - 1);
+        let got = false;
+        for (let attempt = 0; attempt < 4 && !got; attempt++) {
+          if (attempt > 0) {
+            await this.delay(2000);
           }
-          if (response.responseCode !== 206 && response.responseCode !== 200) {
-            throw new Error('HTTP ' + response.responseCode);
+          const httpRequest = http.createHttp();
+          try {
+            const response: http.HttpResponse = await httpRequest.request(url, {
+              method: http.RequestMethod.GET,
+              header: { 'Range': 'bytes=' + offset + '-' + end },
+              expectDataType: http.HttpDataType.ARRAY_BUFFER,
+              connectTimeout: 60000,
+              readTimeout: 120000
+            });
+            if (response.responseCode === 206) {
+              const data = response.result as ArrayBuffer;
+              const length = data.byteLength;
+              if (length > 0) {
+                fs.pwriteSync(file.fd, data, offset);
+                offset += length;
+                if (onProgress) {
+                  onProgress(offset);
+                }
+                got = true;
+              }
+            } else if (response.responseCode === 200) {
+              // Server ignored the Range: write the whole body from the start.
+              const data = response.result as ArrayBuffer;
+              fs.ftruncateSync(file.fd, 0);
+              fs.pwriteSync(file.fd, data, 0);
+              offset = totalSize;
+              got = true;
+              if (onProgress) {
+                onProgress(totalSize);
+              }
+            } else if (response.responseCode === 416) {
+              offset = totalSize;
+              got = true;
+            } else if (attempt === 3) {
+              throw new Error('HTTP ' + response.responseCode);
+            }
+          } catch (e) {
+            if (attempt === 3) {
+              throw e;
+            }
+          } finally {
+            httpRequest.destroy();
           }
-          const data = response.result as ArrayBuffer;
-          const length = data.byteLength;
-          if (length === 0) {
-            break;
-          }
-          fs.writeSync(file.fd, data);
-          offset += length;
-          if (onProgress) {
-            onProgress(offset);
-          }
-          if (length < chunkSize) {
-            break;
-          }
-        } finally {
-          httpRequest.destroy();
         }
+        if (!got && offset < totalSize) {
+          throw new Error('下载中断，无法继续');
+        }
+        await this.delay(50);
       }
     } finally {
       fs.closeSync(file);

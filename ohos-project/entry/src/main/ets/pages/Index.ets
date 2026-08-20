@@ -30,7 +30,6 @@ interface DataManifest {
 // (unlike arbitrary paths under Download), and shows under the app name in
 // the file manager. The system creates it automatically.
 const APP_FOLDER = 'com.lightwinder.yosuganosora.hdremake';
-const DOWNLOAD_ROOT = '/storage/Users/currentUser/Download';
 
 @Entry
 @Component
@@ -91,12 +90,15 @@ struct Index {
     // content (black screen). Permissions are requested on demand when the
     // user taps download/import instead.
 
-    // Prefer the app-owned public Download folder (Download/<bundleName>),
-    // which NEXT keeps writable WITHOUT any permission. If the platform does
-    // not expose it, fall back to the sandbox so the app always boots.
-    this.appDir = DOWNLOAD_ROOT + '/' + APP_FOLDER;
+    // Use the public Download folder the system exposes to this app
+    // (fs.getPublicDirectory), then the app-owned Download/<bundleName>
+    // subfolder, which NEXT keeps writable WITHOUT any permission. Directly
+    // hardcoding /storage/... and mkdir-ing does not work on newer systems.
     let publicOk = false;
     try {
+      const dl = fs.getPublicDirectory(fs.DirectoryType.DIR_DOWNLOAD);
+      this.appDir = dl + '/' + APP_FOLDER;
+      this.log('public download root: ' + dl);
       fs.mkdirSync(this.appDir, true);
       fs.accessSync(this.appDir);
       publicOk = true;
@@ -577,6 +579,7 @@ struct Index {
       } else if (this.bootState === 2) {
         Scroll() {
           Column({ space: 12 }) {
+          Text('').height(24)
           Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
           Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Gray)
           TextInput({ text: this.baseUrl, placeholder: '下载地址（GitHub Release 页面）' })

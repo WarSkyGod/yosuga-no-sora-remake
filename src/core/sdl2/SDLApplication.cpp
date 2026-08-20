@@ -3178,6 +3178,7 @@ void sdl_process_events()
 		}
 		else if (event.type == SDL_QUIT)
 		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_QUIT event received\n"); fclose(lf); } }
 			Application->Terminate();
 		}
 	}

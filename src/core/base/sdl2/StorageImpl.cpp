@@ -539,6 +539,18 @@ void TJS_INTF_METHOD tTVPFileMedia::GetLocallyAccessibleName(ttstr &name)
 	}
 #endif
 
+#if defined(__OHOS__)
+	// OHOS: the engine paths are already local filesystem paths; return them
+	// unchanged to avoid the fragile domain/path parsing below.
+	if (nname.length() >= 2 && nname[0] == '.' && (nname[1] == '/' || nname[1] == '\\'))
+	{
+		std::string rel(nname.begin() + 2, nname.end());
+		tjs_string w;
+		if (TVPUtf8ToUtf16(w, rel)) { name = ttstr(w); return; }
+	}
+	name.Clear();
+	return;
+#endif
 	std::string nnewname;
 	const char *ptr = nname.c_str();
 	tjs_int path_entries = 0;

@@ -1363,6 +1363,7 @@ static void STDCALL TVP_Stub_dd13d4bc2b48540a92f047bf015b829b(const ttstr & name
 	return TVPExecuteStorage(name, result, isexpression, modestr);
 }
 static void STDCALL TVP_Stub_0ff502d492598d2211405180bfb4d1e1(const ttstr & name , iTJSDispatch2 * context , tTJSVariant * result = NULL , bool isexpression = false , const tjs_char * modestr = NULL)
+{
 	{
 		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 		if (dd && dd[0])
@@ -1377,7 +1378,6 @@ static void STDCALL TVP_Stub_0ff502d492598d2211405180bfb4d1e1(const ttstr & name
 			}
 		}
 	}
-{
 	return TVPExecuteStorage(name, context, result, isexpression, modestr);
 }
 static void STDCALL TVP_Stub_cf5401746759bfe38918087aaab6c57b()

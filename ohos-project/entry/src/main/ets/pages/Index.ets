@@ -719,8 +719,13 @@ struct Index {
     }
     entryNapi.setExternalDirs(this.baseDir, this.saveDir);
     this.bootState = 6;
-    // The game uses a fixed 1920x1080 coordinate system: switch to
-    // landscape fullscreen now that the bootstrap page is left behind.
+    // NOTE: window rotation is deferred until the engine has started
+    // (rotateToLandscape() called from onLoad) - rotating the window at the
+    // same moment the XComponent is created crashed libace_compatible on the
+    // UI thread (clicking "start game" occasionally crashed).
+  }
+
+  private rotateToLandscape(): void {
     try {
       const ctx = getContext(this) as common.UIAbilityContext;
       window.getLastWindow(ctx).then((mainWindow: window.Window) => {
@@ -762,6 +767,11 @@ struct Index {
                 const ok: boolean = entryNapi.onLoad(context) as boolean;
                 if (ok) {
                   entryNapi.startEngine();
+                  // Defer rotation: rotating while the XComponent is still
+                  // being laid out crashed libace_compatible.
+                  setTimeout(() => {
+                    this.rotateToLandscape();
+                  }, 300);
                 } else {
                   this.log('onLoad failed to attach the XComponent');
                 }

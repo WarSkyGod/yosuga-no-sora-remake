@@ -71,6 +71,16 @@ struct Index {
     this.progressText = '需要下载或导入游戏数据';
   }
 
+  // Capture ArkTS page errors so UI-thread crashes can be diagnosed from
+  // debug.log (the native crash handler only sees native frames).
+  onPageError(err: Error): void {
+    try {
+      this.log('PAGE_ERROR: ' + JSON.stringify(err));
+    } catch (e) {
+      hilog.error(0x0000, 'YosugaOHOS', 'PAGE_ERROR %{public}s', JSON.stringify(err));
+    }
+  }
+
   onPageShow(): void {
     // Auto-run the data check / public-dir init shortly after the bootstrap
     // page is visible (avoid stalling startup). Log every step to debug.log.

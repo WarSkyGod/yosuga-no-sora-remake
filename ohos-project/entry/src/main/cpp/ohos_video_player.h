@@ -53,6 +53,11 @@ public:
 	void HandleInfo(int type);
 	void HandleError(int32_t errorCode);
 
+	/* Global callback fired once when playback reaches EOS. The engine hooks
+	 * this to advance the script (SetStatusAsync(Stop)). */
+	typedef void (*EndCallback)(void);
+	static void SetEndCallback(EndCallback cb);
+
 	static std::string LogPath();
 
 private:

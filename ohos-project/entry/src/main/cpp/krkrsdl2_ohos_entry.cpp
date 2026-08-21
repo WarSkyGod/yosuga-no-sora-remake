@@ -625,6 +625,11 @@ void OHOS_VideoSetVolume(float vol)
 	(void)vol;
 }
 
+void OHOS_VideoSetEndCallback(Yosuga::OHOSVideoPlayer::EndCallback cb)
+{
+	Yosuga::OHOSVideoPlayer::SetEndCallback(cb);
+}
+
 } // extern "C"
 
 void OHOS_Entry_StartEngine(void)

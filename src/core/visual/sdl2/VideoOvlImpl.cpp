@@ -51,9 +51,20 @@ static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
 /* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
  * engine .so does not need a link-time dependency on the entry module. */
 #include <dlfcn.h>
+typedef void (*OHOSVideoEndFn)(void);
+static OHOSVideoEndFn OHOSVideoSetEndFn = nullptr;
 static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
 static void (*OHOSVideoStopFn)(void) = nullptr;
 static void (*OHOSVideoCloseFn)(void) = nullptr;
+static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
+
+/* Called by libentry when playback reaches the end. */
+static void OHOSOnVideoEnded()
+{
+	if (OHOSVideoActiveOverlay)
+		OHOSVideoActiveOverlay->SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+}
+
 static void OHOSVideoResolveBridge()
 {
 	if (OHOSVideoOpenFn) return;
@@ -62,6 +73,12 @@ static void OHOSVideoResolveBridge()
 	OHOSVideoOpenFn = (int (*)(const char *, int))dlsym(handle, "OHOS_VideoOpen");
 	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
 	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
+	OHOSVideoSetEndFn = (OHOSVideoEndFn)dlsym(handle, "OHOS_VideoSetEndCallback");
+	if (OHOSVideoSetEndFn)
+	{
+		OHOSVideoSetEndFn(&OHOSOnVideoEnded);
+		SDL_Log("OHOS video end callback registered");
+	}
 	if (OHOSVideoOpenFn) SDL_Log("OHOS video bridge resolved");
 	else SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "OHOS video bridge NOT resolved");
 }
@@ -427,8 +444,10 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
 
 	OHOSVideoResolveBridge();
+	OHOSVideoActiveOverlay = this;
 	if(!OHOSVideoOpenFn || OHOSVideoOpenFn(filename.c_str(), 0) != 0)
 	{
+		OHOSVideoActiveOverlay = nullptr;
 		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
 			"OHOS AVPlayer open failed: %s", filename.c_str());
 		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
@@ -476,6 +495,7 @@ void tTJSNI_VideoOverlay::Close()
 #elif defined(__OHOS__)
 	OHOSVideoResolveBridge();
 	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
+	if(OHOSVideoActiveOverlay == this) OHOSVideoActiveOverlay = nullptr;
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }

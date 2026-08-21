@@ -48,7 +48,8 @@
 //---------------------------------------------------------------------------
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
 #if defined(__OHOS__)
-/* Write a trace line into the public engine.log (SDL_Log goes to hilog,
+#include <dlfcn.h>
+/* Write a trace line into the sandbox engine.log (SDL_Log goes to hilog,
  * which is not collected by the user's logs.zip). */
 typedef const char *(*OHOSGetFilesDirFn)(void);
 static const char *OHOS_SandboxDir(void)
@@ -77,7 +78,6 @@ static void OHOSVideoTrace(const char *msg)
 }
 /* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
  * engine .so does not need a link-time dependency on the entry module. */
-#include <dlfcn.h>
 #include <thread>
 #include <chrono>
 typedef void (*OHOSVideoEndFn)(void);

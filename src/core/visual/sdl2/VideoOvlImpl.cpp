@@ -62,12 +62,15 @@ static void OHOSVideoTrace(const char *msg)
 /* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
  * engine .so does not need a link-time dependency on the entry module. */
 #include <dlfcn.h>
+#include <thread>
+#include <chrono>
 typedef void (*OHOSVideoEndFn)(void);
 typedef void (*OHOSVideoSetEndFnPtr)(OHOSVideoEndFn);
 static OHOSVideoSetEndFnPtr OHOSVideoSetEndFn = nullptr;
 static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
 static void (*OHOSVideoStopFn)(void) = nullptr;
 static void (*OHOSVideoCloseFn)(void) = nullptr;
+typedef void (*OHOSVideoCloseFnPtr)(void);
 static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
 
 /* Called by libentry when playback reaches the end. */
@@ -528,11 +531,20 @@ void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
 	char tb[128];
 	snprintf(tb, sizeof(tb), "OHOSPlaybackFinished status=%d loop=%d", (int)Status, Loop ? 1 : 0);
 	OHOSVideoTrace(tb);
-	/* Release the AVPlayer surface so the SDL software framebuffer becomes
-	 * visible again: without this the last video frame stays glued over the
-	 * engine output and the game appears stuck on the video. */
+	/* Release the AVPlayer surface on a SEPARATE thread so the SDL software
+	 * framebuffer becomes visible again. Calling OH_AVPlayer_ReleaseSync
+	 * here on the AVPlayer callback thread deadlocks and freezes the engine
+	 * (test.118 regression). The engine keeps running (SetStatusAsync below)
+	 * while the release happens in the background. */
 	OHOSVideoResolveBridge();
-	if (OHOSVideoCloseFn) OHOSVideoCloseFn();
+	if (OHOSVideoCloseFn)
+	{
+		OHOSVideoCloseFnPtr close_fn = OHOSVideoCloseFn;
+		std::thread([close_fn]() {
+			std::this_thread::sleep_for(std::chrono::milliseconds(250));
+			close_fn();
+		}).detach();
+	}
 	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
 }
 #endif

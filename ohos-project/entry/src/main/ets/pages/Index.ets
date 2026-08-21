@@ -785,6 +785,22 @@ struct Index {
             // screen top-to-bottom and letterboxes on the sides only.
             .height('100%')
             .aspectRatio(16 / 9)
+            // Report the real component size to the engine: the native
+            // OnSurfaceChanged callback never fires on this system, so
+            // without this the SDL window size stays at the fallback and
+            // touch coordinates are scaled wrong.
+            .onAreaChange((oldValue: Area, newValue: Area) => {
+              try {
+                const w = newValue.width as number;
+                const h = newValue.height as number;
+                if (w > 0 && h > 0) {
+                  entryNapi.setSurfaceSize(vp2px(w), vp2px(h));
+                  this.log('XComponent size: ' + vp2px(w).toFixed(0) + 'x' + vp2px(h).toFixed(0) + ' px');
+                }
+              } catch (e) {
+                this.log('onAreaChange exception: ' + JSON.stringify(e));
+              }
+            })
             // No .onTouch here: libace_compatible crashes the UI thread while
             // processing touches on the XComponent node itself (before any
             // ArkTS callback runs). Touches are captured by the transparent

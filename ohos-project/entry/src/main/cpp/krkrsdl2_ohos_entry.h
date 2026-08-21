@@ -32,6 +32,11 @@ void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir);
  * window from it, since the legacy surface callbacks do not fire here. */
 void OHOS_Entry_SetSurfaceId(const char *surface_id);
 
+/* Set the XComponent surface size in pixels. Called from ArkTS after the
+ * component is laid out (the native OnSurfaceChanged callback never fires
+ * on this system), so the SDL window size matches the real surface. */
+void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height);
+
 /* Attach the page XComponent. Registers surface and touch callbacks so the
  * SDL video driver can obtain its native window. */
 void OHOS_Entry_AttachXComponent(void *component);

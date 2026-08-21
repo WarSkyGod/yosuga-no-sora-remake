@@ -2940,6 +2940,14 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_MOUSEBUTTONDOWN:
 				case SDL_MOUSEBUTTONUP:
 				{
+					{
+						const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+						if (dd && dd[0])
+						{
+							FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+							if (lf) { fprintf(lf, "engine: WINDOW mouse type=%d x=%d y=%d btn=%d\n", (int)event.type, event.button.x, event.button.y, (int)event.button.button); fclose(lf); }
+						}
+					}
 					if (SDL_IsTextInputActive() && this->imeCompositionStr)
 					{
 						return false;

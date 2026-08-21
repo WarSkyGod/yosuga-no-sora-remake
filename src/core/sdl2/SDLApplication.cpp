@@ -877,6 +877,21 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 #endif
 
+#if defined(__OHOS__)
+	/* OHOS: the GLES2 renderer demands these attributes and the OPENGL
+	 * window flag up front, otherwise SDL_CreateRenderer bails with
+	 * "Couldn't find matching render driver". The canvas path that used to
+	 * set them is compiled out (OPTION_ENABLE_CANVAS OFF). */
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+	window_flags |= SDL_WINDOW_OPENGL;
+#endif
+
 #ifdef KRKRZ_ENABLE_CANVAS
 	if (!TVPIsEnableDrawDevice())
 	{
@@ -980,8 +995,12 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 
 		this->bitmapCompletion = new TVPSDLBitmapCompletion();
-		if (!this->renderer)
 		{
+			/* Always create the window surface: the software renderer's
+			 * SDL_RenderPresent calls SDL_UpdateWindowSurface, which needs
+			 * window->surface_valid (set by SDL_GetWindowSurface). Without
+			 * this the software framebuffer is never uploaded and the
+			 * screen stays black/stuck on the last video frame. */
 			this->surface = SDL_GetWindowSurface(this->window);
 			if (!this->surface)
 			{

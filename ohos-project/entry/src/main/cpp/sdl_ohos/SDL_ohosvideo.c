@@ -165,6 +165,31 @@ static void OHOS_DestroyWindowFramebuffer(_THIS, SDL_Window *window)
 	}
 }
 
+static void OHOS_DestroyWindow(_THIS, SDL_Window *window)
+{
+	SDL_WindowData *data;
+	if (window == NULL || (data = (SDL_WindowData *)window->driverdata) == NULL)
+	{
+		return;
+	}
+	if (data->egl_surface != EGL_NO_SURFACE)
+	{
+		EGLDisplay dpy = eglGetCurrentDisplay();
+		if (dpy != EGL_NO_DISPLAY)
+		{
+			eglDestroySurface(dpy, data->egl_surface);
+		}
+		data->egl_surface = EGL_NO_SURFACE;
+	}
+	if (data->framebuffer != NULL)
+	{
+		SDL_FreeSurface(data->framebuffer);
+		data->framebuffer = NULL;
+	}
+	SDL_free(data);
+	window->driverdata = NULL;
+}
+
 static void OHOS_SetWindowTitle(_THIS, SDL_Window *window);
 static void OHOS_SetWindowPosition(_THIS, SDL_Window *window);
 static void OHOS_SetWindowSize(_THIS, SDL_Window *window);
@@ -213,6 +238,7 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->GetDisplayBounds = OHOS_GetDisplayBounds;
 	device->PumpEvents = OHOS_PumpEvents;
 	device->CreateSDLWindow = OHOS_CreateSDLWindow;
+	device->DestroyWindow = OHOS_DestroyWindow;
 	device->CreateWindowFramebuffer = OHOS_CreateWindowFramebuffer;
 	device->UpdateWindowFramebuffer = OHOS_UpdateWindowFramebuffer;
 	device->DestroyWindowFramebuffer = OHOS_DestroyWindowFramebuffer;

@@ -26,7 +26,10 @@ static EGLContext g_ohos_egl_context = EGL_NO_CONTEXT;
 
 static void OHOS_EglLog(const char *fmt, ...)
 {
-	FILE *lf = fopen("/data/local/tmp/yosuga-egl.log", "a");
+	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+	std::string path = (dd && dd[0]) ? std::string(dd) + "/yosuga-egl.log"
+	                                 : "/data/local/tmp/yosuga-egl.log";
+	FILE *lf = fopen(path.c_str(), "a");
 	if (lf)
 	{
 		va_list ap;

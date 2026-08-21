@@ -962,6 +962,13 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateRenderer -> %s (err=%s)\n", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); fclose(lf); } } }
 		if (!this->renderer)
 		{
+			// OHOS: accelerated (GLES2) may be unavailable; fall back to the
+			// software renderer which paints into the window framebuffer.
+			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
+			{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateRenderer(SOFTWARE) -> %s (err=%s)\n", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); fclose(lf); } } }
+		}
+		if (!this->renderer)
+		{
 			TVPAddLog(ttstr("Cannot create SDL renderer: ") + ttstr(SDL_GetError()));
 		}
 #endif

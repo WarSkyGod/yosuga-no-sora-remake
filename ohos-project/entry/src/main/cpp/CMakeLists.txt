@@ -6,6 +6,9 @@
 # Plain library names resolve inside the SDK sysroot.
 # ---------------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.15)
+
+# OHOS: define __OHOS__ for all targets in this build (engine + entry source use it)
+add_definitions(-D__OHOS__=1)
 project(yosuga_ohos_entry)
 
 set(ENTRY_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -85,14 +88,14 @@ set(OPTION_ENABLE_EXTERNAL_PLUGINS OFF CACHE BOOL "" FORCE)
 set(OPTION_ENABLE_CANVAS OFF CACHE BOOL "" FORCE)
 set(KRKRSDL2_GENERATE_CONTENT_MANIFEST OFF CACHE BOOL "" FORCE)
 set(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
-# OHOS: define __OHOS__ so krkrsdl2 sources compile their OHOS branches
-add_definitions(-D__OHOS__)
 add_subdirectory(${REPO_ROOT} krkrsdl2_ohos EXCLUDE_FROM_ALL)
 
 # krkrsdl2.so uses SDL's EGL loader with link-time symbols (SDL_VIDEO_STATIC_ANGLE);
 # it must link EGL itself or the egl* references stay undefined. Plain signature
 # to match the existing target_link_libraries calls inside the repo CMakeLists.
 target_link_libraries(krkrsdl2 EGL GLESv3 libhilog_ndk.z.so)
+# OHOS: define __OHOS__ for the krkrsdl2 target (engine source uses it)
+target_compile_definitions(krkrsdl2 PRIVATE __OHOS__=1)
 
 # ---- The NAPI entry library (libentry.so) ----------------------------------
 add_library(entry SHARED

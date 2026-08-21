@@ -3,14 +3,15 @@
  * OpenHarmony event handling for SDL2.
  *
  * Touch events arrive on the ACE UI thread through sdl_ohos_bridge.h and are
- * converted into SDL mouse events with the touch mouse id, mirroring what the
- * SDL touch-to-mouse hint machinery does on other platforms.
+ * converted into SDL events. Dispatch to the engine happens through
+ * SDL_PushEvent, which is the thread-safe way to queue SDL input from another
+ * thread (SDL_SendMouse*/SDL_SendWindowEvent mutate SDL's mouse/window state
+ * and are not safe to call from the UI thread while the engine thread runs).
  */
 
 #include "../../SDL_internal.h"
 
 #include "../SDL_sysvideo.h"
-#include "../../events/SDL_mouse_c.h"
 #include "../../events/SDL_events_c.h"
 
 #include "SDL_ohosvideo.h"
@@ -21,6 +22,18 @@
 #define SDL_TOUCH_MOUSEID ((SDL_MouseID)-1)
 #endif
 
+/* A mutex serialises UI-thread touch dispatch against the engine thread so
+ * SDL event state stays consistent. */
+static inline SDL_mutex *OHOS_EventMutex(void)
+{
+	static SDL_mutex *m = NULL;
+	if (m == NULL)
+	{
+		m = SDL_CreateMutex();
+	}
+	return m;
+}
+
 void OHOS_PumpEvents(_THIS)
 {
 	(void)_this;
@@ -29,8 +42,7 @@ void OHOS_PumpEvents(_THIS)
 
 void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 {
-	SDL_Mouse *mouse = SDL_GetMouse();
-	SDL_Window *window = mouse != NULL ? mouse->focus : NULL;
+	SDL_Window *window = SDL_GetKeyboardFocus();
 	int px;
 	int py;
 
@@ -41,20 +53,76 @@ void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 	px = (int)(x + 0.5f);
 	py = (int)(y + 0.5f);
 
+	SDL_mutex *mutex = OHOS_EventMutex();
+	if (mutex)
+	{
+		SDL_LockMutex(mutex);
+	}
+
 	switch (touch_type)
 	{
 	case SDL_OHOS_TOUCH_DOWN:
-		SDL_SendMouseMotion(window, SDL_TOUCH_MOUSEID, 0, px, py);
-		SDL_SendMouseButton(window, SDL_TOUCH_MOUSEID, SDL_PRESSED, SDL_BUTTON_LEFT);
+	{
+		SDL_Event ev;
+		SDL_zero(ev);
+		ev.type = SDL_MOUSEMOTION;
+		ev.motion.windowID = SDL_GetWindowID(window);
+		ev.motion.which = SDL_TOUCH_MOUSEID;
+		ev.motion.state = 0;
+		ev.motion.x = (Sint16)px;
+		ev.motion.y = (Sint16)py;
+		ev.motion.xrel = 0;
+		ev.motion.yrel = 0;
+		SDL_PushEvent(&ev);
+		SDL_zero(ev);
+		ev.type = SDL_MOUSEBUTTONDOWN;
+		ev.button.windowID = SDL_GetWindowID(window);
+		ev.button.which = SDL_TOUCH_MOUSEID;
+		ev.button.button = SDL_BUTTON_LEFT;
+		ev.button.state = SDL_PRESSED;
+		ev.button.clicks = 1;
+		ev.button.x = px;
+		ev.button.y = py;
+		SDL_PushEvent(&ev);
 		break;
+	}
 	case SDL_OHOS_TOUCH_MOVE:
-		SDL_SendMouseMotion(window, SDL_TOUCH_MOUSEID, 0, px, py);
+	{
+		SDL_Event ev;
+		SDL_zero(ev);
+		ev.type = SDL_MOUSEMOTION;
+		ev.motion.windowID = SDL_GetWindowID(window);
+		ev.motion.which = SDL_TOUCH_MOUSEID;
+		ev.motion.state = 0;
+		ev.motion.x = (Sint16)px;
+		ev.motion.y = (Sint16)py;
+		ev.motion.xrel = 0;
+		ev.motion.yrel = 0;
+		SDL_PushEvent(&ev);
 		break;
+	}
 	case SDL_OHOS_TOUCH_UP:
-		SDL_SendMouseButton(window, SDL_TOUCH_MOUSEID, SDL_RELEASED, SDL_BUTTON_LEFT);
+	{
+		SDL_Event ev;
+		SDL_zero(ev);
+		ev.type = SDL_MOUSEBUTTONUP;
+		ev.button.windowID = SDL_GetWindowID(window);
+		ev.button.which = SDL_TOUCH_MOUSEID;
+		ev.button.button = SDL_BUTTON_LEFT;
+		ev.button.state = SDL_RELEASED;
+		ev.button.clicks = 1;
+		ev.button.x = px;
+		ev.button.y = py;
+		SDL_PushEvent(&ev);
 		break;
+	}
 	default:
 		break;
+	}
+
+	if (mutex)
+	{
+		SDL_UnlockMutex(mutex);
 	}
 }
 
@@ -77,6 +145,7 @@ void SDL_OHOS_OnSurfaceChanged(int width, int height)
 
 	if (window->w != width || window->h != height)
 	{
+		/* Update the window fields before pushing the resize event. */
 		window->w = width;
 		window->h = height;
 		SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESIZED, width, height);

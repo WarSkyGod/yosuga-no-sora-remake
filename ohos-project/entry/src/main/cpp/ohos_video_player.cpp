@@ -143,7 +143,6 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	}
 
 	OH_AVPlayer_SetLooping(m_player, loop);
-	OH_AVPlayer_SetVolume(m_player, 1.0f, 1.0f);
 
 	OH_AVPlayer_SetOnInfoCallback(m_player, OHOS_VPlayerInfoCallback, this);
 	OH_AVPlayer_SetOnErrorCallback(m_player, OHOS_VPlayerErrorCallback, this);
@@ -157,6 +156,9 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 		m_player = nullptr;
 		return false;
 	}
+	/* Set volume after Prepare so audio output is active. */
+	OH_AVPlayer_SetVolume(m_player, 1.0f, 1.0f);
+	Log("Open: volume set to 1.0");
 	ret = OH_AVPlayer_Play(m_player);
 	if (ret != AV_ERR_OK)
 	{

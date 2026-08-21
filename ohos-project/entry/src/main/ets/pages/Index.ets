@@ -770,7 +770,7 @@ struct Index {
             }
           })
           .width('100%')
-          .height('100%')
+          .aspectRatio(16 / 9)
       } else if (this.bootState === 2) {
         Scroll() {
           Column({ space: 12 }) {

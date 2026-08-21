@@ -190,7 +190,20 @@ void OHOSVideoPlayer::HandleInfo(int type)
 	}
 	else if (type == (int)AV_INFO_TYPE_STATE_CHANGE)
 	{
-		/* optional state tracking */
+		/* On this SDK the end-of-stream surfaces as a state change to
+		 * AV_COMPLETED rather than an EOS info event. */
+		AVPlayerState st = AV_IDLE;
+		if (m_player != nullptr)
+		{
+			OH_AVPlayer_GetState(m_player, &st);
+			Log("HandleInfo: state=%d", (int)st);
+		}
+		if (st == AV_COMPLETED)
+		{
+			Log("HandleInfo: COMPLETED -> notify engine");
+			if (m_listener) m_listener->OnVideoEnded();
+			if (g_ohos_end_callback) g_ohos_end_callback();
+		}
 	}
 }
 

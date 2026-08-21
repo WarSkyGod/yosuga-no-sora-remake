@@ -89,13 +89,20 @@ static void OHOSVideoResolveBridge()
 	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
 	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
 	OHOSVideoSetEndFn = (OHOSVideoSetEndFnPtr)dlsym(handle, "OHOS_VideoSetEndCallback");
+	{
+		char tb[256];
+		snprintf(tb, sizeof(tb), "OHOS bridge: open=%p stop=%p close=%p setend=%p dlopen=%s",
+			(void *)OHOSVideoOpenFn, (void *)OHOSVideoStopFn, (void *)OHOSVideoCloseFn,
+			(void *)OHOSVideoSetEndFn, handle ? "ok" : "RTLD_DEFAULT");
+		OHOSVideoTrace(tb);
+	}
 	if (OHOSVideoSetEndFn)
 	{
 		OHOSVideoSetEndFn(&OHOSOnVideoEnded);
-		SDL_Log("OHOS video end callback registered");
+		OHOSVideoTrace("OHOS video end callback registered");
 	}
-	if (OHOSVideoOpenFn) SDL_Log("OHOS video bridge resolved");
-	else SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "OHOS video bridge NOT resolved");
+	if (OHOSVideoOpenFn) OHOSVideoTrace("OHOS video bridge resolved");
+	else OHOSVideoTrace("OHOS video bridge NOT resolved");
 }
 #endif
 #ifdef __ANDROID__

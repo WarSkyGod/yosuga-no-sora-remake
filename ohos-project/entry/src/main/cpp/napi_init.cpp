@@ -12,6 +12,7 @@
 #include <string>
 
 #include "krkrsdl2_ohos_entry.h"
+#include "sdl_ohos_bridge.h"
 
 static napi_value InitResourceManager(napi_env env, napi_callback_info info)
 {
@@ -228,6 +229,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"startEngine", nullptr, StartEngine, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceId", nullptr, SetSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setExternalDirs", nullptr, SetExternalDirs, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"sendTouch", nullptr, SendTouch, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 	return exports;

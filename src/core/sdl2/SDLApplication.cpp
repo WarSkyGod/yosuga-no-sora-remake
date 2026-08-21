@@ -2,6 +2,7 @@
 /* Copyright (c) Kirikiri SDL2 Developers */
 
 #include "tjsCommHead.h"
+#include <dlfcn.h>
 #include "WindowImpl.h"
 #include "VirtualKey.h"
 #include "Application.h"
@@ -67,12 +68,6 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 // considered invalidated after each call. This is required for
 // some renderers to be enabled.
 #define KRKRSDL2_RENDERER_FULL_UPDATES
-#endif
-
-#if defined(__OHOS__)
-/* Bridge to libentry.so: is the AVPlayer currently rendering into the
- * XComponent surface? The SDL renderer must pause while video plays. */
-extern "C" int SDL_OHOS_IsVideoPlaying(void);
 #endif
 
 extern void TVPLoadMessage();
@@ -1920,10 +1915,22 @@ void TVPWindowWindow::TickBeat()
 	/* OHOS: while the AVPlayer renders into the XComponent surface, do NOT
 	 * present the SDL framebuffer - they share the same native window and
 	 * the last Present would cover the video (black screen). The engine
-	 * still advances (script, input) but skips the blit. */
-	if (SDL_OHOS_IsVideoPlaying())
+	 * still advances (script, input) but skips the blit. The bridge symbol
+	 * lives in libentry.so and is resolved at run time (the two .so files
+	 * cannot be linked against each other). */
 	{
-		return;
+		typedef int (*OHOSIsVideoPlayingFn)(void);
+		static OHOSIsVideoPlayingFn is_video_playing = nullptr;
+		if (is_video_playing == nullptr)
+		{
+			void *handle = dlopen("libentry.so", RTLD_NOW);
+			if (!handle) handle = RTLD_DEFAULT;
+			is_video_playing = (OHOSIsVideoPlayingFn)dlsym(handle, "SDL_OHOS_IsVideoPlaying");
+		}
+		if (is_video_playing && is_video_playing())
+		{
+			return;
+		}
 	}
 #endif
 	if (this->needsGraphicUpdate)

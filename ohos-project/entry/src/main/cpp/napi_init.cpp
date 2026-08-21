@@ -220,6 +220,33 @@ static napi_value SetExternalDirs(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+/* sendTouch(type, x, y): forward an ArkTS XComponent .onTouch() event to the
+ * SDL OHOS backend. This path bypasses the libace_compatible XComponent
+ * native-touch dispatch, which crashes the UI thread on this system
+ * (DispatchTouchEvent never reaches the engine; the framework dies inside
+ * libace_compatible first). */
+static napi_value SendTouch(napi_env env, napi_callback_info info)
+{
+	size_t argc = 3;
+	napi_value args[3] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 3)
+	{
+		return nullptr;
+	}
+	int32_t type = 0;
+	double x = 0.0;
+	double y = 0.0;
+	if (napi_get_value_int32(env, args[0], &type) != napi_ok ||
+		napi_get_value_double(env, args[1], &x) != napi_ok ||
+		napi_get_value_double(env, args[2], &y) != napi_ok)
+	{
+		return nullptr;
+	}
+	SDL_OHOS_OnTouchEvent(static_cast<int>(type), static_cast<float>(x), static_cast<float>(y));
+	return nullptr;
+}
+
 EXTERN_C_START
 static napi_value Init(napi_env env, napi_value exports)
 {

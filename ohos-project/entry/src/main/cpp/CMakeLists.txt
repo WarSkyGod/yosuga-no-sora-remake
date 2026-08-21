@@ -85,6 +85,8 @@ set(OPTION_ENABLE_EXTERNAL_PLUGINS OFF CACHE BOOL "" FORCE)
 set(OPTION_ENABLE_CANVAS OFF CACHE BOOL "" FORCE)
 set(KRKRSDL2_GENERATE_CONTENT_MANIFEST OFF CACHE BOOL "" FORCE)
 set(KRKRSDL2_ENABLE_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
+# OHOS: define __OHOS__ so krkrsdl2 sources compile their OHOS branches
+add_definitions(-D__OHOS__)
 add_subdirectory(${REPO_ROOT} krkrsdl2_ohos EXCLUDE_FROM_ALL)
 
 # krkrsdl2.so uses SDL's EGL loader with link-time symbols (SDL_VIDEO_STATIC_ANGLE);

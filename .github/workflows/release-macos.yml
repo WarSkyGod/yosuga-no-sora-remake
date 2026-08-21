@@ -3,7 +3,7 @@ name: Release macOS SDL2
 'on':
   push:
     tags:
-      - 'v*'
+      - 'v*-macos-*'
     branches:
       - 'codex/feature-ios-macos-releases'
   workflow_dispatch:

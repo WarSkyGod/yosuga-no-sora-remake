@@ -3,7 +3,7 @@ name: Release Android SDL2
 'on':
   push:
     tags:
-      - 'v*'
+      - 'v*-android-*'
   workflow_dispatch:
     inputs:
       release_tag:

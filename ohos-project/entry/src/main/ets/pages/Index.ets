@@ -789,7 +789,9 @@ struct Index {
               this.log('onTouch exception: ' + JSON.stringify(e));
             }
           })
-          .width('70%')
+          // Full-screen height with 16:9 aspect: the video fills the
+          // screen top-to-bottom and letterboxes on the sides only.
+          .height('100%')
           .aspectRatio(16 / 9)
       } else if (this.bootState === 2) {
         Scroll() {

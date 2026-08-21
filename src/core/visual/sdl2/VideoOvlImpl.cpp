@@ -531,20 +531,12 @@ void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
 	char tb[128];
 	snprintf(tb, sizeof(tb), "OHOSPlaybackFinished status=%d loop=%d", (int)Status, Loop ? 1 : 0);
 	OHOSVideoTrace(tb);
-	/* Release the AVPlayer surface on a SEPARATE thread so the SDL software
-	 * framebuffer becomes visible again. Calling OH_AVPlayer_ReleaseSync
-	 * here on the AVPlayer callback thread deadlocks and freezes the engine
-	 * (test.118 regression). The engine keeps running (SetStatusAsync below)
-	 * while the release happens in the background. */
-	OHOSVideoResolveBridge();
-	if (OHOSVideoCloseFn)
-	{
-		OHOSVideoCloseFnPtr close_fn = OHOSVideoCloseFn;
-		std::thread([close_fn]() {
-			std::this_thread::sleep_for(std::chrono::milliseconds(250));
-			close_fn();
-		}).detach();
-	}
+	/* NOTE: do NOT release the AVPlayer here. An async Close on a detached
+	 * thread raced with the game script reading video frames right after
+	 * Stop ("Scan line 0 is range over" crash). test.122 without any Close
+	 * here loaded the main menu cleanly. The AVPlayer is released later
+	 * through VideoOverlay::Close()/Shutdown(), and the SDL renderer
+	 * pauses while video is playing anyway. */
 	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
 }
 #endif

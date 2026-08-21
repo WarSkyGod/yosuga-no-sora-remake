@@ -207,7 +207,7 @@ void OnSurfaceDestroyed(OH_NativeXComponent *component, void *window)
 	Log(LOG_INFO, "XComponent surface destroyed");
 }
 
-void OnTouchEvent(OH_NativeXComponent *component, void *window)
+[[maybe_unused]] void OnTouchEvent(OH_NativeXComponent *component, void *window)
 {
 	OH_NativeXComponent_TouchEvent touch_event;
 	OH_NativeXComponent_GetTouchEvent(component, window, &touch_event);

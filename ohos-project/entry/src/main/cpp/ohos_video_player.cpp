@@ -18,6 +18,8 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <thread>
+#include <chrono>
 
 namespace Yosuga
 {
@@ -179,6 +181,30 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	return true;
 }
 
+/* After playback completes, the engine advances the script (g_ohos_end_callback).
+ * The AVPlayer keeps firing OnPosition/OnAmplitude callbacks ("current source is
+ * unready") until it is released, which floods the main loop and disturbs the
+ * transition. Wait long enough for the game script to finish reading frames,
+ * then stop + release on a worker thread (never ReleaseSync on the callback
+ * thread - that deadlocks). */
+void OHOSVideoPlayer::DelayedRelease()
+{
+	std::thread([this]() {
+		std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+		OH_AVPlayer *p = nullptr;
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			p = m_player;
+			m_player = nullptr;
+		}
+		if (p)
+		{
+			OH_AVPlayer_Stop(p);
+			OH_AVPlayer_ReleaseSync(p);
+		}
+	}).detach();
+}
+
 void OHOSVideoPlayer::HandleInfo(int type)
 {
 	Log("HandleInfo: type=%d", type);
@@ -203,6 +229,9 @@ void OHOSVideoPlayer::HandleInfo(int type)
 			Log("HandleInfo: COMPLETED -> notify engine");
 			if (m_listener) m_listener->OnVideoEnded();
 			if (g_ohos_end_callback) g_ohos_end_callback();
+			/* Release the AVPlayer after the game script has had time to finish
+			 * the transition (stops the source-unready callback flood). */
+			DelayedRelease();
 		}
 	}
 }

@@ -1933,6 +1933,33 @@ void TVPWindowWindow::TickBeat()
 		}
 	}
 #endif
+#if defined(__OHOS__)
+	/* OHOS: ensure the window surface is valid before presenting. SDL's
+	 * FULLSCREEN_DESKTOP window recreation clears surface_valid, after
+	 * which SDL_UpdateWindowSurface silently no-ops (UpdateWindowFramebuffer
+	 * never runs) and the software-rendered menu never reaches the screen.
+	 * SDL_GetWindowSurface recreates it cheaply when invalid. */
+	if (this->window)
+	{
+		SDL_Surface *ws = SDL_GetWindowSurface(this->window);
+		if (ws)
+		{
+			this->surface = ws;
+			if (this->bitmapCompletion)
+			{
+				this->bitmapCompletion->surface = ws;
+			}
+		}
+		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0])
+			{
+				FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+				if (lf) { fprintf(lf, "engine: TickBeat surface_valid=%d surf=%p\n", this->window->surface_valid ? 1 : 0, (void *)ws); fclose(lf); }
+			}
+		}
+	}
+#endif
 	if (this->needsGraphicUpdate)
 	{
 		if (this->bitmapCompletion)

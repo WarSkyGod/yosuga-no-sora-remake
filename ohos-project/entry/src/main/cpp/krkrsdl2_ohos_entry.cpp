@@ -403,6 +403,22 @@ void OHOS_Entry_SetSurfaceId(const char *surface_id)
 }
 
 
+void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height)
+{
+	if (width == 0 || height == 0) return;
+	pthread_mutex_lock(&g_lock);
+	g_surface_width = width;
+	g_surface_height = height;
+	pthread_mutex_unlock(&g_lock);
+	SDL_OHOS_OnSurfaceChanged(static_cast<int>(width), static_cast<int>(height));
+	{
+		char sdiag[128];
+		snprintf(sdiag, sizeof(sdiag), "engine: SetSurfaceSize(%llu x %llu) -> SDL_OHOS_OnSurfaceChanged",
+			static_cast<unsigned long long>(width), static_cast<unsigned long long>(height));
+		OHOS_Entry_LogNative(sdiag);
+	}
+}
+
 void OHOS_Entry_SetExternalDirs(const char *base_dir, const char *save_dir)
 {
 	SDL_OHOS_SetDataDir(base_dir);

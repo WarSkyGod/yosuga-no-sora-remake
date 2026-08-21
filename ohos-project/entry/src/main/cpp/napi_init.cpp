@@ -181,6 +181,21 @@ static napi_value SetSurfaceId(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+/* setSurfaceSize(width, height): tell the engine the real XComponent pixel
+ * size (the native OnSurfaceChanged callback never fires on this system). */
+static napi_value SetSurfaceSize(napi_env env, napi_callback_info info)
+{
+	size_t argc = 2;
+	napi_value args[2] = {nullptr};
+	napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+	if (argc < 2) return nullptr;
+	int64_t w = 0, h = 0;
+	if (napi_get_value_int64(env, args[0], &w) != napi_ok ||
+		napi_get_value_int64(env, args[1], &h) != napi_ok) return nullptr;
+	OHOS_Entry_SetSurfaceSize(static_cast<uint64_t>(w), static_cast<uint64_t>(h));
+	return nullptr;
+}
+
 /* setExternalDirs(baseDir, saveDir): point the engine at the public Download
  * app folder (game data at <baseDir>/data) and the savedata folder. Either
  * argument may be an empty string or omitted. */
@@ -257,6 +272,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"setSurfaceId", nullptr, SetSurfaceId, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setExternalDirs", nullptr, SetExternalDirs, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"sendTouch", nullptr, SendTouch, nullptr, nullptr, nullptr, napi_default, nullptr},
+		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},
 	};
 	napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 	return exports;

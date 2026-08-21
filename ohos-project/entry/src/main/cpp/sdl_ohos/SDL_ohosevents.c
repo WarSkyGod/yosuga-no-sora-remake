@@ -5,7 +5,7 @@
  * Touch events arrive on the ACE UI thread through sdl_ohos_bridge.h and are
  * converted into SDL events. Dispatch to the engine happens through
  * SDL_PushEvent, which is the thread-safe way to queue SDL input from another
- * thread (SDL_SendMouse*/SDL_SendWindowEvent mutate SDL's mouse/window state
+ * thread without racing the engine thread's SDL event dispatch
  * and are not safe to call from the UI thread while the engine thread runs).
  */
 

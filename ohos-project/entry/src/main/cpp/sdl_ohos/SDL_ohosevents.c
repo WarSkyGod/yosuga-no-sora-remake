@@ -43,8 +43,21 @@ void OHOS_PumpEvents(_THIS)
 void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 {
 	SDL_Window *window = SDL_GetKeyboardFocus();
-	int px;
-	int py;
+	if (window == NULL)
+	{
+		window = SDL_GetMouseFocus();
+	}
+	if (window == NULL)
+	{
+		/* Fall back to the first window of the video device. */
+		SDL_VideoDevice *device = SDL_GetVideoDevice();
+		if (device != NULL && device->windows != NULL)
+		{
+			window = device->windows->window;
+		}
+	}
+	int px = (int)(x + 0.5f);
+	int py = (int)(y + 0.5f);
 
 	{
 		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
@@ -53,7 +66,7 @@ void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 			char lpath[512];
 			snprintf(lpath, sizeof(lpath), "%s/engine.log", dd);
 			FILE *lf = fopen(lpath, "a");
-			if (lf) { fprintf(lf, "engine: OnTouchEvent type=%d x=%d y=%d\n", touch_type, (int)x, (int)y); fclose(lf); }
+			if (lf) { fprintf(lf, "engine: OnTouchEvent type=%d x=%d y=%d window=%p\n", touch_type, px, py, (void *)window); fclose(lf); }
 		}
 	}
 

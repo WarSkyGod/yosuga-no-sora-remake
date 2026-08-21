@@ -48,6 +48,17 @@
 //---------------------------------------------------------------------------
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
 #if defined(__OHOS__)
+/* Write a trace line into the public engine.log (SDL_Log goes to hilog,
+ * which is not collected by the user's logs.zip). */
+static void OHOSVideoTrace(const char *msg)
+{
+	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+	if (dd && dd[0])
+	{
+		FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+		if (lf) { fprintf(lf, "engine: %s\n", msg); fclose(lf); }
+	}
+}
 /* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
  * engine .so does not need a link-time dependency on the entry module. */
 #include <dlfcn.h>
@@ -62,7 +73,9 @@ static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
 /* Called by libentry when playback reaches the end. */
 static void OHOSOnVideoEnded()
 {
-	SDL_Log("OHOS video ended callback fired, overlay=%p", (void *)OHOSVideoActiveOverlay);
+	char tb[128];
+	snprintf(tb, sizeof(tb), "OHOSOnVideoEnded overlay=%p", (void *)OHOSVideoActiveOverlay);
+	OHOSVideoTrace(tb);
 	if (OHOSVideoActiveOverlay)
 		OHOSVideoActiveOverlay->OHOSPlaybackFinished();
 }
@@ -505,7 +518,9 @@ void tTJSNI_VideoOverlay::Close()
 #if defined(__OHOS__)
 void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
 {
-	SDL_Log("OHOSPlaybackFinished: status=%d loop=%d", (int)Status, Loop ? 1 : 0);
+	char tb[128];
+	snprintf(tb, sizeof(tb), "OHOSPlaybackFinished status=%d loop=%d", (int)Status, Loop ? 1 : 0);
+	OHOSVideoTrace(tb);
 	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
 }
 #endif

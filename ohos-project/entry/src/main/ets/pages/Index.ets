@@ -790,7 +790,10 @@ struct Index {
             .onTouch((event: TouchEvent) => {
               try {
                 const t = event.touches[0];
-                if (!t) return;
+                if (!t) {
+                  this.log('overlay touch: no touches, type=' + event.type);
+                  return;
+                }
                 let type = 0; // SDL_OHOS_TOUCH_DOWN
                 if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
                   type = 1; // SDL_OHOS_TOUCH_UP
@@ -799,6 +802,7 @@ struct Index {
                 }
                 // onTouch reports vp (logical px); SDL window coords are px.
                 entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
+                this.log('overlay touch: type=' + type + ' x=' + t.x.toFixed(1) + ' y=' + t.y.toFixed(1));
               } catch (e) {
                 this.log('overlay onTouch exception: ' + JSON.stringify(e));
               }

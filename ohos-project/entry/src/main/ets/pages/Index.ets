@@ -769,7 +769,7 @@ struct Index {
               this.log('onLoad exception: ' + JSON.stringify(e));
             }
           })
-          .width('100%')
+          .width('70%')
           .aspectRatio(16 / 9)
       } else if (this.bootState === 2) {
         Scroll() {

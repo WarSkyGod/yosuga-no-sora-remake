@@ -33,6 +33,10 @@ OHOS_EXPORT void OHOS_VideoClose(void);
 /* Mute/master volume, 0..1. */
 OHOS_EXPORT void OHOS_VideoSetVolume(float vol);
 
+/* Register a callback invoked when playback reaches the end. */
+typedef void (*OHOS_VideoEndCallback)(void);
+OHOS_EXPORT void OHOS_VideoSetEndCallback(OHOS_VideoEndCallback cb);
+
 #ifdef __cplusplus
 }
 #endif

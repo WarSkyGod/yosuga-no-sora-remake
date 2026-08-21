@@ -40,6 +40,13 @@ static void OHOS_VPlayerErrorCallback(OH_AVPlayer */*player*/, int32_t errorCode
 	self->HandleError(errorCode);
 }
 
+static OHOSVideoPlayer::EndCallback g_ohos_end_callback = nullptr;
+
+void OHOSVideoPlayer::SetEndCallback(EndCallback cb)
+{
+	g_ohos_end_callback = cb;
+}
+
 OHOSVideoPlayer::OHOSVideoPlayer()
 	: m_player(nullptr), m_nativeWindow(nullptr), m_playing(false), m_listener(nullptr)
 {
@@ -177,7 +184,9 @@ void OHOSVideoPlayer::HandleInfo(int type)
 	Log("HandleInfo: type=%d", type);
 	if (type == (int)AV_INFO_TYPE_EOS)
 	{
+		Log("HandleInfo: EOS -> notify engine");
 		if (m_listener) m_listener->OnVideoEnded();
+		if (g_ohos_end_callback) g_ohos_end_callback();
 	}
 	else if (type == (int)AV_INFO_TYPE_STATE_CHANGE)
 	{

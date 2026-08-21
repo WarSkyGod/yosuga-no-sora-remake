@@ -1945,10 +1945,7 @@ void TVPWindowWindow::TickBeat()
 		if (ws)
 		{
 			this->surface = ws;
-			if (this->bitmapCompletion)
-			{
-				this->bitmapCompletion->surface = ws;
-			}
+			/* do NOT reassign bitmapCompletion->surface (engine drawing surface) */
 		}
 		{
 			const char *dd = getenv("KRKR_OHOS_DATA_DIR");

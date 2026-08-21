@@ -50,9 +50,25 @@ static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
 #if defined(__OHOS__)
 /* Write a trace line into the public engine.log (SDL_Log goes to hilog,
  * which is not collected by the user's logs.zip). */
+typedef const char *(*OHOSGetFilesDirFn)(void);
+static const char *OHOS_SandboxDir(void)
+{
+	static OHOSGetFilesDirFn fn = nullptr;
+	static const char *cached = nullptr;
+	if (cached) return cached;
+	if (fn == nullptr)
+	{
+		void *handle = dlopen("libentry.so", RTLD_NOW);
+		if (!handle) handle = RTLD_DEFAULT;
+		fn = (OHOSGetFilesDirFn)dlsym(handle, "SDL_OHOS_GetFilesDir");
+	}
+	if (fn) cached = fn();
+	return cached;
+}
 static void OHOSVideoTrace(const char *msg)
 {
-	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+	const char *dd = OHOS_SandboxDir();
+	if (dd == nullptr || dd[0] == '\0') dd = getenv("KRKR_OHOS_DATA_DIR");
 	if (dd && dd[0])
 	{
 		FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");

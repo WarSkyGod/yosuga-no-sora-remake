@@ -106,25 +106,43 @@ static const char *OHOS_GetSandboxFilesDir(void)
 	return cached;
 }
 
-/* Append one formatted line to <sandbox files>/engine.log. Falls back to the
- * public data dir when the sandbox dir is not available yet. */
-static void OHOS_LogToFile(const char *fmt, ...)
+/* Append one formatted line to <dir>/engine.log. Returns 1 on success. */
+static int OHOS_LogAppend(const char *dir, const char *fmt, va_list args)
 {
-	const char *dir = OHOS_GetSandboxFilesDir();
 	if (dir == nullptr || dir[0] == '\0')
-		dir = getenv("KRKR_OHOS_DATA_DIR");
-	if (dir == nullptr || dir[0] == '\0')
-		return;
+		return 0;
 	std::string path = std::string(dir) + "/engine.log";
 	FILE *lf = fopen(path.c_str(), "a");
 	if (lf == nullptr)
-		return;
-	va_list args;
-	va_start(args, fmt);
+		return 0;
 	vfprintf(lf, fmt, args);
-	va_end(args);
 	fputc('\n', lf);
 	fclose(lf);
+	return 1;
+}
+
+/* Append one formatted line to engine.log in BOTH the sandbox files dir (the
+ * only path hdc shell can always read) and the public Download app dir (the
+ * user can also pull it). If the two resolve to the same directory the line
+ * is only written once. */
+static void OHOS_LogToFile(const char *fmt, ...)
+{
+	const char *sandbox = OHOS_GetSandboxFilesDir();
+	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+	va_list args;
+	va_start(args, fmt);
+	OHOS_LogAppend(sandbox, fmt, args);
+	if (pub != nullptr && pub[0] != '\0')
+	{
+		if (sandbox == nullptr || sandbox[0] == '\0' || std::string(pub) != std::string(sandbox))
+		{
+			va_list args2;
+			va_start(args2, fmt);
+			OHOS_LogAppend(pub, fmt, args2);
+			va_end(args2);
+		}
+	}
+	va_end(args);
 }
 #else
 /* Non-OHOS builds: OHOS_LogToFile is a no-op. */

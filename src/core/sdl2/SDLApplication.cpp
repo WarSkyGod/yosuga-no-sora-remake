@@ -1904,6 +1904,7 @@ void TVPWindowWindow::TickBeat()
 		this->visibilityHasInitialized = true;
 		this->SetVisible(this->isVisible);
 	}
+	this->needsGraphicUpdate = true; // OHOS: always repaint so the software framebuffer is refreshed
 	if (this->needsGraphicUpdate)
 	{
 		if (this->bitmapCompletion)

@@ -13,7 +13,8 @@
 #include <mutex>
 #include <string>
 
-struct OHNativeWindow;
+struct NativeWindow;
+typedef struct NativeWindow OHNativeWindow;
 typedef struct OH_AVPlayer OH_AVPlayer;
 
 namespace Yosuga

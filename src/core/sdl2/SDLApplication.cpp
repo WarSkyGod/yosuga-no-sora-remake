@@ -1898,6 +1898,7 @@ void TVPWindowWindow::Show()
 }
 void TVPWindowWindow::TickBeat()
 {
+	{ static int tb = 0; if (++tb <= 5 || tb % 600 == 0) { const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: TickBeat #%d needsGraphicUpdate=%d renderer=%s surface=%s\n", tb, this->needsGraphicUpdate ? 1 : 0, this->renderer ? "Y" : "N", this->surface ? "Y" : "N"); fclose(lf); } } } }
 	if (!this->visibilityHasInitialized)
 	{
 		this->visibilityHasInitialized = true;

@@ -82,6 +82,12 @@ struct Index {
   }
 
   onPageShow(): void {
+    // Rotate to landscape during the bootstrap page (no XComponent exists
+    // yet) - rotating later, while the XComponent is mounted, crashes
+    // libace_compatible on this system.
+    setTimeout(() => {
+      this.rotateToLandscape();
+    }, 100);
     // Auto-run the data check / public-dir init shortly after the bootstrap
     // page is visible (avoid stalling startup). Log every step to debug.log.
     setTimeout(() => {
@@ -767,11 +773,6 @@ struct Index {
                 const ok: boolean = entryNapi.onLoad(context) as boolean;
                 if (ok) {
                   entryNapi.startEngine();
-                  // Defer rotation: rotating while the XComponent is still
-                  // being laid out crashed libace_compatible.
-                  setTimeout(() => {
-                    this.rotateToLandscape();
-                  }, 300);
                 } else {
                   this.log('onLoad failed to attach the XComponent');
                 }

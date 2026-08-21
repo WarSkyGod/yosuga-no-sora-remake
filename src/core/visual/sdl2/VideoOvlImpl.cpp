@@ -52,7 +52,8 @@ static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
  * engine .so does not need a link-time dependency on the entry module. */
 #include <dlfcn.h>
 typedef void (*OHOSVideoEndFn)(void);
-static OHOSVideoEndFn OHOSVideoSetEndFn = nullptr;
+typedef void (*OHOSVideoSetEndFnPtr)(OHOSVideoEndFn);
+static OHOSVideoSetEndFnPtr OHOSVideoSetEndFn = nullptr;
 static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
 static void (*OHOSVideoStopFn)(void) = nullptr;
 static void (*OHOSVideoCloseFn)(void) = nullptr;
@@ -62,7 +63,7 @@ static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
 static void OHOSOnVideoEnded()
 {
 	if (OHOSVideoActiveOverlay)
-		OHOSVideoActiveOverlay->SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+		OHOSVideoActiveOverlay->OHOSPlaybackFinished();
 }
 
 static void OHOSVideoResolveBridge()
@@ -73,7 +74,7 @@ static void OHOSVideoResolveBridge()
 	OHOSVideoOpenFn = (int (*)(const char *, int))dlsym(handle, "OHOS_VideoOpen");
 	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
 	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
-	OHOSVideoSetEndFn = (OHOSVideoEndFn)dlsym(handle, "OHOS_VideoSetEndCallback");
+	OHOSVideoSetEndFn = (OHOSVideoSetEndFnPtr)dlsym(handle, "OHOS_VideoSetEndCallback");
 	if (OHOSVideoSetEndFn)
 	{
 		OHOSVideoSetEndFn(&OHOSOnVideoEnded);
@@ -499,6 +500,13 @@ void tTJSNI_VideoOverlay::Close()
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
+//---------------------------------------------------------------------------
+#if defined(__OHOS__)
+void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
+{
+	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
+}
+#endif
 //---------------------------------------------------------------------------
 void tTJSNI_VideoOverlay::Shutdown()
 {

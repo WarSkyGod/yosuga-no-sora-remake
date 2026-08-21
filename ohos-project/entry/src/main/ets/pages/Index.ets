@@ -794,6 +794,13 @@ struct Index {
                 const w = newValue.width as number;
                 const h = newValue.height as number;
                 if (w > 0 && h > 0) {
+                  // Record the real component pixel size. This is used ONLY to
+                  // scale touch coordinates from the physical XComponent space
+                  // into the game's logical window space (1920x1080). The SDL
+                  // window size itself must stay at the game resolution -
+                  // resizing it to the physical size made the game crash
+                  // ("Scan line 0 is range over (0 to -1)") because layers are
+                  // laid out in the 1920x1080 coordinate system.
                   entryNapi.setSurfaceSize(vp2px(w), vp2px(h));
                   this.log('XComponent size: ' + vp2px(w).toFixed(0) + 'x' + vp2px(h).toFixed(0) + ' px');
                 }

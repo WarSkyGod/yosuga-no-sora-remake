@@ -1954,8 +1954,12 @@ void TVPWindowWindow::TickBeat()
 			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 			if (dd && dd[0])
 			{
-				FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-				if (lf) { fprintf(lf, "engine: TickBeat window surface=%p\n", (void *)ws); fclose(lf); }
+				static int wscount = 0;
+				if (++wscount % 300 == 1)
+				{
+					FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+					if (lf) { fprintf(lf, "engine: TickBeat window surface=%p\n", (void *)ws); fclose(lf); }
+				}
 			}
 		}
 	}
@@ -2017,6 +2021,16 @@ void TVPWindowWindow::TickBeat()
 #endif
 				}
 				SDL_RenderPresent(this->renderer);
+#if defined(__OHOS__)
+				/* OHOS: the software renderer's Present does not always reach
+				 * the video driver's UpdateWindowFramebuffer (surface_valid /
+				 * window-surface plumbing). Force the upload explicitly so the
+				 * rendered menu actually reaches the XComponent surface. */
+				if (this->window && this->surface)
+				{
+					SDL_UpdateWindowSurface(this->window);
+				}
+#endif
 #if !defined(KRKRSDL2_ENABLE_ZOOM) && !defined(KRKRSDL2_RENDERER_FULL_UPDATES)
 				if (logical_rect.w == rect.w && logical_rect.h == rect.h)
 				{

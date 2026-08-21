@@ -410,10 +410,14 @@ void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height)
 	g_surface_width = width;
 	g_surface_height = height;
 	pthread_mutex_unlock(&g_lock);
-	SDL_OHOS_OnSurfaceChanged(static_cast<int>(width), static_cast<int>(height));
+	/* NOTE: do NOT call SDL_OHOS_OnSurfaceChanged here. The game lays out in
+	 * its own 1920x1080 coordinate system; resizing the SDL window to the
+	 * physical XComponent size made the game crash ("Scan line 0 is range
+	 * over (0 to -1)") because layers are sized in the logical space. The
+	 * physical size is only used to scale touch coordinates. */
 	{
 		char sdiag[128];
-		snprintf(sdiag, sizeof(sdiag), "engine: SetSurfaceSize(%llu x %llu) -> SDL_OHOS_OnSurfaceChanged",
+		snprintf(sdiag, sizeof(sdiag), "engine: record surface size(%llu x %llu)",
 			static_cast<unsigned long long>(width), static_cast<unsigned long long>(height));
 		OHOS_Entry_LogNative(sdiag);
 	}

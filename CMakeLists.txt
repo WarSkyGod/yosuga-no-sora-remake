@@ -607,6 +607,7 @@ message(FATAL_ERROR "SDL2 for OpenHarmony was not built before krkrsdl2; see oho
 endif()
 list(APPEND KRKRSDL2_DEFINITIONS
 	USE_SDL_MAIN
+	__OHOS__=1
 )
 # musl libc has no pthread_setaffinity_np; the engine calls it as a
 # performance hint and ignores the result, so map it onto sched_setaffinity

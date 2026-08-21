@@ -40,6 +40,23 @@ static void OHOS_EglLog(const char *fmt, ...)
 		fputc('\n', lf);
 		fclose(lf);
 	}
+	/* Also mirror into the public engine.log so the user's logs.zip captures
+	 * EGL failures (the egl.log file is not always copied). */
+	if (dd && dd[0])
+	{
+		char epath[512];
+		snprintf(epath, sizeof(epath), "%s/engine.log", dd);
+		FILE *ef = fopen(epath, "a");
+		if (ef)
+		{
+			va_list ap2;
+			va_start(ap2, fmt);
+			vfprintf(ef, fmt, ap2);
+			va_end(ap2);
+			fputc('\n', ef);
+			fclose(ef);
+		}
+	}
 }
 
 static int OHOS_EglInit(void)

@@ -47,6 +47,25 @@
 
 //---------------------------------------------------------------------------
 static std::vector<tTJSNI_VideoOverlay *> TVPVideoOverlayVector;
+#if defined(__OHOS__)
+/* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the
+ * engine .so does not need a link-time dependency on the entry module. */
+#include <dlfcn.h>
+static int (*OHOSVideoOpenFn)(const char *, int) = nullptr;
+static void (*OHOSVideoStopFn)(void) = nullptr;
+static void (*OHOSVideoCloseFn)(void) = nullptr;
+static void OHOSVideoResolveBridge()
+{
+	if (OHOSVideoOpenFn) return;
+	void *handle = dlopen("libentry.so", RTLD_NOW);
+	if (!handle) handle = RTLD_DEFAULT;
+	OHOSVideoOpenFn = (int (*)(const char *, int))dlsym(handle, "OHOS_VideoOpen");
+	OHOSVideoStopFn = (void (*)(void))dlsym(handle, "OHOS_VideoStop");
+	OHOSVideoCloseFn = (void (*)(void))dlsym(handle, "OHOS_VideoClose");
+	if (OHOSVideoOpenFn) SDL_Log("OHOS video bridge resolved");
+	else SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "OHOS video bridge NOT resolved");
+}
+#endif
 #ifdef __ANDROID__
 static tTJSNI_VideoOverlay *TVPAndroidActiveVideoOverlay = nullptr;
 
@@ -392,6 +411,29 @@ void tTJSNI_VideoOverlay::Open(const ttstr &_name)
 	}
 	SDL_Log("Android MediaPlayer opening: %s", filename.c_str());
 	SetStatus(tTVPVideoOverlayStatus::Stop);
+#elif defined(__OHOS__)
+	Close();
+	if(!Window) TVPThrowExceptionMessage(TVPWindowAlreadyMissing);
+
+	ttstr placedName = TVPGetPlacedPath(_name);
+	if(placedName.IsEmpty())
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	ttstr localName = TVPGetLocallyAccessibleName(placedName);
+	if(localName.IsEmpty())
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+
+	std::string filename;
+	if(!TVPUtf16ToUtf8(filename, localName.AsStdString()))
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+
+	OHOSVideoResolveBridge();
+	if(!OHOSVideoOpenFn || OHOSVideoOpenFn(filename.c_str(), 0) != 0)
+	{
+		SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+			"OHOS AVPlayer open failed: %s", filename.c_str());
+		TVPThrowExceptionMessage(TVPErrorInKrMovieDLL, _name);
+	}
+	SetStatus(tTVPVideoOverlayStatus::Stop);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -431,6 +473,10 @@ void tTJSNI_VideoOverlay::Close()
 	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
 	AndroidVideoOpen = false;
 	SetStatus(tTVPVideoOverlayStatus::Unload);
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
+	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -464,6 +510,10 @@ void tTJSNI_VideoOverlay::Shutdown()
 	if(AndroidVideoOpen) TVPAndroidCallMovieVoid("stopMovie");
 	if(TVPAndroidActiveVideoOverlay == this) TVPAndroidActiveVideoOverlay = nullptr;
 	AndroidVideoOpen = false;
+	SetStatus(tTVPVideoOverlayStatus::Unload);
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if(OHOSVideoCloseFn) OHOSVideoCloseFn();
 	SetStatus(tTVPVideoOverlayStatus::Unload);
 #endif
 }
@@ -539,6 +589,9 @@ void tTJSNI_VideoOverlay::Play()
 #elif defined(__ANDROID__)
 	if(AndroidVideoOpen && TVPAndroidCallMovieVoid("playMovie"))
 		SetStatus(tTVPVideoOverlayStatus::Play);
+#elif defined(__OHOS__)
+	/* OH_AVPlayer starts playing as part of Open(); nothing to do here. */
+	SetStatus(tTVPVideoOverlayStatus::Play);
 #endif
 }
 //---------------------------------------------------------------------------
@@ -565,6 +618,10 @@ void tTJSNI_VideoOverlay::Stop()
 		AndroidVideoOpen = false;
 		SetStatus(tTVPVideoOverlayStatus::Stop);
 	}
+#elif defined(__OHOS__)
+	OHOSVideoResolveBridge();
+	if(OHOSVideoStopFn) OHOSVideoStopFn();
+	SetStatus(tTVPVideoOverlayStatus::Stop);
 #endif
 }
 //---------------------------------------------------------------------------

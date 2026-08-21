@@ -56,6 +56,20 @@ void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 			window = device->windows;
 		}
 	}
+	/* Touch coords arrive in the physical XComponent pixel space
+	 * (vp2px'd in ArkTS). The game lays out in its own logical window space
+	 * (1920x1080), so scale when the window size differs from the recorded
+	 * surface size. */
+	{
+		int sw = 0, sh = 0, ww = 0, wh = 0;
+		SDL_OHOS_GetSurfaceSize(&sw, &sh);
+		if (window) { SDL_GetWindowSize(window, &ww, &wh); }
+		if (sw > 0 && sh > 0 && ww > 0 && wh > 0 && (sw != ww || sh != wh))
+		{
+			x = x * (float)ww / (float)sw;
+			y = y * (float)wh / (float)sh;
+		}
+	}
 	int px = (int)(x + 0.5f);
 	int py = (int)(y + 0.5f);
 

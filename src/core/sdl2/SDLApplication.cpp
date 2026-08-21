@@ -2,6 +2,9 @@
 /* Copyright (c) Kirikiri SDL2 Developers */
 
 #include "tjsCommHead.h"
+#if defined(__OHOS__)
+#include <hilog/log.h>
+#endif
 #include <dlfcn.h>
 #include "WindowImpl.h"
 #include "VirtualKey.h"
@@ -26,9 +29,6 @@
 #endif
 #if defined(_WIN32) || defined(__APPLE__)
 #include <SDL_syswm.h>
-#if defined(__OHOS__)
-#include <hilog/log.h>
-#endif
 #endif
 #include <SDL.h>
 #ifdef _WIN32

@@ -66,6 +66,10 @@ OHOS_EXPORT void *SDL_OHOS_GetNativeWindow(void);
 /* Return the current surface size in pixels. Returns 1 when valid. */
 OHOS_EXPORT int SDL_OHOS_GetSurfaceSize(int *width, int *height);
 
+/* Return the physical XComponent pixel size (ArkTS onAreaChange). Used to
+ * scale touch coordinates into the game's logical window space. */
+OHOS_EXPORT int SDL_OHOS_GetPhysicalSize(int *width, int *height);
+
 /* Return 1 while the OHOS AVPlayer is actively rendering video into
  * the XComponent surface (the SDL renderer must pause output so the video
  * is not covered by the engine framebuffer). */

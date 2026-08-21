@@ -108,7 +108,23 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 
 	int32_t w = data->framebuffer->w;
 	int32_t h = data->framebuffer->h;
-	if (OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, w, h) != 0)
+	/* The native window (XComponent surface) has the PHYSICAL size reported
+	 * by ArkTS; request buffers at that geometry. The logical framebuffer is
+	 * then stretched into it. */
+	int32_t bw = w, bh = h;
+	{
+		int pw = 0, ph = 0;
+		if (SDL_OHOS_GetPhysicalSize(&pw, &ph) && pw > 0 && ph > 0)
+		{
+			bw = pw;
+			bh = ph;
+		}
+	}
+	if (bw <= 0 || bh <= 0)
+	{
+		return SDL_SetError("OHOS: invalid buffer size");
+	}
+	if (OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, bw, bh) != 0)
 	{
 		if (fb) { fprintf(fb, "  SET_BUFFER_GEOMETRY failed\n"); fclose(fb); }
 		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
@@ -128,15 +144,51 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		return SDL_SetError("OHOS: buffer has no virtual address");
 	}
 
-	/* Copy the SDL surface (ARGB8888) into the native buffer row by row. */
+	/* Copy the SDL surface (ARGB8888) into the native buffer, scaling from
+	 * the logical framebuffer (1920x1080) to the physical buffer size. The
+	 * buffer stride may differ from bw*4 (alignment) - always use it. */
 	{
 		Uint8 *dst = (Uint8 *)handle->virAddr;
 		const Uint8 *src = (const Uint8 *)data->framebuffer->pixels;
 		int src_pitch = data->framebuffer->pitch;
 		int dst_stride = handle->stride;
-		for (int y = 0; y < h; y++)
+		if (dst_stride <= 0) dst_stride = bw * 4;
+		if (bw == w && bh == h)
 		{
-			memcpy(dst + y * dst_stride, src + y * src_pitch, w * 4);
+			/* same size: fast path */
+			for (int y = 0; y < h; y++)
+			{
+				memcpy(dst + (size_t)y * (size_t)dst_stride, src + (size_t)y * (size_t)src_pitch, (size_t)w * 4);
+			}
+		}
+		else
+		{
+			/* nearest-neighbor scale */
+			for (int dy = 0; dy < bh; dy++)
+			{
+				int sy = dy * h / bh;
+				const Uint8 *srow = src + (size_t)sy * (size_t)src_pitch;
+				Uint8 *drow = dst + (size_t)dy * (size_t)dst_stride;
+				for (int dx = 0; dx < bw; dx++)
+				{
+					int sx = dx * w / bw;
+					const Uint8 *p = srow + (size_t)sx * 4;
+					drow[dx * 4 + 0] = p[0];
+					drow[dx * 4 + 1] = p[1];
+					drow[dx * 4 + 2] = p[2];
+					drow[dx * 4 + 3] = p[3];
+				}
+			}
+		}
+		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0])
+			{
+				char lpath[512];
+				snprintf(lpath, sizeof(lpath), "%s/engine.log", dd);
+				FILE *lf = fopen(lpath, "a");
+				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
+			}
 		}
 	}
 

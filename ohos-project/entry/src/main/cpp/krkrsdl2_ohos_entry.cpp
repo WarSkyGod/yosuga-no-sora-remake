@@ -148,6 +148,11 @@ OH_NativeXComponent *g_component = nullptr;
 OHNativeWindow *g_native_window = nullptr;
 uint64_t g_surface_width = 0;
 uint64_t g_surface_height = 0;
+/* Physical XComponent pixel size reported from ArkTS; used only to scale
+ * touch coordinates into the game's logical window space. The SDL window
+ * size itself stays at the game resolution (1920x1080). */
+uint64_t g_physical_width = 0;
+uint64_t g_physical_height = 0;
 bool g_window_ready = false;
 
 bool g_engine_started = false;
@@ -383,8 +388,9 @@ void OHOS_Entry_SetSurfaceId(const char *surface_id)
 		// this system, so set a sensible landscape default for SDL.
 		if (g_surface_width == 0 || g_surface_height == 0)
 		{
-			g_surface_width = 1280;
-			g_surface_height = 720;
+			/* SDL window size = game logical resolution. */
+			g_surface_width = 1920;
+			g_surface_height = 1080;
 		}
 		pthread_cond_broadcast(&g_cond);
 		pthread_mutex_unlock(&g_lock);
@@ -407,17 +413,16 @@ void OHOS_Entry_SetSurfaceSize(uint64_t width, uint64_t height)
 {
 	if (width == 0 || height == 0) return;
 	pthread_mutex_lock(&g_lock);
-	g_surface_width = width;
-	g_surface_height = height;
+	g_physical_width = width;
+	g_physical_height = height;
 	pthread_mutex_unlock(&g_lock);
-	/* NOTE: do NOT call SDL_OHOS_OnSurfaceChanged here. The game lays out in
-	 * its own 1920x1080 coordinate system; resizing the SDL window to the
-	 * physical XComponent size made the game crash ("Scan line 0 is range
-	 * over (0 to -1)") because layers are sized in the logical space. The
-	 * physical size is only used to scale touch coordinates. */
+	/* NOTE: g_surface_width/height (the SDL window size) stay at the game
+	 * logical resolution 1920x1080. The physical size is recorded here only
+	 * to scale touch coordinates from the XComponent pixel space into the
+	 * logical window space. */
 	{
 		char sdiag[128];
-		snprintf(sdiag, sizeof(sdiag), "engine: record surface size(%llu x %llu)",
+		snprintf(sdiag, sizeof(sdiag), "engine: record physical size(%llu x %llu)",
 			static_cast<unsigned long long>(width), static_cast<unsigned long long>(height));
 		OHOS_Entry_LogNative(sdiag);
 	}
@@ -656,6 +661,17 @@ void OHOS_VideoSetEndCallback(Yosuga::OHOSVideoPlayer::EndCallback cb)
 }
 
 } // extern "C"
+
+/* sdl_ohos_bridge.h: physical XComponent pixel size (for touch scaling). */
+extern "C" int SDL_OHOS_GetPhysicalSize(int *width, int *height)
+{
+	pthread_mutex_lock(&g_lock);
+	uint64_t w = g_physical_width, h = g_physical_height;
+	pthread_mutex_unlock(&g_lock);
+	if (width) *width = static_cast<int>(w);
+	if (height) *height = static_cast<int>(h);
+	return (w > 0 && h > 0) ? 1 : 0;
+}
 
 /* sdl_ohos_bridge.h: is the AVPlayer currently rendering into the surface?
  * The SDL renderer must pause while video plays (they share the XComponent

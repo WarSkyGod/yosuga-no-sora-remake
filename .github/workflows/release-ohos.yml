@@ -49,7 +49,12 @@ concurrency:
 jobs:
   package-data:
     name: Package game data
-    if: inputs.skip_data == false
+    # Skip game-data packaging by default: external mode (HAP does not bundle
+    # data; the app fetches data-assets.json from the Release at runtime) so a
+    # plain tag push only builds the OHOS HAP and never pulls the multi-GB LFS
+    # content. Only run data packaging when explicitly requested via
+    # workflow_dispatch with data_mode=bundled / mini (data packaging step).
+    if: inputs.data_mode != 'external'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:

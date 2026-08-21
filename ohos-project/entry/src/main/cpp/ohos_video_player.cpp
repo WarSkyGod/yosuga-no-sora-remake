@@ -94,16 +94,34 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 		return false;
 	}
 
-	/* Use the URL file source: AVPlayer accepts a file:// URL. */
-	std::string url = "file://" + filePath;
-	OH_AVErrCode ret = OH_AVPlayer_SetURLSource(m_player, url.c_str());
-	if (ret != AV_ERR_OK)
+	/* Use an fd source: more reliable than file:// for public-dir paths. */
+	int vfd = open(filePath.c_str(), O_RDONLY);
+	if (vfd < 0)
 	{
-		Log("Open: SetURLSource(%s) ret=%d", url.c_str(), (int)ret);
+		Log("Open: open(%s) failed", filePath.c_str());
 		OH_AVPlayer_Release(m_player);
 		m_player = nullptr;
 		return false;
 	}
+	struct stat vst;
+	if (stat(filePath.c_str(), &vst) != 0 || vst.st_size <= 0)
+	{
+		Log("Open: stat(%s) failed", filePath.c_str());
+		close(vfd);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+		return false;
+	}
+	OH_AVErrCode ret = OH_AVPlayer_SetFDSource(m_player, vfd, 0, vst.st_size);
+	close(vfd); /* AVPlayer duplicates/keeps its own reference */
+	if (ret != AV_ERR_OK)
+	{
+		Log("Open: SetFDSource(%s) ret=%d", filePath.c_str(), (int)ret);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+		return false;
+	}
+	Log("Open: SetFDSource ok, size=%lld", (long long)vst.st_size);
 
 	ret = OH_AVPlayer_SetVideoSurface(m_player, m_nativeWindow);
 	if (ret != AV_ERR_OK)

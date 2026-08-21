@@ -26,6 +26,9 @@
 #endif
 #if defined(_WIN32) || defined(__APPLE__)
 #include <SDL_syswm.h>
+#if defined(__OHOS__)
+#include <hilog/log.h>
+#endif
 #endif
 #include <SDL.h>
 #ifdef _WIN32
@@ -60,6 +63,12 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 #endif
 
 #if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__OHOS__) || defined(__EMSCRIPTEN__) || defined(__vita__) || defined(__SWITCH__)
+#if defined(__OHOS__)
+#define OHOS_DBG(...) OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", __VA_ARGS__)
+#else
+#define OHOS_DBG(...) do {} while(0)
+#endif
+
 #define KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE
 #endif
 
@@ -968,6 +977,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 			// software renderer which paints into the window framebuffer.
 			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
 			{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateRenderer(SOFTWARE) -> %s (err=%s)\n", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); fclose(lf); } } }
+		OHOS_DBG("SDL_CreateRenderer(SOFTWARE)=%p err=%s", (void*)this->renderer, this->renderer ? "OK" : SDL_GetError());
 		}
 		if (!this->renderer)
 		{
@@ -1929,10 +1939,12 @@ void TVPWindowWindow::TickBeat()
 		}
 		if (is_video_playing && is_video_playing())
 		{
+			OHOS_DBG("TickBeat skip: video playing");
 			return;
 		}
 	}
 #endif
+	OHOS_DBG("TickBeat render needsG=%d renderer=%p surface=%p", this->needsGraphicUpdate ? 1 : 0, (void*)this->renderer, (void*)this->surface);
 #if defined(__OHOS__)
 	/* OHOS: ensure the window surface is valid before presenting. SDL's
 	 * FULLSCREEN_DESKTOP window recreation clears surface_valid, after

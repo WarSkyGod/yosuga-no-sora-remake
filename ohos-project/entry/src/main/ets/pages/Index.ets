@@ -739,60 +739,73 @@ struct Index {
       if (this.bootState === 0) {
         Text(this.progressText).fontSize(16).fontColor(Color.Gray)
       } else if (this.bootState === 6) {
-        XComponent({
-          id: 'gameview',
-          type: XComponentType.SURFACE,
-          libraryname: 'entry',
-          controller: this.xcController
-        })
-          .onLoad((context: object) => {
-            try {
-              // Try to hand the engine a surfaceId so it can create the
-              // native window directly (the legacy surface callbacks do not
-              // fire on this system).
-              let sid = '';
+        Stack() {
+          XComponent({
+            id: 'gameview',
+            type: XComponentType.SURFACE,
+            libraryname: 'entry',
+            controller: this.xcController
+          })
+            .onLoad((context: object) => {
               try {
-                sid = this.xcController.getXComponentSurfaceId();
-              } catch (e3) {
-                this.log('getXComponentSurfaceId failed: ' + JSON.stringify(e3));
+                // Try to hand the engine a surfaceId so it can create the
+                // native window directly (the legacy surface callbacks do not
+                // fire on this system).
+                let sid = '';
+                try {
+                  sid = this.xcController.getXComponentSurfaceId();
+                } catch (e3) {
+                  this.log('getXComponentSurfaceId failed: ' + JSON.stringify(e3));
+                }
+                this.log('onLoad surfaceId=' + sid);
+                entryNapi.setSurfaceId(sid);
+                const ok: boolean = entryNapi.onLoad(context) as boolean;
+                if (ok) {
+                  entryNapi.startEngine();
+                } else {
+                  this.log('onLoad failed to attach the XComponent');
+                }
+              } catch (e) {
+                // never let an exception kill the app
+                this.log('onLoad exception: ' + JSON.stringify(e));
               }
-              this.log('onLoad surfaceId=' + sid);
-              entryNapi.setSurfaceId(sid);
-              const ok: boolean = entryNapi.onLoad(context) as boolean;
-              if (ok) {
-                entryNapi.startEngine();
-              } else {
-                this.log('onLoad failed to attach the XComponent');
+            })
+            // Full-screen height with 16:9 aspect: the video fills the
+            // screen top-to-bottom and letterboxes on the sides only.
+            .height('100%')
+            .aspectRatio(16 / 9)
+            // No .onTouch here: libace_compatible crashes the UI thread while
+            // processing touches on the XComponent node itself (before any
+            // ArkTS callback runs). Touches are captured by the transparent
+            // overlay below.
+          // Transparent overlay captures ALL touches so the XComponent node
+          // itself never receives them (libace_compatible crashes processing
+          // XComponent touches). Forward to the SDL backend via napi.
+          Column()
+            // Same size as the XComponent so overlay vp coords map directly
+            // onto the SDL window coordinate space.
+            .height('100%')
+            .aspectRatio(16 / 9)
+            .backgroundColor('#00000000')
+            .onTouch((event: TouchEvent) => {
+              try {
+                const t = event.touches[0];
+                if (!t) return;
+                let type = 0; // SDL_OHOS_TOUCH_DOWN
+                if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  type = 1; // SDL_OHOS_TOUCH_UP
+                } else if (event.type === TouchType.Move) {
+                  type = 2; // SDL_OHOS_TOUCH_MOVE
+                }
+                // onTouch reports vp (logical px); SDL window coords are px.
+                entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
+              } catch (e) {
+                this.log('overlay onTouch exception: ' + JSON.stringify(e));
               }
-            } catch (e) {
-              // never let an exception kill the app
-              this.log('onLoad exception: ' + JSON.stringify(e));
-            }
-          })
-          .onTouch((event: TouchEvent) => {
-            // Forward ArkTS touch events to the SDL backend through napi.
-            // This deliberately bypasses the XComponent native touch dispatch
-            // (DispatchTouchEvent), which crashes the UI thread inside
-            // libace_compatible on this system.
-            try {
-              const t = event.touches[0];
-              if (!t) return;
-              let type = 0; // SDL_OHOS_TOUCH_DOWN
-              if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-                type = 1; // SDL_OHOS_TOUCH_UP
-              } else if (event.type === TouchType.Move) {
-                type = 2; // SDL_OHOS_TOUCH_MOVE
-              }
-              // onTouch reports vp (logical px); SDL window coords are px.
-              entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
-            } catch (e) {
-              this.log('onTouch exception: ' + JSON.stringify(e));
-            }
-          })
-          // Full-screen height with 16:9 aspect: the video fills the
-          // screen top-to-bottom and letterboxes on the sides only.
-          .height('100%')
-          .aspectRatio(16 / 9)
+            })
+        }
+        .width('100%')
+        .height('100%')
       } else if (this.bootState === 2) {
         Scroll() {
           Column({ space: 12 }) {

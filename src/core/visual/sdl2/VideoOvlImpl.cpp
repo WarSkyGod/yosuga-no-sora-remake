@@ -62,6 +62,7 @@ static tTJSNI_VideoOverlay *OHOSVideoActiveOverlay = nullptr;
 /* Called by libentry when playback reaches the end. */
 static void OHOSOnVideoEnded()
 {
+	SDL_Log("OHOS video ended callback fired, overlay=%p", (void *)OHOSVideoActiveOverlay);
 	if (OHOSVideoActiveOverlay)
 		OHOSVideoActiveOverlay->OHOSPlaybackFinished();
 }
@@ -504,6 +505,7 @@ void tTJSNI_VideoOverlay::Close()
 #if defined(__OHOS__)
 void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
 {
+	SDL_Log("OHOSPlaybackFinished: status=%d loop=%d", (int)Status, Loop ? 1 : 0);
 	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
 }
 #endif

@@ -17,6 +17,7 @@
 #include "SDL_ohosevents.h"
 #include "SDL_ohosgl.h"
 #include "sdl_ohos_bridge.h"
+#include <string.h>
 #include <hilog/log.h>
 
 #define OHOS_FALLBACK_WIDTH 1920
@@ -92,6 +93,16 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 				ef = fopen(epath, "a");
 				if (ef) { fprintf(ef, "engine: UpdateWindowFramebuffer #%d\n", fb_count); fclose(ef); }
 			}
+			/* Mirror into the public Download app dir too. */
+			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+			if (pub && pub[0] && (!dd || strncmp(pub, dd, 512) != 0))
+			{
+				FILE *ef;
+				char epath[512];
+				snprintf(epath, sizeof(epath), "%s/engine.log", pub);
+				ef = fopen(epath, "a");
+				if (ef) { fprintf(ef, "engine: UpdateWindowFramebuffer #%d\n", fb_count); fclose(ef); }
+			}
 		}
 	}
 
@@ -105,6 +116,18 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 			snprintf(fpath, sizeof(fpath), "%s/engine.log", dd);
 			fb = fopen(fpath, "a");
 			if (fb) fprintf(fb, "engine: UpdateWindowFramebuffer enter fb_count=%d\n", fb_count);
+		}
+	}
+	/* FB-status in the public Download app dir as well. */
+	FILE *fb_pub = NULL;
+	{
+		const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+		if (pub && pub[0])
+		{
+			char fpath[512];
+			snprintf(fpath, sizeof(fpath), "%s/engine.log", pub);
+			fb_pub = fopen(fpath, "a");
+			if (fb_pub) fprintf(fb_pub, "engine: UpdateWindowFramebuffer enter fb_count=%d\n", fb_count);
 		}
 	}
 
@@ -201,6 +224,15 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 				FILE *lf = fopen(lpath, "a");
 				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
 			}
+			/* Also mirror into the public Download app dir. */
+			const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+			if (pub && pub[0] && (!dd || strncmp(pub, dd, 512) != 0))
+			{
+				char lpath[512];
+				snprintf(lpath, sizeof(lpath), "%s/engine.log", pub);
+				FILE *lf = fopen(lpath, "a");
+				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
+			}
 			OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", "FB copy %dx%d -> %dx%d", (int)w, (int)h, (int)bw, (int)bh);
 		}
 	}
@@ -211,9 +243,11 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
 	{
 		if (fb) { fprintf(fb, "  FlushBuffer failed\n"); fclose(fb); }
+		if (fb_pub) { fprintf(fb_pub, "  FlushBuffer failed\n"); fclose(fb_pub); }
 		return SDL_SetError("OHOS: FlushBuffer failed");
 	}
 	if (fb) { fprintf(fb, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb); }
+	if (fb_pub) { fprintf(fb_pub, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb_pub); }
 	(void)rects;
 	(void)numrects;
 	(void)dummy;

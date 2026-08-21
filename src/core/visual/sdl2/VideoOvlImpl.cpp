@@ -66,14 +66,23 @@ static const char *OHOS_SandboxDir(void)
 	if (fn) cached = fn();
 	return cached;
 }
+/* Append one trace line to <dir>/engine.log if that dir is set. */
+static void OHOS_TraceAppend(const char *dir, const char *msg)
+{
+	if (dir == nullptr || dir[0] == '\0')
+		return;
+	FILE *lf = fopen((std::string(dir) + "/engine.log").c_str(), "a");
+	if (lf) { fprintf(lf, "engine: %s\n", msg); fclose(lf); }
+}
 static void OHOSVideoTrace(const char *msg)
 {
-	const char *dd = OHOS_SandboxDir();
-	if (dd == nullptr || dd[0] == '\0') dd = getenv("KRKR_OHOS_DATA_DIR");
-	if (dd && dd[0])
+	const char *sandbox = OHOS_SandboxDir();
+	const char *pub = getenv("KRKR_OHOS_DATA_DIR");
+	OHOS_TraceAppend(sandbox, msg);
+	if (pub != nullptr && pub[0] != '\0' &&
+		(sandbox == nullptr || sandbox[0] == '\0' || std::string(pub) != std::string(sandbox)))
 	{
-		FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-		if (lf) { fprintf(lf, "engine: %s\n", msg); fclose(lf); }
+		OHOS_TraceAppend(pub, msg);
 	}
 }
 /* Resolve the OHOS AVPlayer bridge exported by libentry.so at run time so the

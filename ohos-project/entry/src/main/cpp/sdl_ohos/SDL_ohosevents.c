@@ -53,7 +53,7 @@ void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 		SDL_VideoDevice *device = SDL_GetVideoDevice();
 		if (device != NULL && device->windows != NULL)
 		{
-			window = device->windows->window;
+			window = device->windows;
 		}
 	}
 	int px = (int)(x + 0.5f);

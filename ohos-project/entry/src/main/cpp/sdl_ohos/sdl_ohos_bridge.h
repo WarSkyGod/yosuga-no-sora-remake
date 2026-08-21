@@ -66,6 +66,11 @@ OHOS_EXPORT void *SDL_OHOS_GetNativeWindow(void);
 /* Return the current surface size in pixels. Returns 1 when valid. */
 OHOS_EXPORT int SDL_OHOS_GetSurfaceSize(int *width, int *height);
 
+/* Return 1 while the OHOS AVPlayer is actively rendering video into
+ * the XComponent surface (the SDL renderer must pause output so the video
+ * is not covered by the engine framebuffer). */
+OHOS_EXPORT int SDL_OHOS_IsVideoPlaying(void);
+
 /* Deliver an XComponent touch event. Called from the ACE UI thread. */
 OHOS_EXPORT void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y);
 

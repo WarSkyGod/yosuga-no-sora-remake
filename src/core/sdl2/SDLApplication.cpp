@@ -69,6 +69,12 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 #define KRKRSDL2_RENDERER_FULL_UPDATES
 #endif
 
+#if defined(__OHOS__)
+/* Bridge to libentry.so: is the AVPlayer currently rendering into the
+ * XComponent surface? The SDL renderer must pause while video plays. */
+extern "C" int SDL_OHOS_IsVideoPlaying(void);
+#endif
+
 extern void TVPLoadMessage();
 
 class TVPWindowWindow;
@@ -877,20 +883,6 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 #endif
 
-#if defined(__OHOS__)
-	/* OHOS: the GLES2 renderer demands these attributes and the OPENGL
-	 * window flag up front, otherwise SDL_CreateRenderer bails with
-	 * "Couldn't find matching render driver". The canvas path that used to
-	 * set them is compiled out (OPTION_ENABLE_CANVAS OFF). */
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-	window_flags |= SDL_WINDOW_OPENGL;
-#endif
 
 #ifdef KRKRZ_ENABLE_CANVAS
 	if (!TVPIsEnableDrawDevice())
@@ -1924,6 +1916,16 @@ void TVPWindowWindow::TickBeat()
 		this->SetVisible(this->isVisible);
 	}
 	this->needsGraphicUpdate = true; // OHOS: always repaint so the software framebuffer is refreshed
+#if defined(__OHOS__)
+	/* OHOS: while the AVPlayer renders into the XComponent surface, do NOT
+	 * present the SDL framebuffer - they share the same native window and
+	 * the last Present would cover the video (black screen). The engine
+	 * still advances (script, input) but skips the blit. */
+	if (SDL_OHOS_IsVideoPlaying())
+	{
+		return;
+	}
+#endif
 	if (this->needsGraphicUpdate)
 	{
 		if (this->bitmapCompletion)

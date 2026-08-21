@@ -17,6 +17,7 @@
 #include "SDL_ohosevents.h"
 #include "SDL_ohosgl.h"
 #include "sdl_ohos_bridge.h"
+#include <hilog/log.h>
 
 #define OHOS_FALLBACK_WIDTH 1920
 #define OHOS_FALLBACK_HEIGHT 1080
@@ -189,6 +190,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 				FILE *lf = fopen(lpath, "a");
 				if (lf) { fprintf(lf, "engine: FB copy %dx%d -> %dx%d stride=%d\n", (int)w, (int)h, (int)bw, (int)bh, (int)dst_stride); fclose(lf); }
 			}
+			OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", "FB copy %dx%d -> %dx%d", (int)w, (int)h, (int)bw, (int)bh);
 		}
 	}
 

@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: MIT */
 /* Copyright (c) Kirikiri SDL2 Developers */
 
+/* OHOS build: the toolchain does not reliably define __OHOS__ for this
+ * translation unit, so define it here. SDL and the engine are both being
+ * built for OpenHarmony, so __OHOS__=1 is the correct platform macro. */
+#if !defined(__OHOS__)
+#define __OHOS__ 1
+#endif
 #include "tjsCommHead.h"
 #if defined(__OHOS__)
 #include <hilog/log.h>
@@ -31,6 +37,7 @@
 #include <SDL_syswm.h>
 #endif
 #include <SDL.h>
+
 #ifdef _WIN32
 #include <shellapi.h>
 #include <stdlib.h>

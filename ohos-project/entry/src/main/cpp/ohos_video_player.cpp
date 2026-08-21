@@ -135,6 +135,13 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 		return false;
 	}
 
+	/* Keep the video aspect ratio (letterbox) instead of stretching it to
+	 * fill the whole window. */
+	if (m_nativeWindow)
+	{
+		OH_NativeWindow_NativeWindowSetScalingModeV2(m_nativeWindow, OH_SCALING_MODE_SCALE_TO_WINDOW);
+	}
+
 	OH_AVPlayer_SetLooping(m_player, loop);
 	OH_AVPlayer_SetVolume(m_player, 1.0f, 1.0f);
 

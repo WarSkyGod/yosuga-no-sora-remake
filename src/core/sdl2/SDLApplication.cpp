@@ -2022,14 +2022,10 @@ void TVPWindowWindow::TickBeat()
 				}
 				SDL_RenderPresent(this->renderer);
 #if defined(__OHOS__)
-				/* OHOS: the software renderer's Present does not always reach
-				 * the video driver's UpdateWindowFramebuffer (surface_valid /
-				 * window-surface plumbing). Force the upload explicitly so the
-				 * rendered menu actually reaches the XComponent surface. */
-				if (this->window && this->surface)
-				{
-					SDL_UpdateWindowSurface(this->window);
-				}
+				/* OHOS: with the GL paths disabled (see SDL_ohosvideo.c) the
+				 * software renderer's Present reaches the video driver's
+				 * UpdateWindowFramebuffer directly, so no explicit upload is
+				 * needed here. */
 #endif
 #if !defined(KRKRSDL2_ENABLE_ZOOM) && !defined(KRKRSDL2_RENDERER_FULL_UPDATES)
 				if (logical_rect.w == rect.w && logical_rect.h == rect.h)

@@ -249,15 +249,13 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->HideWindow = OHOS_HideWindow;
 	device->SetWindowFullscreen = OHOS_SetWindowFullscreen;
 
-	device->GL_LoadLibrary = OHOS_GL_LoadLibrary;
-	device->GL_GetProcAddress = OHOS_GL_GetProcAddress;
-	device->GL_UnloadLibrary = OHOS_GL_UnloadLibrary;
-	device->GL_CreateContext = OHOS_GL_CreateContext;
-	device->GL_MakeCurrent = OHOS_GL_MakeCurrent;
-	device->GL_SetSwapInterval = OHOS_GL_SetSwapInterval;
-	device->GL_GetSwapInterval = OHOS_GL_GetSwapInterval;
-	device->GL_SwapWindow = OHOS_GL_SwapWindow;
-	device->GL_DeleteContext = OHOS_GL_DeleteContext;
+	/* GL intentionally NOT registered: SDL switches to the texture
+	 * framebuffer path whenever GL_CreateContext is set, bypassing our
+	 * UpdateWindowFramebuffer. OpenHarmony's system EGL lacks
+	 * eglQueryDevicesEXT so a GL context cannot actually be created, and
+	 * the texture path then crashes with a null pointer on the engine
+	 * thread. Without GL, SDL uses the software surface framebuffer, which
+	 * is implemented in OHOS_Create/Update/DestroyWindowFramebuffer. */
 
 	device->free = OHOS_DestroyDevice;
 	return device;

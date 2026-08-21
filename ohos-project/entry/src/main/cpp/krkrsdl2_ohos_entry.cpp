@@ -591,6 +591,42 @@ static void EngineMain()
 	OHOS_Entry_LogNative("engine: thread finished");
 }
 
+
+/* ------------------------------------------------------------------------- */
+/* Video playback bridge (engine -> entry).                                  */
+/* ------------------------------------------------------------------------- */
+#include "ohos_video_player.h"
+
+extern "C" {
+
+static Yosuga::OHOSVideoPlayer g_ohos_player;
+
+int OHOS_VideoOpen(const char *path, int loop)
+{
+	OHNativeWindow *win = static_cast<OHNativeWindow *>(SDL_OHOS_GetNativeWindow());
+	if (win == nullptr) { OHOS_Entry_LogNative("video: no native window for playback"); return -1; }
+	bool ok = g_ohos_player.Open(path ? path : "", win, loop != 0);
+	OHOS_Entry_LogNative(ok ? "video: opened (AVPlayer)" : "video: open FAILED");
+	return ok ? 0 : -1;
+}
+
+void OHOS_VideoStop(void)
+{
+	g_ohos_player.Stop();
+}
+
+void OHOS_VideoClose(void)
+{
+	g_ohos_player.Close();
+}
+
+void OHOS_VideoSetVolume(float vol)
+{
+	(void)vol;
+}
+
+} // extern "C"
+
 void OHOS_Entry_StartEngine(void)
 {
 	if (g_engine_started || g_engine_running.load())

@@ -96,6 +96,7 @@ target_link_libraries(krkrsdl2 EGL GLESv3)
 add_library(entry SHARED
 	napi_init.cpp
 	krkrsdl2_ohos_entry.cpp
+	ohos_video_player.cpp
 	ohos_data_extract.cpp
 	# Compiled here as well so the touch/surface bridge symbols are provided
 	# by libentry.so itself (the SDL static archive is consumed by the
@@ -117,6 +118,8 @@ target_link_libraries(entry PUBLIC
 	libnative_buffer.so
 	librawfile.z.so
 	libhilog_ndk.z.so
+	libavplayer.so
+	libnative_media_core.so
 	EGL
 	GLESv3
 	# Provides SDL's generated-config include paths and compile definitions

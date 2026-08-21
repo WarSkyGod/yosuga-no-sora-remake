@@ -1,0 +1,69 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * OpenHarmony hardware video player for the KrKriz engine.
+ *
+ * Uses the Media Kit OH_AVPlayer (which decodes through the AVCodec hardware
+ * decoder) and renders straight into the XComponent's OHNativeWindow.
+ */
+#ifndef OHOS_VIDEO_PLAYER_H
+#define OHOS_VIDEO_PLAYER_H
+
+#include <atomic>
+#include <cstdint>
+#include <mutex>
+#include <string>
+
+struct OHNativeWindow;
+typedef struct OH_AVPlayer OH_AVPlayer;
+
+namespace Yosuga
+{
+
+/* Callback interface used to notify the engine of playback state. */
+class VideoPlayerEventListener
+{
+public:
+	virtual ~VideoPlayerEventListener() = default;
+	/* Playback reached the end of the file. */
+	virtual void OnVideoEnded() = 0;
+	/* Playback errored. */
+	virtual void OnVideoError(int code) = 0;
+};
+
+class OHOSVideoPlayer
+{
+public:
+	OHOSVideoPlayer();
+	~OHOSVideoPlayer();
+
+	/* Open and start playback of the given file into the XComponent window. */
+	bool Open(const std::string &filePath, OHNativeWindow *nativeWindow, bool loop = false);
+	void Stop();
+	/* Reclaim all player resources. */
+	void Close();
+	void Pause();
+	void Resume();
+
+	bool IsPlaying() const { return m_playing.load(); }
+
+	void SetListener(VideoPlayerEventListener *listener) { m_listener = listener; }
+
+	/* Called from the AVPlayer async info/error callbacks. */
+	void HandleInfo(int type);
+	void HandleError(int32_t errorCode);
+
+	static std::string LogPath();
+
+private:
+	void Log(const char *fmt, ...);
+
+	OH_AVPlayer *m_player;
+	OHNativeWindow *m_nativeWindow;
+	std::atomic<bool> m_playing;
+	VideoPlayerEventListener *m_listener;
+	std::mutex m_mutex;
+};
+
+} // namespace Yosuga
+
+#endif // OHOS_VIDEO_PLAYER_H

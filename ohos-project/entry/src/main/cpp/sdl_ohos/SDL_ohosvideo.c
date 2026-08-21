@@ -78,12 +78,12 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	BufferHandle *handle = NULL;
 	int fence_fd = -1;
 	int32_t dummy = 0;
-	/* Also mirror progress into the public engine.log every 100 frames. */
+	/* Mirror progress into the sandbox engine.log (hdc-readable). */
 	{
 		static int fb_count = 0;
 		if (++fb_count % 100 == 1 || fb_count <= 5)
 		{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			const char *dd = SDL_OHOS_GetFilesDir();
 			if (dd && dd[0])
 			{
 				FILE *ef;
@@ -94,8 +94,19 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 			}
 		}
 	}
-	FILE *fb = fopen("/data/local/tmp/yosuga-egl.log", "a");
-	if (fb) { fprintf(fb, "OHOS_UpdateWindowFramebuffer enter\n"); fclose(fb); }
+
+	/* FB-status diagnostic file, also in the sandbox so hdc can read it. */
+	FILE *fb = NULL;
+	{
+		const char *dd = SDL_OHOS_GetFilesDir();
+		if (dd && dd[0])
+		{
+			char fpath[512];
+			snprintf(fpath, sizeof(fpath), "%s/engine.log", dd);
+			fb = fopen(fpath, "a");
+			if (fb) fprintf(fb, "engine: UpdateWindowFramebuffer enter fb_count=%d\n", fb_count);
+		}
+	}
 
 	if (data == NULL || data->framebuffer == NULL)
 	{
@@ -182,7 +193,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 			}
 		}
 		{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			const char *dd = SDL_OHOS_GetFilesDir();
 			if (dd && dd[0])
 			{
 				char lpath[512];

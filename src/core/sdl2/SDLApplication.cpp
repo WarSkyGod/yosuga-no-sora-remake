@@ -71,12 +71,64 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 
 #if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__OHOS__) || defined(__EMSCRIPTEN__) || defined(__vita__) || defined(__SWITCH__)
 #if defined(__OHOS__)
-#define OHOS_DBG(...) OH_LOG_Print(LOG_APP, LOG_INFO, 0x0000, "YosugaOHOS", __VA_ARGS__)
+#define OHOS_DBG(...) OH_LOG_Print(LOG_APP, LOG_ERROR, 0x0000, "YosugaOHOS", __VA_ARGS__)
 #else
 #define OHOS_DBG(...) do {} while(0)
 #endif
 
 #define KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE
+#endif
+
+#if defined(__OHOS__)
+#include <cstdarg>
+#include <cstdio>
+/* OHOS: route SDL-side diagnostics into the SAME <sandbox files>/engine.log
+ * that the NAPI entry side (OHOS_Entry_LogNative) writes. The envar
+ * KRKR_OHOS_DATA_DIR points at the PUBLIC Download folder (hdc cannot read
+ * it) and /data/local/tmp is not writable by the app, so the sandbox files
+ * dir is the only hdc-readable log destination on device. SDL_OHOS_GetFilesDir
+ * is exported by libentry.so and resolved once via dlsym. */
+static const char *OHOS_GetSandboxFilesDir(void)
+{
+	static const char *(*ohos_get_files_dir)(void) = nullptr;
+	static const char *cached = nullptr;
+	if (cached)
+		return cached;
+	if (ohos_get_files_dir == nullptr)
+	{
+		void *handle = dlopen("libentry.so", RTLD_NOW);
+		if (!handle)
+			handle = RTLD_DEFAULT;
+		ohos_get_files_dir = (const char *(*)(void))dlsym(handle, "SDL_OHOS_GetFilesDir");
+	}
+	if (ohos_get_files_dir)
+		cached = ohos_get_files_dir();
+	return cached;
+}
+
+/* Append one formatted line to <sandbox files>/engine.log. Falls back to the
+ * public data dir when the sandbox dir is not available yet. */
+static void OHOS_LogToFile(const char *fmt, ...)
+{
+	const char *dir = OHOS_GetSandboxFilesDir();
+	if (dir == nullptr || dir[0] == '\0')
+		dir = getenv("KRKR_OHOS_DATA_DIR");
+	if (dir == nullptr || dir[0] == '\0')
+		return;
+	std::string path = std::string(dir) + "/engine.log";
+	FILE *lf = fopen(path.c_str(), "a");
+	if (lf == nullptr)
+		return;
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(lf, fmt, args);
+	va_end(args);
+	fputc('\n', lf);
+	fclose(lf);
+}
+#else
+/* Non-OHOS builds: OHOS_LogToFile is a no-op. */
+static void OHOS_LogToFile(const char *, ...) {}
 #endif
 
 #if defined(__linux__)
@@ -874,7 +926,7 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	{
 		if (SDL_Init(SDL_INIT_VIDEO) < 0)
 		{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_Init(VIDEO) FAILED: %s\n", SDL_GetError()); fclose(lf); } }
+			OHOS_LogToFile("engine: SDL_Init(VIDEO) FAILED: %s", SDL_GetError());
 			TVPThrowExceptionMessage(TJS_W("Cannot initialize SDL video subsystem: %1"), ttstr(SDL_GetError()));
 		}
 		refresh_controllers();
@@ -939,11 +991,11 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	window_flags |= SDL_WINDOW_HIDDEN;
 #endif
 
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: calling SDL_CreateWindow w=%d h=%d flags=%u\n", new_window_w, new_window_h, (unsigned)window_flags); fclose(lf); } }
+			OHOS_LogToFile("engine: calling SDL_CreateWindow w=%d h=%d flags=%u", new_window_w, new_window_h, (unsigned)window_flags);
 	this->window = SDL_CreateWindow("krkrsdl2", new_window_x, new_window_y, new_window_w, new_window_h, window_flags);
 	if (!this->window)
 	{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateWindow FAILED w=%d h=%d: %s\n", new_window_w, new_window_h, SDL_GetError()); fclose(lf); } }
+			OHOS_LogToFile("engine: SDL_CreateWindow FAILED w=%d h=%d: %s", new_window_w, new_window_h, SDL_GetError());
 		TVPThrowExceptionMessage(TJS_W("Cannot create SDL window: %1"), ttstr(SDL_GetError()));
 	}
 #if defined(__EMSCRIPTEN__) && defined(KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE)
@@ -977,13 +1029,13 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	{
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-		{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateRenderer -> %s (err=%s)\n", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); fclose(lf); } } }
+		{ OHOS_LogToFile("engine: SDL_CreateRenderer -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
 		if (!this->renderer)
 		{
 			// OHOS: accelerated (GLES2) may be unavailable; fall back to the
 			// software renderer which paints into the window framebuffer.
 			this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
-			{ const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_CreateRenderer(SOFTWARE) -> %s (err=%s)\n", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); fclose(lf); } } }
+			{ OHOS_LogToFile("engine: SDL_CreateRenderer(SOFTWARE) -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }
 		OHOS_DBG("SDL_CreateRenderer(SOFTWARE)=%p err=%s", (void*)this->renderer, this->renderer ? "OK" : SDL_GetError());
 		}
 		if (!this->renderer)
@@ -1921,7 +1973,7 @@ void TVPWindowWindow::Show()
 }
 void TVPWindowWindow::TickBeat()
 {
-	{ static int tb = 0; if (++tb <= 5 || tb % 600 == 0) { const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: TickBeat #%d needsGraphicUpdate=%d renderer=%s surface=%s\n", tb, this->needsGraphicUpdate ? 1 : 0, this->renderer ? "Y" : "N", this->surface ? "Y" : "N"); fclose(lf); } } } }
+	{ static int tb = 0; if (++tb <= 5 || tb % 600 == 0) { OHOS_LogToFile("engine: TickBeat #%d needsGraphicUpdate=%d renderer=%s surface=%s", tb, this->needsGraphicUpdate ? 1 : 0, this->renderer ? "Y" : "N", this->surface ? "Y" : "N"); } }
 	if (!this->visibilityHasInitialized)
 	{
 		this->visibilityHasInitialized = true;
@@ -1967,15 +2019,10 @@ void TVPWindowWindow::TickBeat()
 			/* do NOT reassign bitmapCompletion->surface (engine drawing surface) */
 		}
 		{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-			if (dd && dd[0])
+			static int wscount = 0;
+			if (++wscount % 300 == 1)
 			{
-				static int wscount = 0;
-				if (++wscount % 300 == 1)
-				{
-					FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-					if (lf) { fprintf(lf, "engine: TickBeat window surface=%p\n", (void *)ws); fclose(lf); }
-				}
+				OHOS_LogToFile("engine: TickBeat window surface=%p", (void *)ws);
 			}
 		}
 	}
@@ -3022,12 +3069,7 @@ bool TVPWindowWindow::window_receive_event_input(SDL_Event event)
 				case SDL_MOUSEBUTTONUP:
 				{
 					{
-						const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-						if (dd && dd[0])
-						{
-							FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-							if (lf) { fprintf(lf, "engine: WINDOW mouse type=%d x=%d y=%d btn=%d\n", (int)event.type, event.button.x, event.button.y, (int)event.button.button); fclose(lf); }
-						}
+						OHOS_LogToFile("engine: WINDOW mouse type=%d x=%d y=%d btn=%d", (int)event.type, event.button.x, event.button.y, (int)event.button.button);
 					}
 					if (SDL_IsTextInputActive() && this->imeCompositionStr)
 					{
@@ -3269,7 +3311,7 @@ void sdl_process_events()
 		}
 		else if (event.type == SDL_QUIT)
 		{
-			const char *dd = getenv("KRKR_OHOS_DATA_DIR"); if (dd && dd[0]) { FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a"); if (lf) { fprintf(lf, "engine: SDL_QUIT event received\n"); fclose(lf); } }
+			OHOS_LogToFile("engine: SDL_QUIT event received");
 			Application->Terminate();
 		}
 	}

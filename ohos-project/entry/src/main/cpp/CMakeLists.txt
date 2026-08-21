@@ -90,7 +90,7 @@ add_subdirectory(${REPO_ROOT} krkrsdl2_ohos EXCLUDE_FROM_ALL)
 # krkrsdl2.so uses SDL's EGL loader with link-time symbols (SDL_VIDEO_STATIC_ANGLE);
 # it must link EGL itself or the egl* references stay undefined. Plain signature
 # to match the existing target_link_libraries calls inside the repo CMakeLists.
-target_link_libraries(krkrsdl2 EGL GLESv3)
+target_link_libraries(krkrsdl2 EGL GLESv3 libhilog_ndk.z.so)
 
 # ---- The NAPI entry library (libentry.so) ----------------------------------
 add_library(entry SHARED

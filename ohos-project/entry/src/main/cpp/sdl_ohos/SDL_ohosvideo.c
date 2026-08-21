@@ -77,6 +77,19 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	BufferHandle *handle = NULL;
 	int fence_fd = -1;
 	int32_t dummy = 0;
+	/* Also mirror progress into the public engine.log every 100 frames. */
+	{
+		static int fb_count = 0;
+		if (++fb_count % 100 == 1 || fb_count <= 5)
+		{
+			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+			if (dd && dd[0])
+			{
+				FILE *ef = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+				if (ef) { fprintf(ef, "engine: UpdateWindowFramebuffer #%d\n", fb_count); fclose(ef); }
+			}
+		}
+	}
 	FILE *fb = fopen("/data/local/tmp/yosuga-egl.log", "a");
 	if (fb) { fprintf(fb, "OHOS_UpdateWindowFramebuffer enter\n"); fclose(fb); }
 

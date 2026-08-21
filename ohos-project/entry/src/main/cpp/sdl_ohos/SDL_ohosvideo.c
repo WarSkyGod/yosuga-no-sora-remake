@@ -85,7 +85,10 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 			const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 			if (dd && dd[0])
 			{
-				FILE *ef = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+				FILE *ef;
+				char epath[512];
+				snprintf(epath, sizeof(epath), "%s/engine.log", dd);
+				ef = fopen(epath, "a");
 				if (ef) { fprintf(ef, "engine: UpdateWindowFramebuffer #%d\n", fb_count); fclose(ef); }
 			}
 		}

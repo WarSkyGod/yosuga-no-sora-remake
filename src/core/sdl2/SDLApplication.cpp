@@ -1955,7 +1955,7 @@ void TVPWindowWindow::TickBeat()
 			if (dd && dd[0])
 			{
 				FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-				if (lf) { fprintf(lf, "engine: TickBeat surface_valid=%d surf=%p\n", this->window->surface_valid ? 1 : 0, (void *)ws); fclose(lf); }
+				if (lf) { fprintf(lf, "engine: TickBeat window surface=%p\n", (void *)ws); fclose(lf); }
 			}
 		}
 	}

@@ -15,6 +15,9 @@
 #include <cstdarg>
 #include <cstdio>
 #include <hilog/log.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace Yosuga
 {

@@ -528,6 +528,11 @@ void tTJSNI_VideoOverlay::OHOSPlaybackFinished()
 	char tb[128];
 	snprintf(tb, sizeof(tb), "OHOSPlaybackFinished status=%d loop=%d", (int)Status, Loop ? 1 : 0);
 	OHOSVideoTrace(tb);
+	/* Release the AVPlayer surface so the SDL software framebuffer becomes
+	 * visible again: without this the last video frame stays glued over the
+	 * engine output and the game appears stuck on the video. */
+	OHOSVideoResolveBridge();
+	if (OHOSVideoCloseFn) OHOSVideoCloseFn();
 	SetStatusAsync(tTVPVideoOverlayStatus::Stop);
 }
 #endif

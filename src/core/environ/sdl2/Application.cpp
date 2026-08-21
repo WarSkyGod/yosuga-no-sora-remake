@@ -829,8 +829,12 @@ void tTVPApplication::Run() {
 		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
 		if (dd && dd[0])
 		{
-			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
-			if (lf) { fprintf(lf, "engine: Run() enter tarminate=%d windows=%d\n", tarminate_ ? 1 : 0, TVPGetWindowCount()); fclose(lf); }
+			static bool first = true;
+			if (first) {
+				first = false;
+				FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+				if (lf) { fprintf(lf, "engine: Run() enter tarminate=%d windows=%d\n", tarminate_ ? 1 : 0, TVPGetWindowCount()); fclose(lf); }
+			}
 		}
 	}
 #if 0

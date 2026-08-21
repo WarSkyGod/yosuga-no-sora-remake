@@ -469,7 +469,12 @@ void OHOS_Entry_AttachXComponent(void *component)
 	callback.OnSurfaceCreated = OnSurfaceCreated;
 	callback.OnSurfaceChanged = OnSurfaceChanged;
 	callback.OnSurfaceDestroyed = OnSurfaceDestroyed;
-	callback.DispatchTouchEvent = OnTouchEvent;
+	// NOTE: DispatchTouchEvent intentionally NOT registered: on this system
+	// libace_compatible crashes the UI thread while dispatching XComponent
+	// touches to native callbacks (jump to 0xffffff8000000000, never reaching
+	// OnTouchEvent). Touches are captured in ArkTS (.onTouch) and forwarded
+	// through napi sendTouch instead.
+	// callback.DispatchTouchEvent = OnTouchEvent;
 	int32_t reg = OH_NativeXComponent_RegisterCallback(native, &callback);
 	char regmsg[96];
 	snprintf(regmsg, sizeof(regmsg), "engine: XComponent RegisterCallback result=%d", static_cast<int>(reg));

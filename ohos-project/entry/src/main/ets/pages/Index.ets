@@ -769,6 +769,26 @@ struct Index {
               this.log('onLoad exception: ' + JSON.stringify(e));
             }
           })
+          .onTouch((event: TouchEvent) => {
+            // Forward ArkTS touch events to the SDL backend through napi.
+            // This deliberately bypasses the XComponent native touch dispatch
+            // (DispatchTouchEvent), which crashes the UI thread inside
+            // libace_compatible on this system.
+            try {
+              const t = event.touches[0];
+              if (!t) return;
+              let type = 0; // SDL_OHOS_TOUCH_DOWN
+              if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                type = 1; // SDL_OHOS_TOUCH_UP
+              } else if (event.type === TouchType.Move) {
+                type = 2; // SDL_OHOS_TOUCH_MOVE
+              }
+              // onTouch reports vp (logical px); SDL window coords are px.
+              entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
+            } catch (e) {
+              this.log('onTouch exception: ' + JSON.stringify(e));
+            }
+          })
           .width('70%')
           .aspectRatio(16 / 9)
       } else if (this.bootState === 2) {

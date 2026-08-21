@@ -637,6 +637,14 @@ void OHOS_VideoSetEndCallback(Yosuga::OHOSVideoPlayer::EndCallback cb)
 
 } // extern "C"
 
+/* sdl_ohos_bridge.h: is the AVPlayer currently rendering into the surface?
+ * The SDL renderer must pause while video plays (they share the XComponent
+ * native window; the last Present wins). */
+extern "C" int SDL_OHOS_IsVideoPlaying(void)
+{
+	return g_ohos_player.IsPlaying() ? 1 : 0;
+}
+
 void OHOS_Entry_StartEngine(void)
 {
 	if (g_engine_started || g_engine_running.load())

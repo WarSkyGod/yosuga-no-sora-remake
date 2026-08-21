@@ -139,7 +139,7 @@ bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWi
 	 * fill the whole window. */
 	if (m_nativeWindow)
 	{
-		OH_NativeWindow_NativeWindowSetScalingModeV2(m_nativeWindow, OH_SCALING_MODE_SCALE_TO_WINDOW);
+		OH_NativeWindow_NativeWindowSetScalingMode(m_nativeWindow, 0, OH_SCALING_MODE_SCALE_TO_WINDOW);
 	}
 
 	OH_AVPlayer_SetLooping(m_player, loop);

@@ -1,0 +1,198 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * OpenHarmony hardware video player for the KrKriz engine.
+ *
+ * Uses the Media Kit OH_AVPlayer (hardware decode via AVCodec) and renders
+ * directly into the XComponent's OHNativeWindow.
+ */
+
+#include "ohos_video_player.h"
+
+#include <multimedia/player_framework/avplayer.h>
+#include <multimedia/player_framework/avplayer_base.h>
+#include <native_window/external_window.h>
+
+#include <cstdarg>
+#include <cstdio>
+#include <hilog/log.h>
+
+namespace Yosuga
+{
+
+static OHOSVideoPlayer *g_cb_self = nullptr;
+
+static void OHOS_VPlayerInfoCallback(OH_AVPlayer */*player*/, AVPlayerOnInfoType type,
+	OH_AVFormat */*infoBody*/, void *userData)
+{
+	OHOSVideoPlayer *self = static_cast<OHOSVideoPlayer *>(userData);
+	if (self == nullptr) return;
+	self->HandleInfo((int)type);
+}
+
+static void OHOS_VPlayerErrorCallback(OH_AVPlayer */*player*/, int32_t errorCode,
+	const char */*errorMsg*/, void *userData)
+{
+	OHOSVideoPlayer *self = static_cast<OHOSVideoPlayer *>(userData);
+	if (self == nullptr) return;
+	self->HandleError(errorCode);
+}
+
+OHOSVideoPlayer::OHOSVideoPlayer()
+	: m_player(nullptr), m_nativeWindow(nullptr), m_playing(false), m_listener(nullptr)
+{
+}
+
+OHOSVideoPlayer::~OHOSVideoPlayer()
+{
+	Close();
+	g_cb_self = nullptr;
+}
+
+std::string OHOSVideoPlayer::LogPath()
+{
+	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+	return (dd && dd[0]) ? (std::string(dd) + "/video-player.log") : std::string("/data/local/tmp/yosuga-video.log");
+}
+
+void OHOSVideoPlayer::Log(const char *fmt, ...)
+{
+	FILE *lf = fopen(LogPath().c_str(), "a");
+	if (lf)
+	{
+		va_list ap;
+		va_start(ap, fmt);
+		vfprintf(lf, fmt, ap);
+		va_end(ap);
+		fputc('\n', lf);
+		fclose(lf);
+	}
+}
+
+bool OHOSVideoPlayer::Open(const std::string &filePath, OHNativeWindow *nativeWindow, bool loop)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+
+	if (m_player != nullptr)
+	{
+		OH_AVPlayer_Stop(m_player);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+	}
+	m_nativeWindow = nativeWindow;
+	m_playing = false;
+
+	if (m_nativeWindow == nullptr)
+	{
+		Log("Open: native window is null");
+		return false;
+	}
+
+	m_player = OH_AVPlayer_Create();
+	if (m_player == nullptr)
+	{
+		Log("Open: OH_AVPlayer_Create failed");
+		return false;
+	}
+
+	/* Use the URL file source: AVPlayer accepts a file:// URL. */
+	std::string url = "file://" + filePath;
+	OH_AVErrCode ret = OH_AVPlayer_SetURLSource(m_player, url.c_str());
+	if (ret != AV_ERR_OK)
+	{
+		Log("Open: SetURLSource(%s) ret=%d", url.c_str(), (int)ret);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+		return false;
+	}
+
+	ret = OH_AVPlayer_SetVideoSurface(m_player, m_nativeWindow);
+	if (ret != AV_ERR_OK)
+	{
+		Log("Open: SetVideoSurface ret=%d", (int)ret);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+		return false;
+	}
+
+	OH_AVPlayer_SetLooping(m_player, loop);
+	OH_AVPlayer_SetVolume(m_player, 1.0f, 1.0f);
+
+	OH_AVPlayer_SetOnInfoCallback(m_player, OHOS_VPlayerInfoCallback, this);
+	OH_AVPlayer_SetOnErrorCallback(m_player, OHOS_VPlayerErrorCallback, this);
+
+	Log("Open: Prepare+Play (%s)", filePath.c_str());
+	ret = OH_AVPlayer_Prepare(m_player);
+	if (ret != AV_ERR_OK)
+	{
+		Log("Open: Prepare ret=%d", (int)ret);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+		return false;
+	}
+	ret = OH_AVPlayer_Play(m_player);
+	if (ret != AV_ERR_OK)
+	{
+		Log("Open: Play ret=%d", (int)ret);
+		OH_AVPlayer_Release(m_player);
+		m_player = nullptr;
+		return false;
+	}
+	m_playing = true;
+	Log("Open: playing");
+	return true;
+}
+
+void OHOSVideoPlayer::HandleInfo(int type)
+{
+	Log("HandleInfo: type=%d", type);
+	if (type == (int)AV_INFO_TYPE_EOS)
+	{
+		if (m_listener) m_listener->OnVideoEnded();
+	}
+	else if (type == (int)AV_INFO_TYPE_STATE_CHANGE)
+	{
+		/* optional state tracking */
+	}
+}
+
+void OHOSVideoPlayer::HandleError(int32_t errorCode)
+{
+	Log("HandleError: %d", (int)errorCode);
+	if (m_listener) m_listener->OnVideoError((int)errorCode);
+}
+
+void OHOSVideoPlayer::Pause()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_player != nullptr) OH_AVPlayer_Pause(m_player);
+	m_playing = false;
+}
+
+void OHOSVideoPlayer::Resume()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_player != nullptr) OH_AVPlayer_Play(m_player);
+	m_playing = true;
+}
+
+void OHOSVideoPlayer::Stop()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_player != nullptr) OH_AVPlayer_Stop(m_player);
+	m_playing = false;
+}
+
+void OHOSVideoPlayer::Close()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_player != nullptr)
+	{
+		OH_AVPlayer_Stop(m_player);
+		OH_AVPlayer_ReleaseSync(m_player);
+		m_player = nullptr;
+	}
+	m_playing = false;
+	m_nativeWindow = nullptr;
+}
+
+} // namespace Yosuga

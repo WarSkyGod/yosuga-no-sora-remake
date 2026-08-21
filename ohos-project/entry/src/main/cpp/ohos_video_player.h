@@ -62,6 +62,9 @@ public:
 
 private:
 	void Log(const char *fmt, ...);
+	/* Release the AVPlayer on a worker thread after COMPLETED (stops the
+	 * source-unready callback flood); sets m_player=null under m_mutex. */
+	void DelayedRelease();
 
 	OH_AVPlayer *m_player;
 	OHNativeWindow *m_nativeWindow;

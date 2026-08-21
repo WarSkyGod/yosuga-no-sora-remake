@@ -46,6 +46,15 @@ void SDL_OHOS_OnTouchEvent(int touch_type, float x, float y)
 	int px;
 	int py;
 
+	{
+		const char *dd = getenv("KRKR_OHOS_DATA_DIR");
+		if (dd && dd[0])
+		{
+			FILE *lf = fopen((std::string(dd) + "/engine.log").c_str(), "a");
+			if (lf) { fprintf(lf, "engine: OnTouchEvent type=%d x=%d y=%d\n", touch_type, (int)x, (int)y); fclose(lf); }
+		}
+	}
+
 	if (window == NULL)
 	{
 		return;

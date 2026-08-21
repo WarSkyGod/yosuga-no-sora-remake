@@ -26,7 +26,10 @@
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
+#include <sys/syscall.h>
 #include <csignal>
+#include <sys/syscall.h>
+#include <unistd.h>
 #include <ucontext.h>
 #include <dlfcn.h>
 
@@ -40,7 +43,7 @@ static void OHOS_CrashHandler(int sig, siginfo_t *si, void *uc)
 	FILE *lf = fopen(out.c_str(), "a");
 	if (lf)
 	{
-		fprintf(lf, "===== CRASH signal=%d (%s) =====\r\n", sig, strsignal(sig));
+		fprintf(lf, "===== CRASH signal=%d (%s) tid=%lu =====\r\n", sig, strsignal(sig), (unsigned long)syscall(__NR_gettid));
 		if (si) fprintf(lf, "  fault addr = %p\r\n", si->si_addr);
 #if defined(__aarch64__)
 		/* musl does not expose ucontext_t fields here. Read the kernel

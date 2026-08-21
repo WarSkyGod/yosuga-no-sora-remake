@@ -196,6 +196,13 @@ void OHOSVideoPlayer::DelayedRelease()
 			std::lock_guard<std::mutex> lock(m_mutex);
 			p = m_player;
 			m_player = nullptr;
+			/* PLAYBACK COMPLETED: the engine must resume presenting its own
+			 * SDL framebuffer once the player is gone. m_playing was set true
+			 * in Open() and is what SDL_OHOS_IsVideoPlaying() reads (the engine
+			 * TickBeat loop returns early while it is 1, so the menu never
+			 * renders and the screen freezes on the last video frame). Clear it
+			 * here or the freeze is permanent. */
+			m_playing = false;
 		}
 		if (p)
 		{

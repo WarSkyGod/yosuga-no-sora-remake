@@ -30,11 +30,133 @@ static void OHOS_GetDisplayModes(_THIS, SDL_VideoDisplay *display);
 static int OHOS_SetDisplayMode(_THIS, SDL_VideoDisplay *display, SDL_DisplayMode *mode);
 static int OHOS_GetDisplayBounds(_THIS, SDL_VideoDisplay *display, SDL_Rect *rect);
 static int OHOS_CreateSDLWindow(_THIS, SDL_Window *window);
+
+/* --- Software framebuffer support --------------------------------------- */
+/* Paints an SDL_Surface into an OH_NativeWindow buffer. Kept simple: one
+ * surface lives in window->driverdata and is re-uploaded on Update. */
+
+static int OHOS_CreateWindowFramebuffer(_THIS, SDL_Window *window,
+	Uint32 *format, void **pixels, int *pitch)
+{
+	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+	if (data == NULL)
+	{
+		return SDL_SetError("Window has no driver data");
+	}
+	int w = 0, h = 0;
+	OHOS_GetSurfaceSize(&w, &h);
+	if (w <= 0 || h <= 0)
+	{
+		w = OHOS_FALLBACK_WIDTH;
+		h = OHOS_FALLBACK_HEIGHT;
+	}
+
+	if (data->framebuffer != NULL)
+	{
+		SDL_FreeSurface(data->framebuffer);
+		data->framebuffer = NULL;
+	}
+	data->framebuffer = SDL_CreateRGBSurface(0, w, h, 32,
+		0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+	if (data->framebuffer == NULL)
+	{
+		return SDL_OutOfMemory();
+	}
+	*format = data->framebuffer->format->format;
+	*pixels = data->framebuffer->pixels;
+	*pitch = data->framebuffer->pitch;
+	return 0;
+}
+
+static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
+	const SDL_Rect *rects, int numrects)
+{
+	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+	OHNativeWindow *native_window;
+	OHNativeWindowBuffer *buffer = NULL;
+	BufferHandle *handle = NULL;
+	int fence_fd = -1;
+	int32_t dummy = 0;
+	FILE *fb = fopen("/data/local/tmp/yosuga-egl.log", "a");
+	if (fb) { fprintf(fb, "OHOS_UpdateWindowFramebuffer enter\n"); fclose(fb); }
+
+	if (data == NULL || data->framebuffer == NULL)
+	{
+		return SDL_SetError("No framebuffer");
+	}
+	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
+	if (native_window == NULL)
+	{
+		return SDL_SetError("No native window");
+	}
+
+	int32_t w = data->framebuffer->w;
+	int32_t h = data->framebuffer->h;
+	if (OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, w, h) != 0)
+	{
+		if (fb) { fprintf(fb, "  SET_BUFFER_GEOMETRY failed\n"); fclose(fb); }
+		return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
+	}
+
+	if (OH_NativeWindow_NativeWindowRequestBuffer(native_window, &buffer, &fence_fd) != 0 || buffer == NULL)
+	{
+		if (fb) { fprintf(fb, "  RequestBuffer failed\n"); fclose(fb); }
+		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
+	}
+
+	handle = OH_NativeWindow_GetBufferHandleFromNative(buffer);
+	if (handle == NULL || handle->virAddr == NULL)
+	{
+		OH_NativeWindow_NativeWindowAbortBuffer(native_window, buffer);
+		if (fb) { fprintf(fb, "  no virAddr\n"); fclose(fb); }
+		return SDL_SetError("OHOS: buffer has no virtual address");
+	}
+
+	/* Copy the SDL surface (ARGB8888) into the native buffer row by row. */
+	{
+		Uint8 *dst = (Uint8 *)handle->virAddr;
+		const Uint8 *src = (const Uint8 *)data->framebuffer->pixels;
+		int src_pitch = data->framebuffer->pitch;
+		int dst_stride = handle->stride;
+		for (int y = 0; y < h; y++)
+		{
+			memcpy(dst + y * dst_stride, src + y * src_pitch, w * 4);
+		}
+	}
+
+	Region region;
+	region.rects = NULL;
+	region.rectNumber = 0;
+	if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
+	{
+		if (fb) { fprintf(fb, "  FlushBuffer failed\n"); fclose(fb); }
+		return SDL_SetError("OHOS: FlushBuffer failed");
+	}
+	if (fb) { fprintf(fb, "  flushed %dx%d\n", (int)w, (int)h); fclose(fb); }
+	(void)rects;
+	(void)numrects;
+	(void)dummy;
+	return 0;
+}
+
+static void OHOS_DestroyWindowFramebuffer(_THIS, SDL_Window *window)
+{
+	SDL_WindowData *data = (SDL_WindowData *)window->driverdata;
+	if (data != NULL && data->framebuffer != NULL)
+	{
+		SDL_FreeSurface(data->framebuffer);
+		data->framebuffer = NULL;
+	}
+}
+
 static void OHOS_SetWindowTitle(_THIS, SDL_Window *window);
 static void OHOS_SetWindowPosition(_THIS, SDL_Window *window);
 static void OHOS_SetWindowSize(_THIS, SDL_Window *window);
 static void OHOS_ShowWindow(_THIS, SDL_Window *window);
 static void OHOS_HideWindow(_THIS, SDL_Window *window);
+static int OHOS_CreateWindowFramebuffer(_THIS, SDL_Window *window, Uint32 *format, void **pixels, int *pitch);
+static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window, const SDL_Rect *rects, int numrects);
+static void OHOS_DestroyWindowFramebuffer(_THIS, SDL_Window *window);
 static void OHOS_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay *display, SDL_bool fullscreen);
 
 VideoBootStrap OHOS_bootstrap = {
@@ -75,6 +197,9 @@ static SDL_VideoDevice *OHOS_CreateDevice(void)
 	device->GetDisplayBounds = OHOS_GetDisplayBounds;
 	device->PumpEvents = OHOS_PumpEvents;
 	device->CreateSDLWindow = OHOS_CreateSDLWindow;
+	device->CreateWindowFramebuffer = OHOS_CreateWindowFramebuffer;
+	device->UpdateWindowFramebuffer = OHOS_UpdateWindowFramebuffer;
+	device->DestroyWindowFramebuffer = OHOS_DestroyWindowFramebuffer;
 	device->SetWindowTitle = OHOS_SetWindowTitle;
 	device->SetWindowPosition = OHOS_SetWindowPosition;
 	device->SetWindowSize = OHOS_SetWindowSize;

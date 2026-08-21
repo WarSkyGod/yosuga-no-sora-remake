@@ -86,6 +86,9 @@ public:
 #ifdef __ANDROID__
 	void AndroidPlaybackFinished();
 #endif
+#if defined(__OHOS__)
+	void OHOSPlaybackFinished();
+#endif
 
 public:
 	void Open(const ttstr &name);

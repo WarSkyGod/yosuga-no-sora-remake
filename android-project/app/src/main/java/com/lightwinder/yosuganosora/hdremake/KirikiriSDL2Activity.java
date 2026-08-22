@@ -149,27 +149,31 @@ public class KirikiriSDL2Activity extends SDLActivity {
         if (sPublicSaveDir != null) return sPublicSaveDir;
         if (!hasPublicStorageAccess()) return null;
 
-        // Prefer the real public Downloads folder on Android 11+ (where
-        // MANAGE_EXTERNAL_STORAGE makes it writable).  On Android 10
-        // scoped storage blocks direct file writes to Downloads even with
-        // WRITE_EXTERNAL_STORAGE under targetSdk 37, so fall back to the
-        // app-external folder which is still user-reachable (via the
-        // Files app / USB) and persists across un-installs awaiting backup.
+        // Prefer the real public Downloads folder on every supported Android
+        // so saves are user-reachable.  On Android 11+ MANAGE_EXTERNAL_STORAGE
+        // makes it writable; on Android 10 the manifest's requestLegacy
+        // ExternalStorage opts the app into legacy storage so the public
+        // Download path is also writable.  If scoped storage still blocks it
+        // (e.g. the legacy flag was ignored on some devices), fall back to the
+        // app-external folder, which is always writable and still reachable
+        // via the Files app / USB and persists across app un-installs.
         File saveDir = null;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            File publicDir = Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS);
-            if (publicDir != null)
-                saveDir = new File(publicDir, SAVE_SUBDIR);
-        } else {
+        File publicDir = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOWNLOADS);
+        if (publicDir != null) saveDir = new File(publicDir, SAVE_SUBDIR);
+        if (saveDir == null) {
             File ext = getExternalFilesDir(null);
-            if (ext != null)
-                saveDir = new File(ext, "DownloadSavedata");
+            if (ext != null) saveDir = new File(ext, "DownloadSavedata");
         }
         if (saveDir == null) return null;
 
         try {
-            if (!saveDir.exists() && !saveDir.mkdirs()) return null;
+            if (!saveDir.exists() && !saveDir.mkdirs()) {
+                // Public Downloads write was blocked; use the app-external folder.
+                File ext = getExternalFilesDir(null);
+                if (ext != null) saveDir = new File(ext, "DownloadSavedata");
+                if (!saveDir.exists() && !saveDir.mkdirs()) return null;
+            }
             File noMedia = new File(saveDir, NO_MEDIA);
             if (!noMedia.exists()) {
                 if (!noMedia.createNewFile())

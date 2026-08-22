@@ -161,6 +161,18 @@ class ADVObject extends Sprite{
 	function loadImages(file){
 		_spr.loadImages(file);
 		setSizeToImageSize();
+		/* DIAGNOSTIC: log ADV/bustup image setup (image size, layer size,
+		 * visibility, position, zoom) so an Android-only 立绘-not-shown can be
+		 * traced as off-screen / unregistered / hidden. */
+		try{
+			var dbg = "ADVIMG file=" + file
+				+ " img=" + (void _spr.imageWidth ? "-" : _spr.imageWidth) + "x" + (void _spr.imageHeight ? "-" : _spr.imageHeight)
+				+ " spr=" + _spr.width + "x" + _spr.height
+				+ " vis=" + _spr.visible
+				+ " pos=" + _spr.left + "," + _spr.top
+				+ " zoom=" + _spr.zoomx;
+			Storages.saveFile("data/adv_debug.txt", dbg);
+		}catch(e){}
 	}
 
 	function setSizeToImageSize(){

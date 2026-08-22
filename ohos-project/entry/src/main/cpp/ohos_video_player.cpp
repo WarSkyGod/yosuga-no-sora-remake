@@ -234,6 +234,15 @@ void OHOSVideoPlayer::HandleInfo(int type)
 		if (st == AV_COMPLETED)
 		{
 			Log("HandleInfo: COMPLETED -> notify engine");
+			/* Clear m_playing IMMEDIATELY, not just in the 1.5s-later
+			 * DelayedRelease(). SDL_OHOS_IsVideoPlaying() reads m_playing and
+			 * the engine TickBeat loop returns early (skips SDL_RenderPresent)
+			 * while it is 1. If we only cleared it in DelayedRelease the flag
+			 * stayed 1 through the script transition, so UpdateWindowFramebuffer
+			 * never ran and the screen froze on the video's final frame even
+			 * though the engine had advanced to the menu. Clearing it here lets
+			 * the very next TickBeat present the menu. */
+			m_playing = false;
 			if (m_listener) m_listener->OnVideoEnded();
 			if (g_ohos_end_callback) g_ohos_end_callback();
 			/* Release the AVPlayer after the game script has had time to finish

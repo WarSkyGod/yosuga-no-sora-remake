@@ -227,6 +227,20 @@ def patch_sdl():
         patched = False
         for index, line in enumerate(lines):
             if line.strip().startswith("#define LOAD_FUNC_EGLEXT(NAME)"):
+                # Consume the whole multi-line macro (the definition plus its
+                # continuation to the terminating ';'), so the stale original
+                # body (eglGetProcAddress) does not remain alongside ours.
+                end = index
+                while end < len(lines):
+                    if lines[end].rstrip().endswith("\\"):
+                        end += 1
+                    else:
+                        end += 1
+                        break
+                # Skip any trailing comment line above the macro.
+                replacement_index = index
+                if replacement_index > 0 and lines[replacement_index-1].lstrip().startswith("/* it is allowed"):
+                    replacement_index -= 1
                 # Replace the LOAD_FUNC_EGLEXT macro body with a link-time ref.
                 # Keep the multi-line macro: on static-ANGLE, reference NAME.
                 block = [
@@ -237,7 +251,9 @@ def patch_sdl():
                     "#define LOAD_FUNC_EGLEXT(NAME) \\\n",
                     "    _this->egl_data->NAME = (void *)SDL_EGL_GetProcAddress(_this, #NAME);\n",
                 ]
-                lines[index:index+1] = block
+                # Replace the whole macro range (from the comment line down to
+                # the macro's terminating ';' line) with our block.
+                lines[replacement_index:end] = block
                 egl_c.write_text("".join(lines), encoding="utf-8")
                 print("Patched SDL_egl.c (LOAD_FUNC_EGLEXT link-time ref)")
                 patched = True

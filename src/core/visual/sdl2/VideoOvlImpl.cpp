@@ -636,7 +636,7 @@ void tTJSNI_VideoOverlay::AndroidPlaybackFinished()
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieFinished(
+Java_com_lightwinder_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnMovieFinished(
 	JNIEnv *, jclass)
 {
 	if(TVPAndroidActiveVideoOverlay)
@@ -644,7 +644,7 @@ Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieFinished(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_pw_uyjulian_krkrsdl2_KirikiriSDL2Activity_nativeOnMovieError(
+Java_com_lightwinder_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnMovieError(
 	JNIEnv *env, jclass, jstring message)
 {
 	const char *utf8Message = message ? env->GetStringUTFChars(message, nullptr) : nullptr;

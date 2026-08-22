@@ -52,9 +52,9 @@ jobs:
     # Skip game-data packaging by default: external mode (HAP does not bundle
     # data; the app fetches data-assets.json from the Release at runtime) so a
     # plain tag push only builds the OHOS HAP and never pulls the multi-GB LFS
-    # content. Only run data packaging when explicitly requested via
-    # workflow_dispatch with data_mode=bundled / mini (data packaging step).
-    if: inputs.data_mode != 'external'
+    # content. On a push triggers the inputs are empty, and empty != 'external'
+    # would have run the job - so require an explicit bundled/mini request.
+    if: inputs.data_mode == 'bundled' || inputs.data_mode == 'mini'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:

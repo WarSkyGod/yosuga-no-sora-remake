@@ -106,8 +106,8 @@ jobs:
           $assetDirectory = Join-Path $env:RUNNER_TEMP 'release-assets'
 
           $requiredFiles = @(
-            (Join-Path $runtimeDirectory 'tvpwin32.exe'),
-            (Join-Path $runtimeDirectory 'tvpwin32.cf'),
+            (Join-Path $runtimeDirectory 'Yosuga no Sora-HD Remake.exe'),
+            (Join-Path $runtimeDirectory 'Yosuga no Sora-HD Remake.cf'),
             (Join-Path $dataDirectory 'startup.tjs'),
             (Join-Path $dataDirectory 'content-manifest.json')
           )
@@ -122,6 +122,15 @@ jobs:
 
           Copy-Item -Path (Join-Path $runtimeDirectory '*') `
             -Destination $packageDirectory -Recurse -Force
+
+          # Inject the application icon into the executable (Windows uses the
+          # .ico resource embedded in the PE; rcedit edits it without a rebuild).
+          $iconPath = Join-Path $runtimeDirectory 'app.ico'
+          if (Test-Path -LiteralPath $iconPath) {
+            $rcedit = Join-Path $env:RUNNER_TEMP 'rcedit-x64.exe'
+            Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/latest/download/rcedit-x64.exe' -OutFile $rcedit
+            & $rcedit (Join-Path $packageDirectory 'Yosuga no Sora-HD Remake.exe') --set-icon $iconPath
+          }
 
           # Ship only the prebuilt data.xp3 next to the executable so
           # Kirikiroid2 and other archive-first runtimes can load the game
@@ -151,7 +160,7 @@ jobs:
           Release: $env:RELEASE_TAG
           Commit: $env:COMMIT_SHA
 
-          Run tvpwin32.exe to start the game.
+          Run "Yosuga no Sora-HD Remake.exe" to start the game.
           "@ | Set-Content -LiteralPath (Join-Path $packageDirectory 'BUILD-INFO.txt') `
             -Encoding utf8NoBOM
 

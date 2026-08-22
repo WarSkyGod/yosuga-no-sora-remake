@@ -315,8 +315,7 @@ class Logo extends Sprite, SelectItemNotifyBase, SceneBase{
 			// 参照フレームを失うと、再生時刻だけ進んで映像が停止することがある。
 			// 1 秒間隔の I フレーム、B フレームなし、映像のみで再エンコードした
 			// iOS 専用版を使用し、他プラットフォームの素材は変更しない。
-			var logoMovie = "sphere";
-			if(IsIOSPlatform()) logoMovie = "sphere_ios";
+			var logoMovie = "sphere"; // all platforms use the same sphere.mp4
 			if(!_movie.start(logoMovie, this)){
 				var failedMovie = _movie;
 				_movie = null;

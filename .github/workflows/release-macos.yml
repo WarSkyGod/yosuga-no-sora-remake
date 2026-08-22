@@ -114,6 +114,21 @@ jobs:
           path: ~/Library/Caches/ccache
           key: macos-ccache-${{ github.sha }}
 
+      - name: Generate macOS application icon from the shared PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 图标.ico is actually a 256x256 PNG; build an .icns via iconset+iconutil.
+          SRC="$GITHUB_WORKSPACE/图标.ico"
+          ICSET="$RUNNER_TEMP/app.iconset"
+          mkdir -p "$ICSET"
+          cp "$SRC" "$RUNNER_TEMP/app.png"
+          for s in 16 32 128 256 512; do
+            sips -z "$s" "$s" "$RUNNER_TEMP/app.png" --out "$ICSET/icon_${s}x${s}.png" >/dev/null 2>&1
+            d=$((s*2)); sips -z "$d" "$d" "$RUNNER_TEMP/app.png" --out "$ICSET/icon_${s}x${s}@2x.png" >/dev/null 2>&1
+          done
+          iconutil -c icns "$ICSET" -o "$GITHUB_WORKSPACE/src/resources/macos/krkrsdl2.icns"
+
       - name: Build optimized macOS application bundle
         shell: bash
         env:

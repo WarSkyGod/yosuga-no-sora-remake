@@ -3587,6 +3587,18 @@ static void krkrsdl2_finish_android_activity()
 	}
 	env->DeleteLocalRef(activity);
 }
+static void krkrsdl2_force_exit()
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	if (!env) return;
+	jclass sys = env->FindClass("java/lang/System");
+	if (sys) {
+		jmethodID exitM = env->GetStaticMethodID(sys, "exit", "(I)V");
+		if (exitM) env->CallStaticVoidMethod(sys, exitM, 0);
+		env->DeleteLocalRef(sys);
+	}
+}
+
 #endif
 
 void krkrsdl2_cleanup(void)
@@ -3595,6 +3607,8 @@ void krkrsdl2_cleanup(void)
 	/* Request the Activity finish BEFORE tearing down the engine so the app
 	 * exits even if window/GL teardown is slow or hangs. */
 	krkrsdl2_finish_android_activity();
+	SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "cleanup: forcing Android exit (finish+System.exit)");
+	krkrsdl2_force_exit();
 #endif
 	// delete application and exit forcely
 	// this prevents ugly exception message on exit

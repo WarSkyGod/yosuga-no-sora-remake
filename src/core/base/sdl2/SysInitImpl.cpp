@@ -1907,6 +1907,12 @@ void TVPTerminateAsync(int code)
 
 
 	if(TVPSystemControl) TVPSystemControl->CallDeliverAllEventsOnIdle();
+
+	/* Link the async-terminate global flag (set by window close -> TVPMainWindowClosed
+	 * -> TVPTerminateAsync) to the application terminate flag. The main loop only exits
+	 * on IsTarminate(), so without this the loop never ends, krkrsdl2_cleanup() never
+	 * runs, and an in-game "exit" leaves a black frame with the Activity still open. */
+	if (::Application) ::Application->Terminate();
 }
 //---------------------------------------------------------------------------
 void TVPTerminateSync(int code)

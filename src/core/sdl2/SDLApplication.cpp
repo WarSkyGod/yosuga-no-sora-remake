@@ -48,6 +48,11 @@
 #if defined(__ANDROID__) || defined(__OHOS__)
 #include <dirent.h>
 #endif
+#if defined(__ANDROID__)
+#include <jni.h>
+#include <SDL_system.h>
+#endif
+
 #include <math.h>
 #include <algorithm>
 

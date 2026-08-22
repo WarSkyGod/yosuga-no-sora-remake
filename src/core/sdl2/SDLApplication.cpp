@@ -76,6 +76,10 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 #endif
 
 #define KRKRSDL2_WINDOW_SIZE_IS_LAYER_SIZE
+#else
+	/* Desktop (macOS / Windows / Linux): OHOS_DBG is a no-op so the unguarded
+	 * OHOS_DBG(...) calls in this file compile on every platform. */
+	#define OHOS_DBG(...) do {} while(0)
 #endif
 
 #if defined(__OHOS__)
@@ -3556,12 +3560,45 @@ void krkrsdl2_run_main_loop(void)
 #endif
 }
 
+#ifdef __ANDROID__
+/* Finish the Android activity so the app truly exits instead of leaving a
+ * black frame. SDL_Quit() was never called, so the SDLActivity never got
+ * nativeQuit and an in-game "exit" stopped the engine and blanked the
+ * surface while leaving the Activity open. finishAndRemoveTask() (falling
+ * back to finish()) is posted to the UI thread, so it still runs even if the
+ * engine teardown below hangs the native SDL thread. */
+static void krkrsdl2_finish_android_activity()
+{
+	JNIEnv *env = static_cast<JNIEnv *>(SDL_AndroidGetJNIEnv());
+	jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+	if (!env || !activity) return;
+	jclass clazz = env->GetObjectClass(activity);
+	if (clazz)
+	{
+		jmethodID finish = env->GetMethodID(clazz, "finishAndRemoveTask", "()V");
+		if (!finish) finish = env->GetMethodID(clazz, "finish", "()V");
+		if (finish) env->CallVoidMethod(activity, finish);
+		env->DeleteLocalRef(clazz);
+	}
+	env->DeleteLocalRef(activity);
+}
+#endif
+
 void krkrsdl2_cleanup(void)
 {
+#ifdef __ANDROID__
+	/* Request the Activity finish BEFORE tearing down the engine so the app
+	 * exits even if window/GL teardown is slow or hangs. */
+	krkrsdl2_finish_android_activity();
+#endif
 	// delete application and exit forcely
 	// this prevents ugly exception message on exit
 	delete ::Application;
 	::Application = nullptr;
+
+	/* Let SDL shut its subsystems down. SDL_Quit() was previously never
+	 * called, which is why the Activity never finished after "exit". */
+	SDL_Quit();
 }
 
 bool TVPGetKeyMouseAsyncState(tjs_uint keycode, bool getcurrent)

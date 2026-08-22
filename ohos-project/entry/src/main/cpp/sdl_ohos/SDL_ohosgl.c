@@ -95,7 +95,10 @@ int OHOS_GL_LoadLibrary(_THIS, const char *path)
 	 * SDL_CreateRenderer(ACCELERATED) finds no render driver and falls back
 	 * to the software renderer). OHOS_EglInit() returns 1 on success / 0 on
 	 * failure, so translate that to SDL's 0==success / -1==failure. */
-	return OHOS_EglInit() ? 0 : -1;
+	OHOS_EglLog("OHOS_GL_LoadLibrary called - path=%s", path ? path : "(null)");
+	int r = OHOS_EglInit() ? 0 : -1;
+	OHOS_EglLog("OHOS_GL_LoadLibrary returning %d", r);
+	return r;
 }
 
 void *OHOS_GL_GetProcAddress(_THIS, const char *proc)

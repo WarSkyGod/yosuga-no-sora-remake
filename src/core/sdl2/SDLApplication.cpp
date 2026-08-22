@@ -1045,6 +1045,25 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 	if (TVPIsEnableDrawDevice())
 #endif
 	{
+#if defined(__OHOS__)
+		{
+			/* OHOS diagnostic: list the SDL render drivers compiled in. We expect
+			 * an "opengles2" (accelerated) driver; if only "software" is present
+			 * then SDL_VIDEO_RENDER_OGL_ES2 was not defined when SDL_render.c and
+			 * SDL_render_gles2.c were compiled. */
+			int ndrv = SDL_GetNumRenderDrivers();
+			OHOS_LogToFile("engine: SDL_GetNumRenderDrivers=%d", ndrv);
+			for (int di = 0; di < ndrv; ++di)
+			{
+				SDL_RendererInfo ri;
+				SDL_memset(&ri, 0, sizeof(ri));
+				if (SDL_GetRenderDriverInfo(di, &ri) == 0)
+				{
+					OHOS_LogToFile("engine: render driver[%d]=%s flags=%u", di, ri.name, (unsigned)ri.flags);
+				}
+			}
+		}
+#endif
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 		{ OHOS_LogToFile("engine: SDL_CreateRenderer -> %s (err=%s)", this->renderer ? "OK" : "NULL", this->renderer ? "" : SDL_GetError()); }

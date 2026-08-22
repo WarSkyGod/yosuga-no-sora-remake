@@ -1020,6 +1020,13 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 
 			OHOS_LogToFile("engine: calling SDL_CreateWindow w=%d h=%d flags=%u", new_window_w, new_window_h, (unsigned)window_flags);
+#if defined(__OHOS__)
+	{
+		const char *drv = SDL_GetCurrentVideoDriver();
+		OHOS_LogToFile("engine: current video driver=%s", drv ? drv : "(null)");
+		OHOS_LogToFile("engine: context=%d target=%d", SDL_GL_GetCurrentContext() != NULL ? 1 : 0, SDL_GL_GetCurrentWindow() != NULL ? 1 : 0);
+	}
+#endif
 	this->window = SDL_CreateWindow("krkrsdl2", new_window_x, new_window_y, new_window_w, new_window_h, window_flags);
 	if (!this->window)
 	{

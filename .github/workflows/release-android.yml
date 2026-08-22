@@ -71,12 +71,16 @@ jobs:
       # Cache the Android SDK / NDK components so the multi-GB downloads
       # (platform-37, build-tools, cmake, ndk) are not repeated every run.
       # setup-android exports ANDROID_HOME, which cache uses as the path.
-      - name: Restore cached Android SDK
+      - name: Restore cached Android SDK components
         id: sdk-cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.ANDROID_HOME }}
-          key: android-sdk-components-37.0-36.0.0-3.22-28.2
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+            ${{ env.ANDROID_HOME }}/build-tools/36.0.0
+            ${{ env.ANDROID_HOME }}/platforms/android-37
+          key: android-sdk-components-37.0-36.0.0-3.22-ndk28.2
 
       - name: Install pinned Android SDK and NDK components
         shell: bash
@@ -90,13 +94,17 @@ jobs:
             'cmake;3.22.1' \
             'ndk;28.2.13676358'
 
-      - name: Save cached Android SDK
+      - name: Save cached Android SDK components
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          path: ${{ env.ANDROID_HOME }}
-          key: android-sdk-components-37.0-36.0.0-3.22-28.2
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+            ${{ env.ANDROID_HOME }}/cmake/3.22.1
+            ${{ env.ANDROID_HOME }}/build-tools/36.0.0
+            ${{ env.ANDROID_HOME }}/platforms/android-37
+          key: android-sdk-components-37.0-36.0.0-3.22-ndk28.2
 
       - name: Install packaging tools
         shell: bash

@@ -923,6 +923,16 @@ tTJSBinaryStream * TVPOpenStream(const ttstr & _name, tjs_uint32 flags)
 	if(_name.IsEmpty())
 		TVPThrowExceptionMessage(TVPCannotOpenStorage, TJS_W("\"\""));
 
+	/* DIAGNOSTIC: log every storage open (incl. Android assets) so we can see
+	 * whether the character (立绘) .png is actually being read. Background /
+	 * text show but the character layer is blank, so this distinguishes
+	 * "character png never opened" from "opened but not composited". */
+	{
+		std::string name8;
+		TVPUtf16ToUtf8(name8, _name.AsStdString());
+		TVPAddLog(("{{OPEN}} " + name8).c_str());
+	}
+
 	ttstr origname = _name;
 	ttstr name(_name);
 	TVPGetLocalName(name);

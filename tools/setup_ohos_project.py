@@ -234,7 +234,7 @@ def patch_sdl():
                     " * path does not fail. SDL_EGL_GetProcAddress falls back to SDL_LoadFunction(), and with\n",
                     " * SDL_VIDEO_STATIC_ANGLE opengl_dll_handle stays NULL so SDL_LoadFunction dlsyms the global\n",
                     " * namespace - our link-time eglQueryDevicesEXT / eglGetPlatformDisplayEXT stubs resolve. */\n",
-                    "#define LOAD_FUNC_EGLEXT(NAME) \\n",
+                    "#define LOAD_FUNC_EGLEXT(NAME) \\\n",
                     "    _this->egl_data->NAME = (void *)SDL_EGL_GetProcAddress(_this, #NAME);\n",
                 ]
                 lines[index:index+1] = block

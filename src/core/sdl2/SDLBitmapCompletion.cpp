@@ -18,6 +18,21 @@ void TVPSDLBitmapCompletion::NotifyBitmapCompleted(iTVPLayerManager * manager,
 	{
 		return;
 	}
+	/* DIAGNOSTIC: log every layer bitmap submission so we can see whether
+	 * the character (立绘) layer reaches here and with what rect/opacity.
+	 * Background(CG) show but the character doesn't, so we need to know if
+	 * the character layer is submitted at all and, if so, what region/order. */
+	{
+		char dbg[256];
+		tjs_int pw = 0, ph = 0;
+		if (manager) manager->GetPrimaryLayerSize(pw, ph);
+		snprintf(dbg, sizeof(dbg), "BMPC type=%d x=%d y=%d cw=%d ch=%d clipL=%d clipT=%d clipW=%d clipH=%d op=%d prim=%dx%d",
+			(int)type, (int)x, (int)y,
+			(int)(cliprect.get_width()), (int)(cliprect.get_height()),
+			(int)cliprect.left, (int)cliprect.top, (int)cliprect.get_width(), (int)cliprect.get_height(),
+			(int)opacity, (int)pw, (int)ph);
+		TVPAddLog(dbg);
+	}
 	const TVPBITMAPINFO *bitmapinfo = bmpinfo->GetBITMAPINFO();
 	tjs_int w = 0;
 	tjs_int h = 0;

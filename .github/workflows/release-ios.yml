@@ -225,6 +225,13 @@ jobs:
           set -euo pipefail
           ./ios-project/generate.sh
 
+      - name: Restore cached Xcode derived data
+        id: ios-dd-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ios-derived-data
+          key: ios-deriveddata-${{ github.sha }}
+
       - name: Build optimized iPhone application
         shell: bash
         env:
@@ -251,6 +258,14 @@ jobs:
             args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
           fi
           xcodebuild "${args[@]}" build
+
+      - name: Save cached Xcode derived data
+        if: steps.ios-dd-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ios-derived-data
+          key: ios-deriveddata-${{ github.sha }}
 
       - name: Verify application and create IPA
         id: package

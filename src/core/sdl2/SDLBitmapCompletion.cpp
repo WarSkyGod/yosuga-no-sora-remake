@@ -26,7 +26,6 @@ void TVPSDLBitmapCompletion::NotifyBitmapCompleted(iTVPLayerManager * manager,
 		char dbg[256];
 		tjs_int pw = 0, ph = 0;
 		if (manager) manager->GetPrimaryLayerSize(pw, ph);
-		{
 			const TVPBITMAPINFO *_bi = bmpinfo ? bmpinfo->GetBITMAPINFO() : nullptr;
 			tjs_int sw = _bi ? (tjs_int)_bi->bmiHeader.biWidth : 0;
 			tjs_int sh = _bi ? (tjs_int)_bi->bmiHeader.biHeight : 0;

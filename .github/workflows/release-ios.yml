@@ -215,6 +215,43 @@ jobs:
             echo "keychain=$keychain"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Generate iOS app icon from the shared PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 图标.ico is a 256x256 PNG; regenerate every AppIcon size from it.
+          SRC="$GITHUB_WORKSPACE/图标.ico"
+          WD="$RUNNER_TEMP/appicon"
+          mkdir -p "$WD"
+          cp "$SRC" "$WD/src.png"
+          ICONSET="src/resources/ios/Images.xcassets/AppIcon.appiconset"
+          gen() {
+            # gen <w> <h> <out>
+            sips -z "$2" "$1" "$WD/src.png" --out "$WD/out.png" >/dev/null 2>&1
+            cp "$WD/out.png" "$ICONSET/$3"
+          }
+          gen 20 20 Icon-App-20x20@1x.png
+          gen 40 40 Icon-App-20x20@2x.png
+          gen 60 60 Icon-App-20x20@3x.png
+          gen 29 29 Icon-App-29x29@1x.png
+          gen 58 58 Icon-App-29x29@2x.png
+          gen 87 87 Icon-App-29x29@3x.png
+          gen 40 40 Icon-App-40x40@1x.png
+          gen 80 80 Icon-App-40x40@2x.png
+          gen 120 120 Icon-App-40x40@3x.png
+          gen 57 57 Icon-App-57x57@1x.png
+          gen 114 114 Icon-App-57x57@2x.png
+          gen 120 120 Icon-App-60x60@2x.png
+          gen 180 180 Icon-App-60x60@3x.png
+          gen 72 72 Icon-App-72x72@1x.png
+          gen 144 144 Icon-App-72x72@2x.png
+          gen 76 76 Icon-App-76x76@1x.png
+          gen 152 152 Icon-App-76x76@2x.png
+          gen 167 167 Icon-App-83.5x83.5@2x.png
+          gen 50 50 Icon-Small-50x50@1x.png
+          gen 100 100 Icon-Small-50x50@2x.png
+          gen 1024 1024 Icon-AppStore.png
+
       - name: Generate iOS Xcode project
         shell: bash
         env:

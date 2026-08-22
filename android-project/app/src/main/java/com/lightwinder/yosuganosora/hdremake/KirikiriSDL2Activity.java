@@ -1,4 +1,4 @@
-package pw.uyjulian.krkrsdl2;
+package com.lightwinder.yosuganosora.hdremake;
 
 import android.content.Intent;
 import android.content.pm.ActivityInfo;

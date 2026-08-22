@@ -50,13 +50,13 @@ def androidVersionName = providers.gradleProperty('androidVersionName')
     .getOrElse('1.0')
 
 android {
-    namespace = "pw.uyjulian.krkrsdl2"
+    namespace = "com.lightwinder.yosuganosora.hdremake"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
         if (buildAsApplication) {
-            applicationId = "pw.uyjulian.krkrsdl2"
+            applicationId = "com.lightwinder.yosuganosora.hdremake"
         }
         minSdk = 23
         targetSdk = 37

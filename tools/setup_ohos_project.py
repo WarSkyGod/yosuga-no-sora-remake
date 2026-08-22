@@ -210,6 +210,41 @@ def patch_sdl():
             fail("could not find an SDL library creation anchor in the vendored "
                  "SDL CMakeLists.txt")
 
+    # SDL_egl.c: the OpenHarmony system EGL does not expose
+    # EGL_EXT_device_enumeration / EGL_EXT_platform_base, so eglQueryDevicesEXT
+    # and eglGetPlatformDisplayEXT resolve to NULL and SDL_EGL_InitializeOffscreen()
+    # fails with "eglQueryDevicesEXT is missing". With SDL_VIDEO_STATIC_ANGLE the
+    # core LOAD_FUNC links symbols directly, but LOAD_FUNC_EGLEXT still uses
+    # eglGetProcAddress() (system EGL), which never sees our link-time symbol.
+    # Make LOAD_FUNC_EGLEXT a link-time reference too so our OHOS_EGL stubs
+    # (SDL_ohosgl.c) resolve.
+    egl_c = SDL_DEST / "src" / "video" / "SDL_egl.c"
+    egl_text = egl_c.read_text(encoding="utf-8", errors="replace")
+    if "OHOS_LOAD_FUNC_EGLEXT" in egl_text:
+        print("SDL_egl.c already patched; skipping.")
+    else:
+        lines = egl_text.splitlines(keepends=True)
+        patched = False
+        for index, line in enumerate(lines):
+            if line.strip().startswith("#define LOAD_FUNC_EGLEXT(NAME)"):
+                # Replace the LOAD_FUNC_EGLEXT macro body with a link-time ref.
+                # Keep the multi-line macro: on static-ANGLE, reference NAME.
+                block = [
+                    "/* OHOS (tools/setup_ohos_project.py): resolve EGL extensions so the SDL_EGL_InitializeOffscreen\n",
+                    " * path does not fail. SDL_EGL_GetProcAddress falls back to SDL_LoadFunction(), and with\n",
+                    " * SDL_VIDEO_STATIC_ANGLE opengl_dll_handle stays NULL so SDL_LoadFunction dlsyms the global\n",
+                    " * namespace - our link-time eglQueryDevicesEXT / eglGetPlatformDisplayEXT stubs resolve. */\n",
+                    "#define LOAD_FUNC_EGLEXT(NAME) \\n",
+                    "    _this->egl_data->NAME = (void *)SDL_EGL_GetProcAddress(_this, #NAME);\n",
+                ]
+                lines[index:index+1] = block
+                egl_c.write_text("".join(lines), encoding="utf-8")
+                print("Patched SDL_egl.c (LOAD_FUNC_EGLEXT link-time ref)")
+                patched = True
+                break
+        if not patched:
+            fail("could not find LOAD_FUNC_EGLEXT macro in vendored SDL_egl.c")
+
 
 def install_assets(assets_file):
     RAWFILE_DIR.mkdir(parents=True, exist_ok=True)

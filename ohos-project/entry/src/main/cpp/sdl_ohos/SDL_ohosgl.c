@@ -99,7 +99,9 @@ static int OHOS_EglInit(void)
 #endif
 static EGLDeviceEXT g_ohos_synthetic_device = (EGLDeviceEXT)1;
 
-EGLBoolean eglQueryDevicesEXT(EGLint max_devices, EGLDeviceEXT *devices, EGLint *num_devices)
+/* Export these so SDL_EGL_GetProcAddress() -> SDL_LoadFunction(RTLD_DEFAULT, ...)
+ * can find them even when the OHOS build uses -fvisibility=hidden. */
+EGLBoolean __attribute__((visibility("default"))) eglQueryDevicesEXT(EGLint max_devices, EGLDeviceEXT *devices, EGLint *num_devices)
 {
 	if (devices != NULL && max_devices >= 1)
 	{
@@ -112,7 +114,7 @@ EGLBoolean eglQueryDevicesEXT(EGLint max_devices, EGLDeviceEXT *devices, EGLint 
 	return EGL_TRUE;
 }
 
-EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display, const EGLint *attribs)
+EGLDisplay __attribute__((visibility("default"))) eglGetPlatformDisplayEXT(EGLenum platform, void *native_display, const EGLint *attribs)
 {
 	(void)platform;
 	(void)native_display;

@@ -218,6 +218,10 @@ void OHOSVideoPlayer::HandleInfo(int type)
 	if (type == (int)AV_INFO_TYPE_EOS)
 	{
 		Log("HandleInfo: EOS -> notify engine");
+		/* Same as AV_COMPLETED: the engine TickBeat loop skips presenting the
+		 * SDL framebuffer while m_playing is 1, so the screen stays on the
+		 * video's last frame. Clear it now so the menu can render. */
+		m_playing = false;
 		if (m_listener) m_listener->OnVideoEnded();
 		if (g_ohos_end_callback) g_ohos_end_callback();
 	}

@@ -3,7 +3,7 @@ name: Release OpenHarmony / HarmonyOS HAP
 'on':
   push:
     tags:
-      - 'v*'
+      - 'v*-ohos-*'
   workflow_dispatch:
     inputs:
       release_tag:

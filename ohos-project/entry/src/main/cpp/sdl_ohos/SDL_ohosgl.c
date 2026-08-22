@@ -26,36 +26,37 @@ static EGLContext g_ohos_egl_context = EGL_NO_CONTEXT;
 
 static void OHOS_EglLog(const char *fmt, ...)
 {
+	char line[1024];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(line, sizeof(line), fmt, ap);
+	va_end(ap);
+
+	/* Write to the SANDBOX files dir (hdc shell can read it) as both an
+	 * egl-specific log and engine.log, plus the public Download dir. The
+	 * public dir is what the user's logs.zip captures; the sandbox one is
+	 * what hdc shell can read directly for live debugging. */
 	const char *dd = getenv("KRKR_OHOS_DATA_DIR");
-	char path[512];
-	if (dd && dd[0]) { snprintf(path, sizeof(path), "%s/yosuga-egl.log", dd); }
-	else { snprintf(path, sizeof(path), "/data/local/tmp/yosuga-egl.log"); }
-	FILE *lf = fopen(path, "a");
-	if (lf)
+	const char *sandbox = SDL_OHOS_GetFilesDir();
+	if (sandbox && sandbox[0])
 	{
-		va_list ap;
-		va_start(ap, fmt);
-		vfprintf(lf, fmt, ap);
-		va_end(ap);
-		fputc('\n', lf);
-		fclose(lf);
+		char epath[512];
+		snprintf(epath, sizeof(epath), "%s/yosuga-egl.log", sandbox);
+		FILE *ef = fopen(epath, "a");
+		if (ef) { fprintf(ef, "%s\n", line); fclose(ef); }
+		snprintf(epath, sizeof(epath), "%s/engine.log", sandbox);
+		ef = fopen(epath, "a");
+		if (ef) { fprintf(ef, "egl: %s\n", line); fclose(ef); }
 	}
-	/* Also mirror into the public engine.log so the user's logs.zip captures
-	 * EGL failures (the egl.log file is not always copied). */
 	if (dd && dd[0])
 	{
 		char epath[512];
-		snprintf(epath, sizeof(epath), "%s/engine.log", dd);
+		snprintf(epath, sizeof(epath), "%s/yosuga-egl.log", dd);
 		FILE *ef = fopen(epath, "a");
-		if (ef)
-		{
-			va_list ap2;
-			va_start(ap2, fmt);
-			vfprintf(ef, fmt, ap2);
-			va_end(ap2);
-			fputc('\n', ef);
-			fclose(ef);
-		}
+		if (ef) { fprintf(ef, "%s\n", line); fclose(ef); }
+		snprintf(epath, sizeof(epath), "%s/engine.log", dd);
+		ef = fopen(epath, "a");
+		if (ef) { fprintf(ef, "egl: %s\n", line); fclose(ef); }
 	}
 }
 

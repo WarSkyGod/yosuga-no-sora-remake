@@ -995,6 +995,16 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #ifndef __EMSCRIPTEN__
 	window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #endif
+#if defined(__OHOS__)
+	/* OHOS: the OpenGLES render driver requires an OpenGL window. Without
+	 * SDL_WINDOW_OPENGL, SDL_GL_CreateContext() returns "window isn't an
+	 * OpenGL window" and GLES2_CreateRenderer() has to SDL_RecreateWindow()
+	 * to add the flag, which on this backend fails - so no accelerated
+	 * render driver is created and SDL_CreateRenderer(ACCELERATED) reports
+	 * "Couldn't find matching render driver". Flag the window OpenGL up
+	 * front so the GLES2 context is created directly. */
+	window_flags |= SDL_WINDOW_OPENGL;
+#endif
 	new_window_w = 0;
 	new_window_h = 0;
 #endif

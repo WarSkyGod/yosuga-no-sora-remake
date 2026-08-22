@@ -12,6 +12,7 @@
 
 #include "../SDL_egl_c.h"
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <cstdarg>
 #include <dlfcn.h>
 #include <native_window/external_window.h>
@@ -93,12 +94,9 @@ static int OHOS_EglInit(void)
  * symbols so SDL_LoadFunction(RTLD_DEFAULT, ...) resolves them; they report a
  * single synthetic device that maps back to the default display, so
  * eglInitialize still succeeds on the real EGL_DEFAULT_DISPLAY. */
-extern "C" {
-#include <EGL/eglext.h>
 #ifndef EGL_EGL_EXT_DEVICE_ENUMERATION
 #define EGL_EGL_EXT_DEVICE_ENUMERATION 1
 #endif
-typedef EGLDeviceEXT (*OHOS_EGLDeviceFn)(void);
 static EGLDeviceEXT g_ohos_synthetic_device = (EGLDeviceEXT)1;
 
 EGLBoolean eglQueryDevicesEXT(EGLint max_devices, EGLDeviceEXT *devices, EGLint *num_devices)
@@ -120,7 +118,6 @@ EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display, cons
 	(void)native_display;
 	(void)attribs;
 	return eglGetDisplay(EGL_DEFAULT_DISPLAY);
-}
 }
 
 int OHOS_GL_LoadLibrary(_THIS, const char *path)

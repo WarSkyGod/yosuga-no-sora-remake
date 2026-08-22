@@ -629,6 +629,40 @@ static void EngineMain()
 
 extern "C" {
 
+/* EGL_EXT_device_enumeration / EGL_EXT_platform_base compatibility stubs.
+ * The OpenHarmony system EGL does not expose these extensions, but SDL's
+ * EGL module (SDL_egl.c) requires eglQueryDevicesEXT + eglGetPlatformDisplayEXT
+ * for SDL_EGL_InitializeOffscreen() and fails with "eglQueryDevicesEXT is
+ * missing". SDL resolves them with SDL_LoadFunction(NULL, ...) i.e.
+ * dlsym(NULL, ...), which only sees symbols in the main program and globally
+ * loaded libraries - so define them HERE in libentry.so (the main module) so
+ * dlsym(NULL) finds them. They report a synthetic device that maps back to
+ * eglGetDisplay(EGL_DEFAULT_DISPLAY). */
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+static EGLDeviceEXT g_ohos_synth_device = (EGLDeviceEXT)1;
+
+EGLBoolean eglQueryDevicesEXT(EGLint max_devices, EGLDeviceEXT *devices, EGLint *num_devices)
+{
+	if (devices != NULL && max_devices >= 1)
+	{
+		devices[0] = g_ohos_synth_device;
+	}
+	if (num_devices != NULL)
+	{
+		*num_devices = 1;
+	}
+	return EGL_TRUE;
+}
+
+EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display, const EGLint *attribs)
+{
+	(void)platform;
+	(void)native_display;
+	(void)attribs;
+	return eglGetDisplay(EGL_DEFAULT_DISPLAY);
+}
+
 static Yosuga::OHOSVideoPlayer g_ohos_player;
 
 int OHOS_VideoOpen(const char *path, int loop)

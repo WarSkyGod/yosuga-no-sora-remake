@@ -2103,6 +2103,22 @@ void TVPWindowWindow::TickBeat()
 				}
 				SDL_RenderPresent(this->renderer);
 #if defined(__OHOS__)
+				/* OHOS: SDL_RenderPresent on the software renderer calls
+				 * SW_RenderPresent -> SDL_UpdateWindowSurface, which SILENTLY
+				 * no-ops when window->surface_valid is FALSE (e.g. after a
+				 * FULLSCREEN_DESKTOP window recreation). That leaves the screen
+				 * frozen on whatever the AVPlayer last drew even though the
+				 * engine advanced past the video. Re-acquire the window surface
+				 * (re-sets surface_valid) then push it to the framebuffer, and
+				 * log the result so we can see it happen. */
+				{
+					SDL_Surface *wsv = SDL_GetWindowSurface(this->window);
+					int upd = (wsv != nullptr) ? SDL_UpdateWindowSurface(this->window) : -1;
+					OHOS_LogToFile("engine: after SDL_RenderPresent ws=%p upd=%d err=%s",
+						(void *)wsv, upd, (wsv == nullptr || upd < 0) ? SDL_GetError() : "ok");
+				}
+#endif
+#if defined(__OHOS__)
 				/* OHOS: with the GL paths disabled (see SDL_ohosvideo.c) the
 				 * software renderer's Present reaches the video driver's
 				 * UpdateWindowFramebuffer directly, so no explicit upload is

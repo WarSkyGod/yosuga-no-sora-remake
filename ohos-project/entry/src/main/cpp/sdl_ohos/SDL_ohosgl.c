@@ -88,8 +88,13 @@ int OHOS_GL_LoadLibrary(_THIS, const char *path)
 {
 	(void)_this;
 	(void)path;
-	/* EGL is linked into the app; nothing to dlopen. */
-	return OHOS_EglInit();
+	/* EGL is linked into the app; nothing to dlopen. SDL_GL_LoadLibrary()
+	 * treats a 0 return as success and any non-zero as failure (calling
+	 * GL_UnloadLibrary and marking the GL driver unavailable, so
+	 * SDL_CreateRenderer(ACCELERATED) finds no render driver and falls back
+	 * to the software renderer). OHOS_EglInit() returns 1 on success / 0 on
+	 * failure, so translate that to SDL's 0==success / -1==failure. */
+	return OHOS_EglInit() ? 0 : -1;
 }
 
 void *OHOS_GL_GetProcAddress(_THIS, const char *proc)

@@ -123,14 +123,8 @@ jobs:
           Copy-Item -Path (Join-Path $runtimeDirectory '*') `
             -Destination $packageDirectory -Recurse -Force
 
-          # Inject the application icon into the executable (Windows uses the
-          # .ico resource embedded in the PE; rcedit edits it without a rebuild).
-          $iconPath = Join-Path $runtimeDirectory 'app.ico'
-          if (Test-Path -LiteralPath $iconPath) {
-            $rcedit = Join-Path $env:RUNNER_TEMP 'rcedit-x64.exe'
-            Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/latest/download/rcedit-x64.exe' -OutFile $rcedit
-            & $rcedit (Join-Path $packageDirectory 'Yosuga no Sora-HD Remake.exe') --set-icon $iconPath
-          }
+          # The prebuilt executable already carries the multi-size icon
+          # (16..256) embedded in its PE resources, so no rcedit injection is needed.
 
           # Ship only the prebuilt data.xp3 next to the executable so
           # Kirikiroid2 and other archive-first runtimes can load the game

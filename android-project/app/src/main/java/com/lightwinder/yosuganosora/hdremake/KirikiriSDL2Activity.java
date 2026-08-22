@@ -127,6 +127,16 @@ public class KirikiriSDL2Activity extends SDLActivity {
         }
     }
 
+    // App-external save folder: Android/data/<pkg>/savedata.  NOT the default
+    // <pkg>/files/DownloadSavedata, which was a wrong concatenation that made
+    // saves unreadable across launches on Android 10.
+    private File getAppExternalSaveDir() {
+        File ext = getExternalFilesDir(null);   // .../Android/data/<pkg>/files
+        if (ext == null) return null;
+        File pkgDir = ext.getParentFile();      // .../Android/data/<pkg>
+        return pkgDir != null ? new File(pkgDir, "savedata") : null;
+    }
+
     private boolean hasPublicStorageAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return Environment.isExternalStorageManager();
@@ -162,16 +172,14 @@ public class KirikiriSDL2Activity extends SDLActivity {
                 Environment.DIRECTORY_DOWNLOADS);
         if (publicDir != null) saveDir = new File(publicDir, SAVE_SUBDIR);
         if (saveDir == null) {
-            File ext = getExternalFilesDir(null);
-            if (ext != null) saveDir = new File(ext, "DownloadSavedata");
+                            saveDir = getAppExternalSaveDir();
         }
         if (saveDir == null) return null;
 
         try {
             if (!saveDir.exists() && !saveDir.mkdirs()) {
                 // Public Downloads write was blocked; use the app-external folder.
-                File ext = getExternalFilesDir(null);
-                if (ext != null) saveDir = new File(ext, "DownloadSavedata");
+                                saveDir = getAppExternalSaveDir();
                 if (!saveDir.exists() && !saveDir.mkdirs()) return null;
             }
             File noMedia = new File(saveDir, NO_MEDIA);

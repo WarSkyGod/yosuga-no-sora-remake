@@ -107,24 +107,44 @@ jobs:
             --cache "$RUNNER_TEMP/content-manifest-cache.json" \
             --full
 
+      - name: Restore cached ccache for the macOS build
+        id: macos-ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-ccache-${{ github.sha }}
+
       - name: Build optimized macOS application bundle
         shell: bash
         env:
           VERSION_NAME: ${{ steps.release.outputs.version-name }}
           VERSION_CODE: ${{ steps.release.outputs.version-code }}
+          CCACHE_DIR: ~/Library/Caches/ccache
         run: |
           set -euo pipefail
+          brew install --quiet ccache 2>/dev/null || true
+          ccache --zero-stats 2>/dev/null || true
           cmake \
             -S . \
             -B build/release-macos \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DOPTION_BUILD_MACOS_BUNDLE=ON \
             -DKRKRSDL2_GENERATE_CONTENT_MANIFEST=OFF \
             -DKRKRSDL2_VERSION_NAME="$VERSION_NAME" \
             -DKRKRSDL2_BUILD_NUMBER="$VERSION_CODE"
           cmake --build build/release-macos --target krkrsdl2 --parallel
+
+      - name: Save cached ccache for the macOS build
+        if: steps.macos-ccache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-ccache-${{ github.sha }}
 
       - name: Verify application and create DMG
         id: package

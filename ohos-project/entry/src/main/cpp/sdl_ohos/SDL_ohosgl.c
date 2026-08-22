@@ -85,6 +85,44 @@ static int OHOS_EglInit(void)
 	return 1;
 }
 
+/* EGL_EXT_device_enumeration / EGL_EXT_platform_base compatibility.
+ * The OpenHarmony system EGL does not advertise these extensions, but SDL's
+ * EGL module (SDL_egl.c) requires eglQueryDevicesEXT + eglGetPlatformDisplayEXT
+ * for its SDL_EGL_InitializeOffscreen() path (used when an OpenGL window is
+ * created and the driver did not supply a native display). Provide link-time
+ * symbols so SDL_LoadFunction(RTLD_DEFAULT, ...) resolves them; they report a
+ * single synthetic device that maps back to the default display, so
+ * eglInitialize still succeeds on the real EGL_DEFAULT_DISPLAY. */
+extern "C" {
+#include <EGL/eglext.h>
+#ifndef EGL_EGL_EXT_DEVICE_ENUMERATION
+#define EGL_EGL_EXT_DEVICE_ENUMERATION 1
+#endif
+typedef EGLDeviceEXT (*OHOS_EGLDeviceFn)(void);
+static EGLDeviceEXT g_ohos_synthetic_device = (EGLDeviceEXT)1;
+
+EGLBoolean eglQueryDevicesEXT(EGLint max_devices, EGLDeviceEXT *devices, EGLint *num_devices)
+{
+	if (devices != NULL && max_devices >= 1)
+	{
+		devices[0] = g_ohos_synthetic_device;
+	}
+	if (num_devices != NULL)
+	{
+		*num_devices = 1;
+	}
+	return EGL_TRUE;
+}
+
+EGLDisplay eglGetPlatformDisplayEXT(EGLenum platform, void *native_display, const EGLint *attribs)
+{
+	(void)platform;
+	(void)native_display;
+	(void)attribs;
+	return eglGetDisplay(EGL_DEFAULT_DISPLAY);
+}
+}
+
 int OHOS_GL_LoadLibrary(_THIS, const char *path)
 {
 	(void)_this;

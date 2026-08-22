@@ -70,7 +70,20 @@ endif()
 # OHOS: EGL/GLES are linked into the app; make SDL's EGL loader use link-time
 # symbols (LOAD_FUNC(NAME) = NAME) instead of dlopen, which the app sandbox
 # blocks for system GLES libraries ("Could not initialize OpenGL / GLES library").
-target_compile_definitions(${SDL2_TARGET} PRIVATE SDL_VIDEO_STATIC_ANGLE=1)
+target_compile_definitions(${SDL2_TARGET} PRIVATE
+	SDL_VIDEO_STATIC_ANGLE=1
+	# OHOS platform is not detected by SDL's CMake, so it never sets the
+	# OpenGLES render flags in SDL_config.h; without them SDL_CreateRenderer(
+	# SDL_RENDERER_ACCELERATED) finds no render driver and falls back to the
+	# software surface renderer (the screen then never updates). Force the
+	# EGL/GLES2 render driver macros so the opengles2 renderer is compiled in.
+	SDL_VIDEO_OPENGL=1
+	SDL_VIDEO_OPENGL_EGL=1
+	SDL_VIDEO_OPENGL_ES=1
+	SDL_VIDEO_OPENGL_ES2=1
+	SDL_VIDEO_RENDER_OGL=1
+	SDL_VIDEO_RENDER_OGL_ES=1
+	SDL_VIDEO_RENDER_OGL_ES2=1)
 
 # Help FAudio compile its SDL2 backend against the vendored SDL2. When the
 # target exposes no interface include directories the hint is a no-op and

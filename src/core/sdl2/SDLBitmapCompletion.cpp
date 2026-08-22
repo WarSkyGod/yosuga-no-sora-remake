@@ -26,11 +26,15 @@ void TVPSDLBitmapCompletion::NotifyBitmapCompleted(iTVPLayerManager * manager,
 		char dbg[256];
 		tjs_int pw = 0, ph = 0;
 		if (manager) manager->GetPrimaryLayerSize(pw, ph);
-		snprintf(dbg, sizeof(dbg), "BMPC type=%d x=%d y=%d cw=%d ch=%d clipL=%d clipT=%d clipW=%d clipH=%d op=%d prim=%dx%d",
+		{
+			const TVPBITMAPINFO *_bi = bmpinfo ? bmpinfo->GetBITMAPINFO() : nullptr;
+			tjs_int sw = _bi ? (tjs_int)_bi->bmiHeader.biWidth : 0;
+			tjs_int sh = _bi ? (tjs_int)_bi->bmiHeader.biHeight : 0;
+			snprintf(dbg, sizeof(dbg), "BMPC type=%d x=%d y=%d cw=%d ch=%d clipL=%d clipT=%d clipW=%d clipH=%d op=%d prim=%dx%d src=%dx%d",
 			(int)type, (int)x, (int)y,
 			(int)(cliprect.get_width()), (int)(cliprect.get_height()),
 			(int)cliprect.left, (int)cliprect.top, (int)cliprect.get_width(), (int)cliprect.get_height(),
-			(int)opacity, (int)pw, (int)ph);
+			(int)opacity, (int)pw, (int)ph, (int)sw, (int)sh);
 		TVPAddLog(dbg);
 	}
 	const TVPBITMAPINFO *bitmapinfo = bmpinfo->GetBITMAPINFO();

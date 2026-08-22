@@ -1,12 +1,11 @@
 /* SPDX-License-Identifier: MIT */
 /* Copyright (c) Kirikiri SDL2 Developers */
 
-/* OHOS build: the toolchain does not reliably define __OHOS__ for this
- * translation unit, so define it here. SDL and the engine are both being
- * built for OpenHarmony, so __OHOS__=1 is the correct platform macro. */
-#if !defined(__OHOS__)
-#define __OHOS__ 1
-#endif
+/* OHOS: __OHOS__ is defined by the OHOS CMake toolchain (-D__OHOS__=1),
+ * NOT here. The previous unconditional "#if !defined(__OHOS__) #define
+ * __OHOS__ 1" leaked into the Android build (which does not define __OHOS__),
+ * so the engine #included <hilog/log.h> (an OHOS-only header) and the Android
+ * build failed with "hilog/log.h not found". Define it only via the toolchain. */
 #include "tjsCommHead.h"
 #if defined(__OHOS__)
 #include <hilog/log.h>

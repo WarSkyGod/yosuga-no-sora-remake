@@ -53,7 +53,7 @@ SELECTED_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 if command -v cmake >/dev/null 2>&1; then
 	CMAKE_BIN="$(command -v cmake)"
 else
-	LOCAL_CMAKE="$PROJECT_ROOT/../krkrsdl2/.codex-tools/cmake-venv/lib/python3.9/site-packages/cmake/data/bin/cmake"
+	LOCAL_CMAKE="$PROJECT_ROOT/.codex-tools/cmake-venv/lib/python3.9/site-packages/cmake/data/bin/cmake"
 	if [[ -x "$LOCAL_CMAKE" ]]; then
 		CMAKE_BIN="$LOCAL_CMAKE"
 		export PATH="$(dirname -- "$CMAKE_BIN"):$PATH"

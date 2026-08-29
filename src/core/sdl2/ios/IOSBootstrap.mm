@@ -1,10 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * iOS bootstrap page, mirroring the OpenHarmony shell page:
- * - full-screen Background.png
- * - white title with a black outline, black body text
- * - download URL field + proxy field + three proxy buttons
- *   (直连 / gh-proxy / Craft-Hello Proxy)
+ * - fixed 1920x1080 Background.png with uniform scale-to-fit
+ * - transparent hit targets over the artwork's download/proxy labels
+ * - optional custom URL/proxy dialog for local builds and mirrors
  * - download / import actions with progress display
  * - screen kept awake while downloading/importing/extracting
  * - status bar hidden (Info.plist), home indicator auto-hidden
@@ -271,17 +270,27 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 @implementation TVPIOSBootstrapVC
 {
     UIImageView *_background;
-    UILabel *_titleLabel;
+    UIImageView *_directArtwork;
+    UIImageView *_ghProxyArtwork;
+    UIImageView *_craftProxyArtwork;
+    UIImageView *_downloadArtwork;
+    UIImageView *_importArtwork;
+    UIImageView *_progressTrack;
     UILabel *_messageLabel;
-    UILabel *_hintLabel;
     UITextField *_urlField;
     UITextField *_proxyField;
+    UIButton *_directButton;
+    UIButton *_ghProxyButton;
+    UIButton *_craftProxyButton;
     UIButton *_downloadButton;
     UIButton *_importButton;
     UILabel *_progressLabel;
-    UIProgressView *_progressBar;
+    UIView *_progressFill;
     UIView *_container;
     BOOL _busy;
+    BOOL _importPickerOpen;
+    NSInteger _selectedProxy;
+    NSInteger _activeAction;
 }
 
 - (BOOL)prefersStatusBarHidden { return YES; }
@@ -309,16 +318,15 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                 return baseUrl;
         }
     }
-    return @"https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/latest/download/";
+    return @"https://github.com/shuimo0413/yosuga-no-sora-remake/releases/latest/download/";
 }
 
 - (NSString *)effectiveBaseUrl
 {
     NSString *text = [_urlField.text stringByTrimmingCharactersInSet:
         NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (text.length > 0)
-        return text;
-    return [self defaultBaseUrl];
+    NSString *base = text.length > 0 ? text : [self defaultBaseUrl];
+    return [base hasSuffix:@"/"] ? base : [base stringByAppendingString:@"/"];
 }
 
 - (NSString *)proxyPrefix
@@ -334,17 +342,6 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                            green:((hex >> 8) & 0xFF) / 255.0
                             blue:(hex & 0xFF) / 255.0
                            alpha:1.0];
-}
-
-- (UIButton *)makeButton:(NSString *)title background:(NSUInteger)hex
-{
-    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
-    [b setTitle:title forState:UIControlStateNormal];
-    [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    b.backgroundColor = [self colorFromHex:hex];
-    b.layer.cornerRadius = 6;
-    b.clipsToBounds = YES;
-    return b;
 }
 
 - (UITextField *)makeField:(NSString *)placeholder
@@ -376,219 +373,296 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     return YES;
 }
 
+- (UIButton *)makeOverlayButton:(NSString *)accessibilityLabel
+{
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    button.backgroundColor = UIColor.clearColor;
+    button.accessibilityLabel = accessibilityLabel;
+    return button;
+}
+
+- (UIImageView *)makeAssetView:(NSString *)name frame:(CGRect)frame
+{
+    UIImage *image = [self assetImage:name];
+    UIImageView *view = [[UIImageView alloc] initWithImage:image];
+    view.frame = frame;
+    view.contentMode = UIViewContentModeScaleToFill;
+    view.userInteractionEnabled = NO;
+    view.accessibilityElementsHidden = YES;
+    return view;
+}
+
+- (UIImage *)assetImage:(NSString *)name
+{
+    NSString *path = [[NSBundle mainBundle] pathForResource:name ofType:@"png"];
+    return path ? [UIImage imageWithContentsOfFile:path] : nil;
+}
+
+- (void)setArtwork:(UIImageView *)view name:(NSString *)name
+{
+    view.image = [self assetImage:name];
+}
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.blackColor;
 
-    /* Background image (Bundle Resources/Background.png). */
+    /* The supplied artwork and every hit target share one 1920x1080
+     * coordinate system. viewDidLayoutSubviews only applies a uniform
+     * scale, so other resolutions add letterbox space instead of moving or
+     * stretching individual controls. */
     UIImage *bg = [UIImage imageWithContentsOfFile:
         [[NSBundle mainBundle] pathForResource:@"Background" ofType:@"png"]];
-    _background = [[UIImageView alloc] initWithImage:bg];
-    _background.contentMode = UIViewContentModeScaleAspectFill;
-    _background.autoresizingMask =
-        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _background.frame = self.view.bounds;
-    [self.view addSubview:_background];
-
-    _container = [[UIView alloc] initWithFrame:CGRectZero];
-    _container.translatesAutoresizingMaskIntoConstraints = NO;
+    _container = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 1920, 1080)];
+    _container.backgroundColor = UIColor.blackColor;
     [self.view addSubview:_container];
 
-    /* Title: white fill with a black OUTLINE ONLY. A negative
-     * NSStrokeWidthAttributeName strokes centered on the glyph edge, so
-     * the stroke bleeds into the glyph interior; use two stacked labels
-     * instead: the bottom one is stroke-only (positive width), the top
-     * one is the plain white fill. */
-    _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _titleLabel.font = [UIFont boldSystemFontOfSize:26];
-    _titleLabel.textAlignment = NSTextAlignmentCenter;
-    _titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    NSMutableAttributedString *stroke = [[NSMutableAttributedString alloc]
-        initWithString:@"缘之空：高清重制"];
-    [stroke addAttribute:NSForegroundColorAttributeName value:UIColor.whiteColor
-                   range:NSMakeRange(0, stroke.length)];
-    [stroke addAttribute:NSStrokeColorAttributeName value:UIColor.blackColor
-                   range:NSMakeRange(0, stroke.length)];
-    [stroke addAttribute:NSStrokeWidthAttributeName value:@(3.0)
-                   range:NSMakeRange(0, stroke.length)];
-    _titleLabel.attributedText = stroke;
+    _background = [[UIImageView alloc] initWithImage:bg];
+    _background.contentMode = UIViewContentModeScaleToFill;
+    _background.frame = _container.bounds;
+    [_container addSubview:_background];
 
-    UILabel *titleFill = [[UILabel alloc] initWithFrame:CGRectZero];
-    titleFill.font = [UIFont boldSystemFontOfSize:26];
-    titleFill.textAlignment = NSTextAlignmentCenter;
-    titleFill.textColor = UIColor.whiteColor;
-    titleFill.text = @"缘之空：高清重制";
-    titleFill.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:_titleLabel];
-    [_container addSubview:titleFill];
-    [NSLayoutConstraint activateConstraints:@[
-        [titleFill.topAnchor constraintEqualToAnchor:_titleLabel.topAnchor],
-        [titleFill.leadingAnchor constraintEqualToAnchor:_titleLabel.leadingAnchor],
-        [titleFill.trailingAnchor constraintEqualToAnchor:_titleLabel.trailingAnchor],
-        [titleFill.bottomAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor],
-    ]];
+    // Keep the supplied labels as images instead of rebuilding them with
+    // system fonts. These views use the same fixed canvas as the background;
+    // transparent buttons below provide the interaction layer.
+    _directArtwork = [self makeAssetView:@"github_direct"
+                                   frame:CGRectMake(200, 430, 356, 123)];
+    _ghProxyArtwork = [self makeAssetView:@"gh_proxy_label"
+                                    frame:CGRectMake(600, 440, 338, 105)];
+    _craftProxyArtwork = [self makeAssetView:@"craft_hello_label"
+                                       frame:CGRectMake(1000, 440, 673, 105)];
+    _progressTrack = [self makeAssetView:@"progress_track"
+                                   frame:CGRectMake(210, 690, 1215, 26)];
+    _downloadArtwork = [self makeAssetView:@"download_label"
+                                     frame:CGRectMake(1270, 800, 136, 57)];
+    _importArtwork = [self makeAssetView:@"import_label"
+                                   frame:CGRectMake(1470, 800, 201, 57)];
+    _progressTrack.hidden = YES;
+    [_container addSubview:_directArtwork];
+    [_container addSubview:_ghProxyArtwork];
+    [_container addSubview:_craftProxyArtwork];
+    [_container addSubview:_progressTrack];
+    [_container addSubview:_downloadArtwork];
+    [_container addSubview:_importArtwork];
 
-    _messageLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _messageLabel.font = [UIFont systemFontOfSize:11];
+    _progressFill = [[UIView alloc] initWithFrame:CGRectMake(214, 694, 0, 18)];
+    _progressFill.backgroundColor = [self colorFromHex:0x1783FF];
+    _progressFill.layer.cornerRadius = 9;
+    _progressFill.hidden = YES;
+    [_container addSubview:_progressFill];
+
+    _messageLabel = [[UILabel alloc] initWithFrame:CGRectMake(200, 580, 1520, 100)];
+    _messageLabel.font = [UIFont systemFontOfSize:22];
     _messageLabel.textColor = UIColor.redColor;
     _messageLabel.textAlignment = NSTextAlignmentCenter;
-    _messageLabel.numberOfLines = 6;
+    _messageLabel.numberOfLines = 2;
     _messageLabel.text = @" ";
-    _messageLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [_container addSubview:_messageLabel];
 
-    _hintLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _hintLabel.font = [UIFont systemFontOfSize:13];
-    _hintLabel.textColor = UIColor.blackColor;
-    _hintLabel.textAlignment = NSTextAlignmentCenter;
-    _hintLabel.numberOfLines = 0;
-    _hintLabel.text = @"需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入";
-    _hintLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:_hintLabel];
-
+    // Keep custom URL/proxy support for local builds, but move it into an
+    // optional dialog so the normal bootstrap matches the reference artwork.
     _urlField = [self makeField:@"下载地址（留空使用默认值）"];
-    _urlField.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:_urlField];
-
     _proxyField = [self makeField:@"加速代理前缀（留空=直连）"];
-    _proxyField.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:_proxyField];
 
-    UIButton *directButton = [self makeButton:@"直连" background:0x666666];
-    [directButton addTarget:self action:@selector(onDirect)
-           forControlEvents:UIControlEventTouchUpInside];
-    UIButton *ghProxyButton = [self makeButton:@"gh-proxy" background:0x2E5A88];
-    [ghProxyButton addTarget:self action:@selector(onGhProxy)
+    _directButton = [self makeOverlayButton:@"GitHub直链"];
+    _directButton.tag = 1;
+    _directButton.frame = CGRectMake(20, 425, 550, 145);
+    _ghProxyButton = [self makeOverlayButton:@"GH-PROXY"];
+    _ghProxyButton.tag = 2;
+    _ghProxyButton.frame = CGRectMake(570, 425, 410, 145);
+    _craftProxyButton = [self makeOverlayButton:@"CRAFT-HELLO PROXY"];
+    _craftProxyButton.tag = 3;
+    _craftProxyButton.frame = CGRectMake(980, 425, 740, 145);
+    for (UIButton *button in @[_directButton, _ghProxyButton, _craftProxyButton])
+    {
+        [button addTarget:self action:@selector(onProxyTapped:)
             forControlEvents:UIControlEventTouchUpInside];
-    UIButton *craftButton = [self makeButton:@"Craft-Hello Proxy" background:0x2E5A88];
-    [craftButton addTarget:self action:@selector(onCraftProxy)
-          forControlEvents:UIControlEventTouchUpInside];
+        [_container addSubview:button];
+    }
 
-    UIStackView *proxyRow = [[UIStackView alloc] initWithArrangedSubviews:
-        @[directButton, ghProxyButton, craftButton]];
-    proxyRow.axis = UILayoutConstraintAxisHorizontal;
-    proxyRow.spacing = 8;
-    proxyRow.distribution = UIStackViewDistributionFillEqually;
-    proxyRow.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:proxyRow];
-
-    UILabel *urlHint = [[UILabel alloc] initWithFrame:CGRectZero];
-    urlHint.font = [UIFont systemFontOfSize:11];
-    urlHint.textColor = UIColor.blackColor;
-    urlHint.textAlignment = NSTextAlignmentCenter;
-    urlHint.numberOfLines = 0;
-    urlHint.text = @"下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前";
-    urlHint.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:urlHint];
-
-    _downloadButton = [self makeButton:@"下载游戏数据" background:0x3A5BA0];
+    _downloadButton = [self makeOverlayButton:@"开始下载；长按设置下载地址和代理"];
+    _downloadButton.tag = 1;
+    [_downloadButton addTarget:self action:@selector(onActionTouchDown:)
+              forControlEvents:UIControlEventTouchDown];
+    [_downloadButton addTarget:self action:@selector(onActionTouchCancelled:)
+              forControlEvents:UIControlEventTouchCancel | UIControlEventTouchDragExit |
+                               UIControlEventTouchUpOutside];
     [_downloadButton addTarget:self action:@selector(onDownload)
               forControlEvents:UIControlEventTouchUpInside];
-    _importButton = [self makeButton:@"从本地压缩包导入" background:0x3A5BA0];
+    _downloadButton.frame = CGRectMake(1240, 755, 300, 135);
+    [_container addSubview:_downloadButton];
+    UILongPressGestureRecognizer *settingsGesture = [[UILongPressGestureRecognizer alloc]
+        initWithTarget:self action:@selector(showDownloadSettings:)];
+    [_downloadButton addGestureRecognizer:settingsGesture];
+
+    _importButton = [self makeOverlayButton:@"导入本地文件"];
+    _importButton.tag = 2;
+    [_importButton addTarget:self action:@selector(onActionTouchDown:)
+            forControlEvents:UIControlEventTouchDown];
+    [_importButton addTarget:self action:@selector(onActionTouchCancelled:)
+            forControlEvents:UIControlEventTouchCancel | UIControlEventTouchDragExit |
+                             UIControlEventTouchUpOutside];
     [_importButton addTarget:self action:@selector(onImport)
             forControlEvents:UIControlEventTouchUpInside];
+    _importButton.frame = CGRectMake(1450, 755, 430, 135);
+    [_container addSubview:_importButton];
 
-    UIStackView *actionRow = [[UIStackView alloc] initWithArrangedSubviews:
-        @[_downloadButton, _importButton]];
-    actionRow.axis = UILayoutConstraintAxisHorizontal;
-    actionRow.spacing = 12;
-    actionRow.distribution = UIStackViewDistributionFillEqually;
-    actionRow.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:actionRow];
-
-    _progressLabel = [[UILabel alloc] initWithFrame:CGRectZero];
-    _progressLabel.font = [UIFont systemFontOfSize:14];
+    _progressLabel = [[UILabel alloc] initWithFrame:CGRectMake(235, 710, 1450, 100)];
+    _progressLabel.font = [UIFont systemFontOfSize:28];
     _progressLabel.textColor = UIColor.whiteColor;
-    _progressLabel.backgroundColor = [self colorFromHex:0x333333];
     _progressLabel.textAlignment = NSTextAlignmentCenter;
     _progressLabel.numberOfLines = 3;
-    _progressLabel.layer.cornerRadius = 8;
-    _progressLabel.clipsToBounds = YES;
     _progressLabel.hidden = YES;
-    _progressLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [_container addSubview:_progressLabel];
 
-    _progressBar = [[UIProgressView alloc] initWithProgressViewStyle:
-        UIProgressViewStyleDefault];
-    _progressBar.hidden = YES;
-    _progressBar.translatesAutoresizingMaskIntoConstraints = NO;
-    [_container addSubview:_progressBar];
+    _selectedProxy = 1;
+    [self updateProxyArtwork];
 
-    NSDictionary *views = @{
-        @"title": _titleLabel, @"msg": _messageLabel, @"hint": _hintLabel,
-        @"url": _urlField, @"proxy": _proxyField, @"proxyRow": proxyRow,
-        @"urlHint": urlHint, @"actions": actionRow,
-        @"progressLabel": _progressLabel, @"progressBar": _progressBar
-    };
-    NSDictionary *metrics = @{@"fieldH": @36, @"btnH": @52, @"gap": @8};
-
-    [NSLayoutConstraint activateConstraints:@[
-        [_container.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [_container.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [_container.widthAnchor constraintEqualToConstant:560],
-        [_titleLabel.topAnchor constraintEqualToAnchor:_container.topAnchor],
-        [_titleLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_titleLabel.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_messageLabel.topAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor constant:6],
-        [_messageLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_messageLabel.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_hintLabel.topAnchor constraintEqualToAnchor:_messageLabel.bottomAnchor constant:6],
-        [_hintLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_hintLabel.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_urlField.topAnchor constraintEqualToAnchor:_hintLabel.bottomAnchor constant:10],
-        [_urlField.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_urlField.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_urlField.heightAnchor constraintEqualToConstant:36],
-        [_proxyField.topAnchor constraintEqualToAnchor:_urlField.bottomAnchor constant:8],
-        [_proxyField.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_proxyField.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_proxyField.heightAnchor constraintEqualToConstant:36],
-        [proxyRow.topAnchor constraintEqualToAnchor:_proxyField.bottomAnchor constant:8],
-        [proxyRow.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [proxyRow.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [proxyRow.heightAnchor constraintEqualToConstant:32],
-        [urlHint.topAnchor constraintEqualToAnchor:proxyRow.bottomAnchor constant:6],
-        [urlHint.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [urlHint.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [actionRow.topAnchor constraintEqualToAnchor:urlHint.bottomAnchor constant:10],
-        [actionRow.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [actionRow.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [actionRow.heightAnchor constraintEqualToConstant:52],
-        [_progressLabel.topAnchor constraintEqualToAnchor:actionRow.bottomAnchor constant:14],
-        [_progressLabel.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_progressLabel.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_progressBar.topAnchor constraintEqualToAnchor:_progressLabel.bottomAnchor constant:8],
-        [_progressBar.leadingAnchor constraintEqualToAnchor:_container.leadingAnchor],
-        [_progressBar.trailingAnchor constraintEqualToAnchor:_container.trailingAnchor],
-        [_container.bottomAnchor constraintEqualToAnchor:_progressBar.bottomAnchor],
-    ]];
-    (void)metrics;
-    (void)views;
 }
 
-/* ---- proxy buttons ---- */
+- (void)viewDidLayoutSubviews
+{
+    [super viewDidLayoutSubviews];
+    CGSize bounds = self.view.bounds.size;
+    CGFloat scale = MIN(bounds.width / 1920.0, bounds.height / 1080.0);
+    _container.bounds = CGRectMake(0, 0, 1920, 1080);
+    _container.center = CGPointMake(CGRectGetMidX(self.view.bounds),
+                                    CGRectGetMidY(self.view.bounds));
+    _container.transform = CGAffineTransformMakeScale(scale, scale);
+}
 
-- (void)onDirect { _proxyField.text = @""; }
-- (void)onGhProxy { _proxyField.text = @"https://gh-proxy.cn/"; }
-- (void)onCraftProxy { _proxyField.text = @"https://proxy.craft-hello.top/proxy/"; }
+- (void)showDownloadSettings:(UILongPressGestureRecognizer *)gesture
+{
+    if (gesture.state != UIGestureRecognizerStateBegan)
+        return;
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"下载设置"
+                         message:@"下载地址留空使用默认值；代理前缀会拼在原链接前"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = self->_urlField.placeholder;
+        field.text = self->_urlField.text;
+        field.keyboardType = UIKeyboardTypeURL;
+    }];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = self->_proxyField.placeholder;
+        field.text = self->_proxyField.text;
+        field.keyboardType = UIKeyboardTypeURL;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消"
+                                               style:UIAlertActionStyleCancel
+                                             handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                               style:UIAlertActionStyleDefault
+                                             handler:^(UIAlertAction *action) {
+        self->_urlField.text = alert.textFields[0].text;
+        self->_proxyField.text = alert.textFields[1].text;
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+/* ---- stateful artwork buttons ---- */
+
+- (UIImageView *)proxyArtworkForTag:(NSInteger)tag
+{
+    if (tag == 1) return _directArtwork;
+    if (tag == 2) return _ghProxyArtwork;
+    return _craftProxyArtwork;
+}
+
+- (NSString *)proxyArtworkNameForTag:(NSInteger)tag suffix:(NSString *)suffix
+{
+    NSString *base = tag == 1 ? @"github_direct"
+        : (tag == 2 ? @"gh_proxy_label" : @"craft_hello_label");
+    return suffix.length > 0 ? [base stringByAppendingString:suffix] : base;
+}
+
+- (void)onProxyTapped:(UIButton *)button
+{
+    /* A download source is mandatory; tapping the current source is a no-op. */
+    _selectedProxy = button.tag;
+    if (_selectedProxy == 2)
+        _proxyField.text = @"https://gh-proxy.cn/";
+    else if (_selectedProxy == 3)
+        _proxyField.text = @"https://proxy.craft-hello.top/proxy/";
+    else
+        _proxyField.text = @"";
+    [self updateProxyArtwork];
+}
+
+- (void)updateProxyArtwork
+{
+    for (NSInteger tag = 1; tag <= 3; ++tag)
+    {
+        NSString *suffix = _selectedProxy == tag ? @"_selected" : @"";
+        [self setArtwork:[self proxyArtworkForTag:tag]
+                    name:[self proxyArtworkNameForTag:tag suffix:suffix]];
+    }
+    _directButton.selected = _selectedProxy == 1;
+    _ghProxyButton.selected = _selectedProxy == 2;
+    _craftProxyButton.selected = _selectedProxy == 3;
+}
+
+- (void)onActionTouchDown:(UIButton *)button
+{
+    if (button.tag == 1)
+        [self setArtwork:_downloadArtwork name:@"download_label_active"];
+    else
+        [self setArtwork:_importArtwork name:@"import_label_active"];
+}
+
+- (void)onActionTouchCancelled:(UIButton *)button
+{
+    [self updateActionArtwork];
+}
+
+- (void)updateActionArtwork
+{
+    BOOL downloadActive = _busy && _activeAction == 1;
+    BOOL importActive = (_busy && _activeAction == 2) || _importPickerOpen;
+    [self setArtwork:_downloadArtwork name:downloadActive
+        ? @"download_label_active" : @"download_label"];
+    [self setArtwork:_importArtwork name:importActive
+        ? @"import_label_active" : @"import_label"];
+}
 
 /* ---- UI state helpers ---- */
 
 - (void)setBusy:(BOOL)busy
 {
     _busy = busy;
+    if (!busy)
+    {
+        _activeAction = 0;
+        _importPickerOpen = NO;
+    }
     [UIApplication sharedApplication].idleTimerDisabled = busy;
     _downloadButton.enabled = !busy;
     _importButton.enabled = !busy;
+    _directButton.enabled = !busy;
+    _ghProxyButton.enabled = !busy;
+    _craftProxyButton.enabled = !busy;
+    [self updateProxyArtwork];
+    [self updateActionArtwork];
     _progressLabel.hidden = !busy;
-    _progressBar.hidden = !busy;
+    _progressTrack.hidden = !busy;
+    _progressFill.hidden = !busy;
+    if (!busy)
+    {
+        CGRect frame = _progressFill.frame;
+        frame.size.width = 0;
+        _progressFill.frame = frame;
+    }
 }
 
 - (void)setProgressText:(NSString *)text progress:(float)progress
 {
     _progressLabel.text = text;
-    _progressBar.progress = progress;
+    CGFloat clamped = MAX(0.0, MIN(1.0, progress));
+    CGRect frame = _progressFill.frame;
+    frame.size.width = 1207.0 * clamped;
+    _progressFill.frame = frame;
 }
 
 - (void)setMessage:(NSString *)message
@@ -611,6 +685,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 {
     if (_busy)
         return;
+    _activeAction = 1;
     [self setMessage:@""];
     [self setBusy:YES];
     [self setProgressText:@"正在获取下载清单…" progress:0];
@@ -620,7 +695,12 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 - (void)downloadAll
 {
     NSString *baseUrl = [self effectiveBaseUrl];
-    NSString *manifestUrl = [baseUrl stringByAppendingString:@"data-assets.json"];
+    NSString *originalManifestUrl =
+        [baseUrl stringByAppendingString:@"data-assets.json"];
+    NSString *proxy = [self proxyPrefix];
+    NSString *manifestUrl = proxy.length > 0
+        ? [proxy stringByAppendingString:originalManifestUrl]
+        : originalManifestUrl;
     IosLog([NSString stringWithFormat:@"downloadAll baseUrl=%@", baseUrl]);
     [self fetchJson:manifestUrl completion:^(id json, NSString *error) {
         if (!json || error.length > 0)
@@ -672,7 +752,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     NSString *name = asset[@"name"];
     NSNumber *size = asset[@"size"];
     NSString *sha256 = asset[@"sha256"];
-    NSString *originalUrl = [[self effectiveBaseUrl] stringByAppendingFormat:@"/%@", name];
+    NSString *originalUrl = [[self effectiveBaseUrl] stringByAppendingString:name];
     NSString *proxy = [self proxyPrefix];
     NSString *url = proxy.length > 0 ? [proxy stringByAppendingString:originalUrl]
                                      : originalUrl;
@@ -947,6 +1027,9 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 {
     if (_busy)
         return;
+    _activeAction = 2;
+    _importPickerOpen = YES;
+    [self updateActionArtwork];
     [self setMessage:@""];
     NSArray *types = @[UTTypeZIP, UTTypeData];
     UIDocumentPickerViewController *picker =
@@ -961,8 +1044,15 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
     didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 {
     if (urls.count == 0)
+    {
+        _importPickerOpen = NO;
+        _activeAction = 0;
+        [self updateActionArtwork];
         return;
+    }
     IosLog([NSString stringWithFormat:@"import picked %lu file(s)", (unsigned long)urls.count]);
+    _importPickerOpen = NO;
+    _activeAction = 2;
     [self setBusy:YES];
     [self setProgressText:@"正在导入，请稍等" progress:0];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -974,6 +1064,9 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
 {
+    _importPickerOpen = NO;
+    _activeAction = 0;
+    [self updateActionArtwork];
     [self setMessage:@"未选择文件"];
 }
 

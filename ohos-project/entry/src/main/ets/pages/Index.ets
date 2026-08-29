@@ -75,6 +75,9 @@ struct Index {
   @State progressValue: number = 0;
   @State baseUrl: string = '';
   @State proxyUrl: string = '';
+  @State selectedProxy: number = 1;
+  @State pressedAction: number = 0;
+  @State activeAction: number = 0;
   @State message: string = '';
   @State needInit: boolean = false;
   @State uiEpoch: number = 0;
@@ -558,17 +561,18 @@ struct Index {
   }
 
   /** Read the build-time-injected default base URL from rawfile
-   *  default-manifest.json (contains the current repository's Release path).
-   *  Returns '' when absent. */
+   *  default-manifest.json, with the canonical release as a local-build
+   *  fallback. */
   readDefaultBaseUrl(): string {
     try {
       const manager = (getContext(this) as common.UIAbilityContext).resourceManager;
       const bytes = manager.getRawFileContentSync('default-manifest.json');
       const text = new util.TextDecoder('utf-8').decodeWithStream(bytes);
       const parsed = JSON.parse(text) as DefaultManifest;
-      return parsed.baseUrl || '';
+      return parsed.baseUrl ||
+        'https://github.com/shuimo0413/yosuga-no-sora-remake/releases/latest/download/';
     } catch (e) {
-      return '';
+      return 'https://github.com/shuimo0413/yosuga-no-sora-remake/releases/latest/download/';
     }
   }
 
@@ -586,7 +590,12 @@ struct Index {
         // is deliberately no hard-coded fallback to a specific fork.
         this.baseUrl = this.readDefaultBaseUrl();
       }
-      const manifestUrl = this.baseUrl + 'data-assets.json';
+      if (!this.baseUrl.endsWith('/')) {
+        this.baseUrl += '/';
+      }
+      const originalManifestUrl = this.baseUrl + 'data-assets.json';
+      const proxy = this.proxyUrl.trim();
+      const manifestUrl = proxy !== '' ? proxy + originalManifestUrl : originalManifestUrl;
       const req = http.createHttp();
       let parsed: DataManifest | null = null;
       try {
@@ -608,7 +617,7 @@ struct Index {
         // Keep the user's base (direct or proxy); only adopt the bundled
         // release URL if the user left it empty.
         if (this.baseUrl.indexOf('github.com') < 0 && parsed.baseUrl) {
-          this.baseUrl = parsed.baseUrl + '/';
+          this.baseUrl = parsed.baseUrl.endsWith('/') ? parsed.baseUrl : parsed.baseUrl + '/';
         }
         this.manifest = parsed;
         this.assets = parsed.assets;
@@ -864,6 +873,7 @@ struct Index {
     // Keep the screen ON and the bars hidden while downloading/extracting.
     await this.setScreenOn(true);
     this.applyImmersive();
+    this.activeAction = 1;
     this.bootState = 3;
     this.message = '';
     this.progressText = '正在获取下载清单…';
@@ -899,7 +909,7 @@ struct Index {
     const unzipTmp = this.sandboxFiles + '/unzip.tmp';
     await taskpool.execute(removeTreeTask, unzipTmp);
     for (const asset of this.assets) {
-      const originalUrl = this.baseUrl + '/' + asset.name;
+      const originalUrl = this.baseUrl + asset.name;
       const proxy = this.proxyUrl.trim();
       const url = proxy !== '' ? proxy + originalUrl : originalUrl;
       this.progressText = '正在下载 ' + asset.name;
@@ -1371,6 +1381,7 @@ struct Index {
   async importLocal(): Promise<void> {
     await this.setScreenOn(true);
     this.applyImmersive();
+    this.activeAction = 2;
     this.bootState = 4;
     this.message = '';
     this.progressText = '正在导入，请稍等';
@@ -1793,6 +1804,26 @@ struct Index {
     }
   }
 
+  private toggleProxy(choice: number): void {
+    // A source is mandatory; tapping the selected item keeps it selected.
+    this.selectedProxy = choice;
+    if (choice === 2) {
+      this.proxyUrl = 'https://gh-proxy.cn/';
+    } else if (choice === 3) {
+      this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
+    } else {
+      this.proxyUrl = '';
+    }
+  }
+
+  private trackActionTouch(action: number, event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      this.pressedAction = action;
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      this.pressedAction = 0;
+    }
+  }
+
   build() {
     Stack({ alignContent: Alignment.Center }) {
       // Title background image shipped inside the HAP (rawfile); only on
@@ -1801,7 +1832,9 @@ struct Index {
         Image($rawfile('Background.png'))
           .width('100%')
           .height('100%')
-          .objectFit(ImageFit.Cover)
+          // Keep the 1920x1080 reference artwork intact. The black parent
+          // supplies letterbox space when the window is not exactly 16:9.
+          .objectFit(ImageFit.Contain)
       }
       Column() {
       if (this.bootState === 0) {
@@ -1996,73 +2029,179 @@ struct Index {
         .width('100%')
         .height('100%')
       } else if (this.bootState === 2) {
-        Column({ space: 8 }) {
-          Text('').height(12)
-          Text('缘之空：高清重制').fontSize(26).fontWeight(FontWeight.Bold).fontColor(Color.White)
-            .textShadow({ radius: 3, color: '#000000', offsetX: 0, offsetY: 0 })
-          // Error messages show right below the title in a slim reserved
-          // slot so the whole setup page fits one screen.
-          Text(this.message === '' ? ' ' : this.message).fontSize(11).fontColor(Color.Red).maxLines(8)
-            .maxLines(1).height(18).textAlign(TextAlign.Center)
-          Text('需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入').fontSize(13).fontColor(Color.Black)
-          TextInput({ text: this.baseUrl, placeholder: '下载地址（留空使用默认值）' })
-            .width('86%')
-            .fontSize(12)
-            .fontColor(Color.White)
-            .placeholderColor(Color.Gray)
-            .caretColor(Color.White)
-            .backgroundColor('#333333')
-            .onChange((value: string) => {
-              this.baseUrl = value;
-            })
-          TextInput({ text: this.proxyUrl, placeholder: '加速代理前缀（留空=直连）' })
-            .width('86%')
-            .fontSize(12)
-            .fontColor(Color.White)
-            .placeholderColor(Color.Gray)
-            .caretColor(Color.White)
-            .backgroundColor('#333333')
-            .onChange((value: string) => {
-              this.proxyUrl = value;
-            })
-          Row({ space: 8 }) {
-            Button('直连').fontSize(12).height(32).backgroundColor('#666666').onClick(() => {
-              this.proxyUrl = '';
-            })
-            Button('gh-proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
-              this.proxyUrl = 'https://gh-proxy.cn/';
-            })
-            Button('Craft-Hello Proxy').fontSize(12).height(32).backgroundColor('#2E5A88').onClick(() => {
-              this.proxyUrl = 'https://proxy.craft-hello.top/proxy/';
-            })
+        // The setup controls use the same 16:9 canvas as Background.png.
+        // Percent positions are relative to that canvas, so controls stay
+        // on their artwork labels when the device resolution changes.
+        Stack({ alignContent: Alignment.TopStart }) {
+          // The proxy/action labels are shipped as images because their
+          // outline typography is part of the supplied artwork. Buttons
+          // below remain transparent hit targets layered above these views.
+          if (this.selectedProxy === 1) {
+            Image($rawfile('github_direct_selected.png'))
+              .width('18.54%').height('11.39%')
+              .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('github_direct.png'))
+              .width('18.54%').height('11.39%')
+              .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
           }
-          Text('下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前').fontSize(11).fontColor(Color.Black).maxLines(2)
-          Row({ space: 12 }) {
-            Button('下载游戏数据').width(150).height(52).onClick(() => {
+          if (this.selectedProxy === 2) {
+            Image($rawfile('gh_proxy_label_selected.png'))
+              .width('17.60%').height('9.72%')
+              .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('gh_proxy_label.png'))
+              .width('17.60%').height('9.72%')
+              .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          }
+          if (this.selectedProxy === 3) {
+            Image($rawfile('craft_hello_label_selected.png'))
+              .width('35.05%').height('9.72%')
+              .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('craft_hello_label.png'))
+              .width('35.05%').height('9.72%')
+              .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          }
+          if (this.pressedAction === 1) {
+            Image($rawfile('download_label_active.png'))
+              .width('7.08%').height('5.28%')
+              .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('download_label.png'))
+              .width('7.08%').height('5.28%')
+              .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          }
+          if (this.pressedAction === 2) {
+            Image($rawfile('import_label_active.png'))
+              .width('10.47%').height('5.28%')
+              .position({ x: '76.56%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('import_label.png'))
+              .width('10.47%').height('5.28%')
+              .position({ x: '76.56%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          }
+
+          Text(this.message === '' ? ' ' : this.message)
+            .width('79%').height('9%').position({ x: '10%', y: '53.7%' })
+            .fontSize(22).fontColor(Color.Red).maxLines(2).textAlign(TextAlign.Center)
+
+          Button('').width('19.8%').height('8.4%')
+            .position({ x: '10.9%', y: '30.1%' })
+            .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
+            .accessibilityText('本地文件下载')
+            .onClick(() => {
               this.downloadAll();
             })
-            Button('从本地压缩包导入').width(150).height(52).backgroundColor('#3A5BA0').onClick(() => {
+
+          Button('').width('28.6%').height('13.5%')
+            .position({ x: '1%', y: '39.4%' })
+            .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
+            .accessibilityText('直连')
+            .onClick(() => {
+              this.toggleProxy(1);
+            })
+          Button('').width('21.4%').height('13.5%')
+            .position({ x: '29.7%', y: '39.4%' })
+            .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
+            .accessibilityText('GH-PROXY')
+            .onClick(() => {
+              this.toggleProxy(2);
+            })
+          Button('').width('38.5%').height('13.5%')
+            .position({ x: '51%', y: '39.4%' })
+            .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
+            .accessibilityText('CRAFT-HELLO PROXY')
+            .onClick(() => {
+              this.toggleProxy(3);
+            })
+
+          Button('').width('16%').height('13%')
+            .position({ x: '64.6%', y: '69.9%' })
+            .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
+            .accessibilityText('开始下载')
+            .onTouch((event: TouchEvent) => {
+              this.trackActionTouch(1, event);
+            })
+            .onClick(() => {
+              this.downloadAll();
+            })
+          Button('').width('23%').height('13%')
+            .position({ x: '75.5%', y: '69.9%' })
+            .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
+            .accessibilityText('导入本地文件')
+            .onTouch((event: TouchEvent) => {
+              this.trackActionTouch(2, event);
+            })
+            .onClick(() => {
               this.importLocal();
             })
-          }
-          .justifyContent(FlexAlign.Center)
-          .width('100%')
-          .padding({ top: 20, bottom: 40 })
         }
-        .alignItems(HorizontalAlign.Center)
+        .height('100%').aspectRatio(16 / 9)
       } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
-        // Download / import / extraction progress: centered on screen.
-        Column({ space: 14 }) {
-          // Progress component may not repaint on some system versions;
-          // the percentage text is the reliable progress indicator.
-          Text(this.progressText).fontSize(16).fontWeight(FontWeight.Medium)
-            .fontColor(Color.White).maxLines(4)
-            .backgroundColor('#333333').padding(12).borderRadius(8)
+        // Keep the same artwork during download/import and overlay the live
+        // progress control on the supplied center track. This makes the
+        // button action observable without changing the fixed canvas layout.
+        Stack({ alignContent: Alignment.TopStart }) {
+          if (this.selectedProxy === 1) {
+            Image($rawfile('github_direct_selected.png'))
+              .width('18.54%').height('11.39%')
+              .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('github_direct.png'))
+              .width('18.54%').height('11.39%')
+              .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
+          }
+          if (this.selectedProxy === 2) {
+            Image($rawfile('gh_proxy_label_selected.png'))
+              .width('17.60%').height('9.72%')
+              .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('gh_proxy_label.png'))
+              .width('17.60%').height('9.72%')
+              .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          }
+          if (this.selectedProxy === 3) {
+            Image($rawfile('craft_hello_label_selected.png'))
+              .width('35.05%').height('9.72%')
+              .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('craft_hello_label.png'))
+              .width('35.05%').height('9.72%')
+              .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
+          }
+          Image($rawfile('progress_track.png'))
+            .width('63.28%').height('2.41%')
+            .position({ x: '10.94%', y: '63.89%' })
+            .objectFit(ImageFit.Fill)
+          Column()
+            .width((this.progressValue * 0.6286).toFixed(2) + '%').height('1.67%')
+            .position({ x: '11.15%', y: '64.26%' })
+            .backgroundColor('#1783FF').borderRadius(9)
+          if (this.activeAction === 1) {
+            Image($rawfile('download_label_active.png'))
+              .width('7.08%').height('5.28%')
+              .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('download_label.png'))
+              .width('7.08%').height('5.28%')
+              .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          }
+          if (this.activeAction === 2) {
+            Image($rawfile('import_label_active.png'))
+              .width('10.47%').height('5.28%')
+              .position({ x: '76.56%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          } else {
+            Image($rawfile('import_label.png'))
+              .width('10.47%').height('5.28%')
+              .position({ x: '76.56%', y: '74.07%' }).objectFit(ImageFit.Fill)
+          }
+          Text(this.progressText).width('63.28%').height('8%')
+            .position({ x: '10.94%', y: '65.2%' })
+            .fontSize(18).fontColor(Color.White).maxLines(3)
             .textAlign(TextAlign.Center)
-          Progress({ value: this.progressValue, total: 100 }).width(260).color(Color.White)
         }
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
+        .height('100%').aspectRatio(16 / 9)
       } else {
         Column({ space: 14 }) {
           Text('需要授权').fontSize(18).fontColor(Color.White)
@@ -2079,6 +2218,7 @@ struct Index {
       }
       .width('100%')
       .height('100%')
+      .alignItems(HorizontalAlign.Center)
     }
     .key('boot-' + this.bootState + '-' + this.uiEpoch)
     .width('100%')

@@ -863,6 +863,17 @@ set(KRKRSDL2_IOS_RESOURCES
 	${IOS_RESOURCES_ROOT}/Images.xcassets
 	${IOS_RESOURCES_ROOT}/LaunchScreen.storyboard
 	${IOS_RESOURCES_ROOT}/Background.png
+	${IOS_RESOURCES_ROOT}/github_direct.png
+	${IOS_RESOURCES_ROOT}/github_direct_selected.png
+	${IOS_RESOURCES_ROOT}/gh_proxy_label.png
+	${IOS_RESOURCES_ROOT}/gh_proxy_label_selected.png
+	${IOS_RESOURCES_ROOT}/craft_hello_label.png
+	${IOS_RESOURCES_ROOT}/craft_hello_label_selected.png
+	${IOS_RESOURCES_ROOT}/progress_track.png
+	${IOS_RESOURCES_ROOT}/download_label.png
+	${IOS_RESOURCES_ROOT}/download_label_active.png
+	${IOS_RESOURCES_ROOT}/import_label.png
+	${IOS_RESOURCES_ROOT}/import_label_active.png
 )
 if(OPTION_EMBED_IOS_DATA)
 	list(APPEND KRKRSDL2_IOS_RESOURCES ${EMBED_DATA_PATH})

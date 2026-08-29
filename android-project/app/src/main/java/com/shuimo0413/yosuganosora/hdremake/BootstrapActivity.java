@@ -9,6 +9,8 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -16,12 +18,15 @@ import android.os.Environment;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.util.Log;
-import android.view.Gravity;
+import android.util.TypedValue;
+import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -56,6 +61,54 @@ import java.util.zip.ZipFile;
  * update).
  */
 public class BootstrapActivity extends Activity {
+    private static final int DESIGN_WIDTH = 1920;
+    private static final int DESIGN_HEIGHT = 1080;
+    private static final int PROXY_DIRECT = 1;
+    private static final int PROXY_GH = 2;
+    private static final int PROXY_CRAFT = 3;
+    private static final int ACTION_NONE = 0;
+    private static final int ACTION_DOWNLOAD = 1;
+    private static final int ACTION_IMPORT = 2;
+    private static final String FALLBACK_BASE_URL =
+            "https://github.com/shuimo0413/yosuga-no-sora-remake/releases/latest/download/";
+
+    /** Keeps the bootstrap artwork and its hit regions in one fixed canvas. */
+    private static final class FixedAspectLayout extends FrameLayout {
+        FixedAspectLayout(android.content.Context context) {
+            super(context);
+            setClipChildren(false);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int width = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED
+                    ? DESIGN_WIDTH : MeasureSpec.getSize(widthMeasureSpec);
+            int height = MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED
+                    ? DESIGN_HEIGHT : MeasureSpec.getSize(heightMeasureSpec);
+            setMeasuredDimension(width, height);
+            if (getChildCount() > 0) {
+                View child = getChildAt(0);
+                child.measure(MeasureSpec.makeMeasureSpec(DESIGN_WIDTH, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(DESIGN_HEIGHT, MeasureSpec.EXACTLY));
+            }
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            if (getChildCount() == 0) return;
+            View child = getChildAt(0);
+            child.layout(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
+            float scale = Math.min(getWidth() / (float) DESIGN_WIDTH,
+                    getHeight() / (float) DESIGN_HEIGHT);
+            child.setPivotX(0f);
+            child.setPivotY(0f);
+            child.setScaleX(scale);
+            child.setScaleY(scale);
+            child.setTranslationX((getWidth() - DESIGN_WIDTH * scale) / 2f);
+            child.setTranslationY((getHeight() - DESIGN_HEIGHT * scale) / 2f);
+        }
+    }
+
     private static final String TAG = "YosugaBootstrap";
     private static final String PREFS = "data_setup";
     private static final String KEY_CONFIRMED_VERSION = "confirmed_version";
@@ -64,15 +117,26 @@ public class BootstrapActivity extends Activity {
     // field then requires the user to type the data-assets.json location.
     private static final String DEFAULT_BASE_URL = BuildConfig.DEFAULT_BASE_URL;
 
-    private LinearLayout root;
+    private FixedAspectLayout root;
     private TextView messageView;
     private TextView progressView;
-    private ProgressBar progressBar;
+    private View progressFillView;
+    private ImageView progressTrackView;
+    private ImageView directLabelView;
+    private ImageView ghProxyLabelView;
+    private ImageView craftProxyLabelView;
+    private ImageView downloadLabelView;
+    private ImageView importLabelView;
     private EditText baseUrlInput;
     private EditText proxyInput;
+    private Button directButton;
+    private Button ghProxyButton;
+    private Button craftProxyButton;
     private Button downloadButton;
     private Button importButton;
     private boolean busy = false;
+    private int selectedProxy = PROXY_DIRECT;
+    private int activeAction = ACTION_NONE;
 
     private static final int STORAGE_PERMISSION_REQUEST = 9001;
 
@@ -161,112 +225,237 @@ public class BootstrapActivity extends Activity {
 
     // ---- UI -----------------------------------------------------------------
     private void buildUi() {
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER);
-        root.setPadding(48, 48, 48, 48);
-        root.setBackgroundResource(R.drawable.background);
+        root = new FixedAspectLayout(this);
+        root.setBackgroundColor(Color.BLACK);
 
-        TextView title = new TextView(this);
-        title.setText("缘之空：高清重制");
-        title.setTextSize(26f);
-        title.setTextColor(Color.WHITE);
-        title.setGravity(Gravity.CENTER);
-        title.setShadowLayer(3f, 0f, 0f, Color.BLACK);
+        FrameLayout canvas = new FrameLayout(this);
+        root.addView(canvas, new FrameLayout.LayoutParams(DESIGN_WIDTH, DESIGN_HEIGHT));
 
-        messageView = new TextView(this);
-        messageView.setText(" ");
-        messageView.setTextSize(11f);
-        messageView.setTextColor(Color.RED);
-        messageView.setGravity(Gravity.CENTER);
+        ImageView background = new ImageView(this);
+        background.setImageResource(R.drawable.background);
+        background.setScaleType(ImageView.ScaleType.FIT_XY);
+        canvas.addView(background, frame(DESIGN_WIDTH, DESIGN_HEIGHT, 0, 0));
 
-        TextView hint = new TextView(this);
-        hint.setText("需要游戏数据（约 3.6 GB）：可在线下载，或从本地选择 zip 压缩包 / data.xp3 导入");
-        hint.setTextSize(13f);
-        hint.setTextColor(Color.BLACK);
-        hint.setGravity(Gravity.CENTER);
+        // These are the visible controls from the supplied 1920x1080
+        // artwork. They are separate from the transparent hit targets below
+        // so the labels do not depend on the Android font, density, or
+        // widget theme.
+        directLabelView = makeAssetImage(R.drawable.github_direct);
+        ghProxyLabelView = makeAssetImage(R.drawable.gh_proxy_label);
+        craftProxyLabelView = makeAssetImage(R.drawable.craft_hello_label);
+        downloadLabelView = makeAssetImage(R.drawable.download_label);
+        importLabelView = makeAssetImage(R.drawable.import_label);
+        progressTrackView = makeAssetImage(R.drawable.progress_track);
+        progressTrackView.setVisibility(View.GONE);
+        canvas.addView(directLabelView, frame(356, 123, 200, 430));
+        canvas.addView(ghProxyLabelView, frame(338, 105, 600, 440));
+        canvas.addView(craftProxyLabelView, frame(673, 105, 1000, 440));
+        canvas.addView(progressTrackView, frame(1215, 26, 210, 690));
+        canvas.addView(downloadLabelView, frame(136, 57, 1270, 800));
+        canvas.addView(importLabelView, frame(201, 57, 1470, 800));
 
+        progressFillView = new View(this);
+        GradientDrawable progressFill = new GradientDrawable();
+        progressFill.setColor(Color.rgb(23, 131, 255));
+        progressFill.setCornerRadius(9f);
+        progressFillView.setBackground(progressFill);
+        progressFillView.setVisibility(View.GONE);
+        canvas.addView(progressFillView, frame(0, 18, 214, 694));
+
+        // These fields are kept unattached so the downloader retains its
+        // custom URL/proxy behaviour. They are exposed by long-pressing the
+        // local-download entry; the normal screen stays identical to the
+        // supplied 1920x1080 artwork.
         baseUrlInput = new EditText(this);
         baseUrlInput.setText("");
         baseUrlInput.setTextSize(12f);
         baseUrlInput.setSingleLine(true);
         baseUrlInput.setHint("下载地址（留空使用构建内置的发布仓库）");
-
         proxyInput = new EditText(this);
         proxyInput.setText("");
         proxyInput.setTextSize(12f);
         proxyInput.setSingleLine(true);
         proxyInput.setHint("加速代理前缀（留空=直连）");
 
-        LinearLayout proxyButtons = new LinearLayout(this);
-        proxyButtons.setOrientation(LinearLayout.HORIZONTAL);
-        proxyButtons.setGravity(Gravity.CENTER);
-        Button directBtn = new Button(this);
-        directBtn.setText("直连");
-        directBtn.setTextColor(Color.BLACK);
-        directBtn.setOnClickListener(v -> proxyInput.setText(""));
-        Button ghBtn = new Button(this);
-        ghBtn.setText("gh-proxy");
-        ghBtn.setTextColor(Color.BLACK);
-        ghBtn.setOnClickListener(v -> proxyInput.setText("https://gh-proxy.cn/"));
-        Button craftBtn = new Button(this);
-        craftBtn.setText("Craft-Hello Proxy");
-        craftBtn.setTextColor(Color.BLACK);
-        craftBtn.setOnClickListener(v -> proxyInput.setText("https://proxy.craft-hello.top/proxy/"));
-        proxyButtons.addView(directBtn);
-        proxyButtons.addView(ghBtn);
-        proxyButtons.addView(craftBtn);
-
-        TextView hint2 = new TextView(this);
-        hint2.setText("下载地址留空使用默认值；加速代理前缀会自动拼在原下载链接前");
-        hint2.setTextSize(11f);
-        hint2.setTextColor(Color.BLACK);
-        hint2.setGravity(Gravity.CENTER);
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER);
-        downloadButton = new Button(this);
-        downloadButton.setText("下载游戏数据");
-        downloadButton.setTextColor(Color.BLACK);
-        downloadButton.setOnClickListener(v -> startDownload());
-        importButton = new Button(this);
-        importButton.setText("从本地压缩包导入");
-        importButton.setTextColor(Color.BLACK);
-        importButton.setOnClickListener(v -> startImport());
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        buttons.addView(downloadButton, btnLp);
-        buttons.addView(importButton, btnLp);
+        messageView = new TextView(this);
+        messageView.setText(" ");
+        messageView.setTextSize(TypedValue.COMPLEX_UNIT_PX, 22f);
+        messageView.setTextColor(Color.RED);
+        messageView.setGravity(android.view.Gravity.CENTER);
 
         progressView = new TextView(this);
         progressView.setText("");
-        progressView.setTextSize(14f);
+        progressView.setTextSize(TypedValue.COMPLEX_UNIT_PX, 28f);
         progressView.setTextColor(Color.WHITE);
-        progressView.setGravity(Gravity.CENTER);
-        progressView.setBackgroundColor(0xFF333333);
-        progressView.setPadding(12, 12, 12, 12);
+        progressView.setGravity(android.view.Gravity.CENTER);
+        progressView.setBackgroundColor(Color.TRANSPARENT);
+        progressView.setVisibility(View.GONE);
 
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progressBar.setMax(100);
+        canvas.addView(messageView, frame(1520, 100, 200, 580));
+        canvas.addView(progressView, frame(1450, 100, 235, 710));
 
-        root.addView(title);
-        root.addView(messageView);
-        root.addView(hint);
-        root.addView(baseUrlInput);
-        root.addView(proxyInput);
-        root.addView(proxyButtons);
-        root.addView(hint2);
-        root.addView(buttons);
-        root.addView(progressView);
-        root.addView(progressBar);
+        // The left artwork entry and the lower-right action both start the
+        // same download. The old layout accidentally placed the only hit
+        // target over the left entry, leaving "开始下载" inert.
+        Button localDownloadButton = makeOverlayButton("本地文件下载；长按设置下载地址和代理");
+        localDownloadButton.setOnClickListener(v -> startDownload());
+        localDownloadButton.setOnLongClickListener(v -> {
+            showDownloadSettingsDialog();
+            return true;
+        });
+        canvas.addView(localDownloadButton, frame(380, 90, 210, 325));
+
+        downloadButton = makeOverlayButton("开始下载；长按设置下载地址和代理");
+        downloadButton.setOnClickListener(v -> startDownload());
+        downloadButton.setOnLongClickListener(v -> {
+            showDownloadSettingsDialog();
+            return true;
+        });
+        importButton = makeOverlayButton("导入本地文件");
+        importButton.setOnClickListener(v -> startImport());
+        attachActionFeedback(downloadButton, downloadLabelView,
+                R.drawable.download_label, R.drawable.download_label_active);
+        attachActionFeedback(importButton, importLabelView,
+                R.drawable.import_label, R.drawable.import_label_active);
+        canvas.addView(downloadButton, frame(300, 135, 1240, 755));
+        canvas.addView(importButton, frame(430, 125, 1450, 755));
+
+        directButton = makeOverlayButton("GitHub直链");
+        ghProxyButton = makeOverlayButton("GH-PROXY");
+        craftProxyButton = makeOverlayButton("CRAFT-HELLO PROXY");
+        attachProxyFeedback(directButton, PROXY_DIRECT);
+        attachProxyFeedback(ghProxyButton, PROXY_GH);
+        attachProxyFeedback(craftProxyButton, PROXY_CRAFT);
+        canvas.addView(directButton, frame(550, 145, 20, 425));
+        canvas.addView(ghProxyButton, frame(420, 145, 570, 425));
+        canvas.addView(craftProxyButton, frame(740, 145, 980, 425));
+
+        updateProxyArtwork();
+
         setContentView(root);
+    }
+
+    private FrameLayout.LayoutParams frame(int width, int height, int left, int top) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
+        params.leftMargin = left;
+        params.topMargin = top;
+        return params;
+    }
+
+    private ImageView makeAssetImage(int resourceId) {
+        ImageView image = new ImageView(this);
+        image.setImageResource(resourceId);
+        image.setScaleType(ImageView.ScaleType.FIT_XY);
+        image.setClickable(false);
+        image.setFocusable(false);
+        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return image;
+    }
+
+    private Button makeOverlayButton(String description) {
+        Button button = new Button(this);
+        button.setText("");
+        button.setContentDescription(description);
+        button.setBackground(new ColorDrawable(Color.TRANSPARENT));
+        button.setTextColor(Color.TRANSPARENT);
+        button.setPadding(0, 0, 0, 0);
+        button.setMinWidth(0);
+        button.setMinHeight(0);
+        button.setAllCaps(false);
+        return button;
+    }
+
+    private void attachProxyFeedback(Button button, int proxy) {
+        button.setOnClickListener(view -> toggleProxy(proxy));
+    }
+
+    private void toggleProxy(int proxy) {
+        // One source must always be selected. Tapping the active item keeps
+        // it active; tapping another item switches the selection atomically.
+        selectedProxy = proxy;
+        if (selectedProxy == PROXY_GH) {
+            proxyInput.setText("https://gh-proxy.cn/");
+        } else if (selectedProxy == PROXY_CRAFT) {
+            proxyInput.setText("https://proxy.craft-hello.top/proxy/");
+        } else {
+            proxyInput.setText("");
+        }
+        updateProxyArtwork();
+    }
+
+    private void updateProxyArtwork() {
+        directLabelView.setImageResource(selectedProxy == PROXY_DIRECT
+                ? R.drawable.github_direct_selected : R.drawable.github_direct);
+        ghProxyLabelView.setImageResource(selectedProxy == PROXY_GH
+                ? R.drawable.gh_proxy_label_selected : R.drawable.gh_proxy_label);
+        craftProxyLabelView.setImageResource(selectedProxy == PROXY_CRAFT
+                ? R.drawable.craft_hello_label_selected : R.drawable.craft_hello_label);
+        directButton.setSelected(selectedProxy == PROXY_DIRECT);
+        ghProxyButton.setSelected(selectedProxy == PROXY_GH);
+        craftProxyButton.setSelected(selectedProxy == PROXY_CRAFT);
+    }
+
+    private void attachActionFeedback(Button button, ImageView artwork,
+            int normalResource, int activeResource) {
+        button.setOnTouchListener((view, event) -> {
+            if (!view.isEnabled()) return false;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                artwork.setImageResource(activeResource);
+            } else if (event.getAction() == MotionEvent.ACTION_UP
+                    || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                updateActionArtwork();
+            }
+            return false;
+        });
+    }
+
+    private void updateActionArtwork() {
+        downloadLabelView.setImageResource(busy && activeAction == ACTION_DOWNLOAD
+                ? R.drawable.download_label_active : R.drawable.download_label);
+        importLabelView.setImageResource(busy && activeAction == ACTION_IMPORT
+                ? R.drawable.import_label_active : R.drawable.import_label);
+    }
+
+    private void showDownloadSettingsDialog() {
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        int padding = (int) (20 * getResources().getDisplayMetrics().density);
+        fields.setPadding(padding, 0, padding, 0);
+        EditText url = new EditText(this);
+        url.setSingleLine(true);
+        url.setText(baseUrlInput.getText());
+        url.setHint(baseUrlInput.getHint());
+        fields.addView(url, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        EditText proxy = new EditText(this);
+        proxy.setSingleLine(true);
+        proxy.setText(proxyInput.getText());
+        proxy.setHint(proxyInput.getHint());
+        fields.addView(proxy, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("下载设置")
+                .setMessage("长按本地文件下载可再次打开此设置")
+                .setView(fields)
+                .setPositiveButton("确定", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    baseUrlInput.setText(url.getText());
+                    proxyInput.setText(proxy.getText());
+                    dialog.dismiss();
+                }));
+        dialog.show();
     }
 
     private void setProgress(String text, int percent) {
         runOnUiThread(() -> {
             progressView.setText(text);
-            progressBar.setProgress(percent);
+            int clamped = Math.max(0, Math.min(100, percent));
+            FrameLayout.LayoutParams params =
+                    (FrameLayout.LayoutParams) progressFillView.getLayoutParams();
+            params.width = Math.round(1207f * clamped / 100f);
+            progressFillView.setLayoutParams(params);
         });
     }
 
@@ -276,9 +465,24 @@ public class BootstrapActivity extends Activity {
 
     private void setBusy(boolean value) {
         busy = value;
+        if (!value) activeAction = ACTION_NONE;
         runOnUiThread(() -> {
             downloadButton.setEnabled(!value);
             importButton.setEnabled(!value);
+            directButton.setEnabled(!value);
+            ghProxyButton.setEnabled(!value);
+            craftProxyButton.setEnabled(!value);
+            updateProxyArtwork();
+            updateActionArtwork();
+            progressView.setVisibility(value ? View.VISIBLE : View.GONE);
+            progressTrackView.setVisibility(value ? View.VISIBLE : View.GONE);
+            progressFillView.setVisibility(value ? View.VISIBLE : View.GONE);
+            if (!value) {
+                FrameLayout.LayoutParams params =
+                        (FrameLayout.LayoutParams) progressFillView.getLayoutParams();
+                params.width = 0;
+                progressFillView.setLayoutParams(params);
+            }
             // Keep the screen ON while downloading / extracting so the
             // device does not go to sleep mid-transfer.
             if (value) {
@@ -418,6 +622,7 @@ public class BootstrapActivity extends Activity {
     // ---- download -----------------------------------------------------------
     private void startDownload() {
         if (busy) return;
+        activeAction = ACTION_DOWNLOAD;
         setBusy(true);
         setMessage("");
         setProgress("正在获取下载清单…", 0);
@@ -478,8 +683,7 @@ public class BootstrapActivity extends Activity {
         if (base.isEmpty()) {
             base = DEFAULT_BASE_URL;
             if (base.isEmpty()) {
-                throw new IllegalArgumentException(
-                        "请在下载地址框填写 data-assets.json 所在的目录链接");
+                base = FALLBACK_BASE_URL;
             }
         }
         if (!base.endsWith("/")) base += "/";
@@ -561,6 +765,7 @@ public class BootstrapActivity extends Activity {
     // ---- import -------------------------------------------------------------
     private void startImport() {
         if (busy) return;
+        activeAction = ACTION_IMPORT;
         setBusy(true);
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);

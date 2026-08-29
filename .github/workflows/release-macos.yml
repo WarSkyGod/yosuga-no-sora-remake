@@ -229,6 +229,23 @@ jobs:
           mkdir -p "$staging" "$asset_dir"
           ditto "$app" "$staging/Yosuga no Sora HD Remake.app"
           ln -s /Applications "$staging/Applications"
+          # BUILD-INFO travels inside the DMG like the Windows package does;
+          # the SHA-256 of the published volumes is recorded in the
+          # $dmg_name-BUILD-INFO.txt emitted next to the release assets.
+          {
+            echo "Yosuga no Sora: HD Remake"
+            echo "Runtime: Kirikiri SDL2 for macOS (Apple Silicon)"
+            echo "Release: $RELEASE_TAG"
+            echo "Commit: $GITHUB_SHA"
+            echo "Signing: ad-hoc (not notarized)"
+            echo
+            echo 'The SHA-256 checksums of the published files are recorded'
+            echo 'in the BUILD-INFO.txt published next to the download.'
+            echo
+            echo 'First launch: the app is ad-hoc signed, so Gatekeeper may'
+            echo 'ask you to approve it once (right-click -> Open, or run:'
+            echo 'xattr -cr "/Applications/Yosuga no Sora HD Remake.app").'
+          } > "$staging/BUILD-INFO.txt"
           dmg_name="Yosuga-no-Sora-HD-Remake-macOS-arm64-$RELEASE_TAG.dmg"
           dmg="$RUNNER_TEMP/$dmg_name"
           hdiutil create -quiet -fs HFS+ -format UDZO -imagekey zlib-level=1 \

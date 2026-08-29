@@ -2678,6 +2678,13 @@ tjs_int TVPWindowWindow::GetInnerHeight()
 void TVPWindowWindow::ZoomRectangle(tjs_int &left, tjs_int &top,
 	tjs_int &right, tjs_int &bottom)
 {
+	/* iOS' UIKit video overlay receives logical points and performs its own
+	 * logical-size-to-view transform. Applying the SDL renderer's output
+	 * transform here would convert the rectangle to backing pixels and make
+	 * IOSVideoOverlay scale it a second time. */
+#if defined(__IPHONEOS__)
+	return;
+#endif
 	if (!this->renderer)
 	{
 		return;

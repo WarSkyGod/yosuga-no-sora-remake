@@ -2086,7 +2086,11 @@ struct Index {
     .backgroundColor('#000000')
     .expandSafeArea([SafeAreaType.SYSTEM])
     .focusable(true)
-    .defaultFocus(true)
+    // Only steal the initial focus while the game is running so physical
+    // keyboards work out of the box. On the setup screens an automatic
+    // focus dispatch would pop up the software keyboard as soon as the
+    // page opens (the root component is rebuilt per bootState via .key()).
+    .defaultFocus(this.bootState === 6)
     .onKeyEvent((event: KeyEvent) => {
       // Physical keyboard (desktop OpenHarmony / KaihongOS): forward the
       // OHOS key code; the SDL backend maps it to a scancode.

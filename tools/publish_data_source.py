@@ -31,7 +31,8 @@ import sys
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TOOLS)
 POINTER = os.path.join(REPO, "data-source.json")
-MANIFEST = os.path.join(REPO, "data", "content-manifest.json")
+MANIFEST = os.path.join(REPO, "content-manifest.json")
+DATA_MANIFEST = os.path.join(REPO, "data", "content-manifest.json")
 ASSET_LIMIT = 2 * 1000 * 1000 * 1000  # GitHub release assets: 2 GB each
 
 
@@ -113,7 +114,7 @@ def main() -> int:
             raise SystemExit("error: %s not found; pass --out if you used a "
                              "custom output directory" % os.path.join(out_dir, "data-assets.json"))
         write_pointer(tag, out_dir, derive_repo_slug(args.repo))
-        run(["git", "add", "data-source.json", "data/content-manifest.json"], cwd=REPO)
+        run(["git", "add", "data-source.json", "content-manifest.json"], cwd=REPO)
         run(["git", "commit", "-m",
              "data source update: %s" % tag], cwd=REPO)
         print("committed. Push when ready: git push origin %s" % git("branch", "--show-current"))
@@ -123,11 +124,14 @@ def main() -> int:
     #    the last published tree; recomputing it reveals any data/ edit.
     run([sys.executable, os.path.join(TOOLS, "generate_content_manifest.py"),
          "--root", os.path.join(REPO, "data"),
-         "--output", MANIFEST,
+         "--output", DATA_MANIFEST,
          "--config", os.path.join(REPO, "content-packs.json"),
          "--cache", os.path.join(REPO, "tools", ".content-manifest-cache.json"),
          "--full"])
-    changed = subprocess.run(["git", "diff", "--quiet", "--", "data/content-manifest.json"],
+    # The data/ copy gets packed into the zips; the repository-root copy is
+    # the git-tracked snapshot change detection diffs against.
+    shutil.copyfile(DATA_MANIFEST, MANIFEST)
+    changed = subprocess.run(["git", "diff", "--quiet", "--", "content-manifest.json"],
                              cwd=REPO).returncode != 0
     if not changed:
         print("data/ is unchanged relative to the last commit; nothing to publish")
@@ -211,7 +215,7 @@ def main() -> int:
 
     # 5. Point the repository at the new release and commit.
     write_pointer(tag, out_dir, repo_slug)
-    run(["git", "add", "data-source.json", "data/content-manifest.json"], cwd=REPO)
+    run(["git", "add", "data-source.json", "content-manifest.json"], cwd=REPO)
     run(["git", "commit", "-m",
          "data source update: %s (%d parts, %d files)"
          % (tag, len(assets), sum(a["fileCount"] for a in assets))], cwd=REPO)

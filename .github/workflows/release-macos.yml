@@ -34,7 +34,6 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
-          lfs: false
 
       - name: Select Xcode and reclaim runner disk space
         shell: bash
@@ -105,10 +104,8 @@ jobs:
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
-      # The game data is no longer served from LFS: the checkout only has
-      # pointer stubs for data/. Real content comes from the data source
-      # release (multipart zips described by data-assets.json with per-part
-      # SHA-256), so CI never spends the GitHub LFS bandwidth quota.
+      # Real content comes from the data source release: multipart zips
+      # described by data-assets.json with per-part SHA-256 checksums.
       - name: Download the game data from the source release
         shell: bash
         run: |

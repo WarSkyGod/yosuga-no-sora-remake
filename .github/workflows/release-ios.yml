@@ -34,7 +34,6 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
-          lfs: false
 
       - name: Select Xcode and reclaim runner disk space
         shell: bash

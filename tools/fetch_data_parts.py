@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Fetch the game data from the data source release.
 
-The repository checkout only carries LFS pointer stubs for data/; the real
-content lives in a GitHub release whose assets are multipart zips described
-by data-assets.json (schemaVersion 2: name/size/sha256 per part). This
-script downloads every part (skipping and reusing files that are already
-complete in the download directory), verifies every SHA-256 digest, and
-extracts them into the destination directory so the release workflows can
-proceed exactly as they did with an LFS checkout.
+Game data is not stored in git at all. The current data location is recorded
+in the repository-level pointer data-source.json; its release assets are
+multipart zips described by data-assets.json (schemaVersion 2: name/size/
+sha256 per part). This script downloads every part (skipping and reusing
+files that are already complete in the download directory), verifies every
+SHA-256 digest, and extracts them into the destination directory so the
+release workflows and local builds find data/ populated exactly as before.
 """
 
 import argparse

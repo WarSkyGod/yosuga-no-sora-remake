@@ -38,7 +38,7 @@ cd yosuga-no-sora-remake
 ./setup.sh            # Windows: setup.bat
 ```
 
-The repository itself no longer carries game data in Git LFS. `setup.sh`
+Game data is not stored in git at all. `setup.sh`
 calls `tools/fetch_data_parts.py`, which reads `data-source.json` (the
 repository-level pointer to the current data source release), downloads the
 multipart zips, verifies every SHA-256, and extracts them into `data/`.

@@ -32,7 +32,7 @@ cd yosuga-no-sora-remake
 ./setup.sh            # Windows: setup.bat
 ```
 
-仓库本体不再通过 Git LFS 携带游戏数据。`setup.sh` 调用
+游戏素材完全不存放在 git 仓库中。`setup.sh` 调用
 `tools/fetch_data_parts.py`：读取仓库内的 `data-source.json`（指向当前
 数据源 Release 的指针）、下载分卷压缩包、逐一校验 SHA-256 并解压到
 `data/`。重复执行只会下载有变化的部分。

@@ -386,7 +386,8 @@ def link_data():
     RAWFILE_DIR.mkdir(parents=True, exist_ok=True)
 
     if not (DATA_DIR / "startup.tjs").is_file():
-        fail("data/startup.tjs is missing; download the Git LFS content first (git lfs pull).")
+        fail("data/startup.tjs is missing; fetch the game data first "
+             "(python tools/fetch_data_parts.py --dest data).")
 
     if data_link.exists() or data_link.is_symlink():
         print("rawfile data link already exists: %s" % data_link)

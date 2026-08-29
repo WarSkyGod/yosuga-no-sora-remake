@@ -30,13 +30,10 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Check out repository, submodules, and LFS content
+      - name: Check out repository and submodules
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
-          # data/ pointer stubs are replaced further down by a full copy of
-          # the game data from the data source release; LFS is never pulled.
-          lfs: false
 
       - name: Set up Python for the release manifest
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -67,10 +64,8 @@ jobs:
           "tag=$releaseTag" >> $env:GITHUB_OUTPUT
           "prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      # The game data is no longer served from LFS: the checkout only has
-      # pointer stubs for data/. Real content comes from the data source
-      # release (multipart zips described by data-assets.json with per-part
-      # SHA-256), so CI never spends the GitHub LFS bandwidth quota.
+      # Real content comes from the data source release: multipart zips
+      # described by data-assets.json with per-part SHA-256 checksums.
       - name: Download the game data from the source release
         shell: pwsh
         run: |
@@ -203,23 +198,6 @@ jobs:
             }
           }
 
-          # Record the SHA-256 of every published volume in BUILD-INFO.txt so
-          # downloads can be verified as promised in the release notes.
-          $digests = foreach ($volume in $volumes) {
-            $hash = (Get-FileHash -LiteralPath $volume.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($volume.Name)"
-          }
-          @"
-          Yosuga no Sora: HD Remake
-          Runtime: Windows KRKRZ
-          Release: $env:RELEASE_TAG
-          Commit: $env:COMMIT_SHA
-
-          SHA-256 checksums of the release assets:
-          $($digests -join [Environment]::NewLine)
-          "@ | Set-Content -LiteralPath (Join-Path $assetDirectory 'BUILD-INFO.txt') `
-            -Encoding utf8NoBOM
-
           # Third-party license texts travel with the binary package.
           python tools/generate_notices.py `
             --output (Join-Path $assetDirectory 'THIRD-PARTY-NOTICES.txt')
@@ -251,8 +229,8 @@ jobs:
           Yosuga no Sora: HD Remake release packages.
 
           For each package, download every `.7z.NNN` volume into the same
-          directory, then open `.7z.001` with 7-Zip. Verify the downloads with
-          the matching SHA-256 file.
+          directory, then open `.7z.001` with 7-Zip. BUILD-INFO.txt inside
+          the package records the release tag and commit it was built from.
           '@
 
           $existingReleaseJson = & gh release view $env:RELEASE_TAG `

@@ -49,3 +49,7 @@ __pycache__/
 
 # local incremental-hashing cache for generate_content_manifest.py
 tools/.content-manifest-cache.json
+
+# game data is fetched from the data source release (data-source.json),
+# never stored in git
+/data/

@@ -848,6 +848,9 @@ public:
 	virtual tjs_int GetInnerWidth() override;
 	/* Called from tTJSNI_Window */
 	virtual tjs_int GetInnerHeight() override;
+	/* Called from tTJSNI_Window (video overlay geometry) */
+	virtual void ZoomRectangle(tjs_int &left, tjs_int &top,
+		tjs_int &right, tjs_int &bottom) override;
 	virtual void *GetNativeWindowHandle() const override;
 #ifdef _WIN32
 	virtual void RegisterWindowMessageReceiver(tTVPWMRRegMode mode, void *proc, const void *userdata) override;
@@ -1018,13 +1021,16 @@ TVPWindowWindow::TVPWindowWindow(tTJSNI_Window *w)
 #endif
 	{
 #if !defined(__EMSCRIPTEN__) || (defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
-#if defined(__ANDROID__) || defined(__OHOS__) || defined(__IPHONEOS__)
-		/* Mobile platforms: prefer the hardware renderer - GLES2 on
-		 * Android/OHOS, Metal on iOS (Apple deprecated OpenGL ES and SDL2
-		 * removed its iOS GLES backend). On OHOS the GLES2 probe's EGL
-		 * initialization is also what makes the window's buffer queue
-		 * present software frames, so keep it even when it falls back to
-		 * software. The software renderer paints through the LockBuffer
+#if defined(__ANDROID__) || defined(__OHOS__) || defined(__APPLE__)
+		/* Mobile platforms and macOS: prefer the hardware renderer - GLES2
+		 * on Android/OHOS, Metal on Apple platforms (Apple deprecated
+		 * OpenGL ES and SDL2 removed its iOS GLES backend). macOS needs a
+		 * renderer so the logical-size letterbox keeps the game picture
+		 * scaled to the fullscreen window instead of 1:1 in a corner, and
+		 * the video overlay follows the same transform. On OHOS the GLES2
+		 * probe's EGL initialization is also what makes the window's buffer
+		 * queue present software frames, so keep it even when it falls back
+		 * to software. The software renderer paints through the LockBuffer
 		 * path and TickBeat pauses whichever renderer is active while the
 		 * AVPlayer owns the surface. */
 		this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -1153,7 +1159,7 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			SDL_DestroyTexture(this->texture);
 			this->texture = nullptr;
 		}
-#if defined(__IPHONEOS__)
+#if defined(__APPLE__)
 		/* The Metal renderer has no RGB888 texture format; ARGB8888 maps to
 		 * MTLPixelFormatBGRA8Unorm. */
 		this->texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
@@ -1176,7 +1182,7 @@ void TVPWindowWindow::SetPaintBoxSize(tjs_int w, tjs_int h)
 			SDL_FreeSurface(this->surface);
 			this->surface = nullptr;
 		}
-#if defined(__IPHONEOS__)
+#if defined(__APPLE__)
 		/* Match the ARGB8888 texture: R=0x00ff0000 G=0x0000ff00 B=0x000000ff A=0xff000000. */
 		this->surface = SDL_CreateRGBSurface(0, w, h, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
 #else
@@ -2666,6 +2672,39 @@ tjs_int TVPWindowWindow::GetInnerHeight()
 	return this->InnerHeight;
 #else
 	return this->GetHeight();
+#endif
+}
+
+void TVPWindowWindow::ZoomRectangle(tjs_int &left, tjs_int &top,
+	tjs_int &right, tjs_int &bottom)
+{
+	if (!this->renderer)
+	{
+		return;
+	}
+#ifdef KRKRSDL2_ENABLE_ZOOM
+	left = this->FullScreenDestRect.left +
+		MulDiv(left, this->ActualZoomNumer, this->ActualZoomDenom);
+	top = this->FullScreenDestRect.top +
+		MulDiv(top, this->ActualZoomNumer, this->ActualZoomDenom);
+	right = this->FullScreenDestRect.left +
+		MulDiv(right, this->ActualZoomNumer, this->ActualZoomDenom);
+	bottom = this->FullScreenDestRect.top +
+		MulDiv(bottom, this->ActualZoomNumer, this->ActualZoomDenom);
+#else
+	/* Reproduce the SDL logical-size letterbox transform: the overlay
+	 * rect arrives in game pixels; map it into renderer output pixels
+	 * (scale + viewport offset) so the native video overlay lands
+	 * exactly on the game picture in both windowed and fullscreen modes. */
+	float scale_x = 1.0f;
+	float scale_y = 1.0f;
+	SDL_Rect viewport;
+	SDL_RenderGetScale(this->renderer, &scale_x, &scale_y);
+	SDL_RenderGetViewport(this->renderer, &viewport);
+	left = (tjs_int)lroundf(((float)viewport.x + left) * scale_x);
+	top = (tjs_int)lroundf(((float)viewport.y + top) * scale_y);
+	right = (tjs_int)lroundf(((float)viewport.x + right) * scale_x);
+	bottom = (tjs_int)lroundf(((float)viewport.y + bottom) * scale_y);
 #endif
 }
 

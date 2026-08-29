@@ -443,7 +443,7 @@ public:
 	void ResetMouseVelocity() {};
 	void ResetTouchVelocity(tjs_int id) {};
 	bool GetMouseVelocity(float& x, float& y, float& speed) const { return false; };
-	void ZoomRectangle(tjs_int & left, tjs_int & top, tjs_int & right, tjs_int & bottom) {};
+	virtual void ZoomRectangle(tjs_int & left, tjs_int & top, tjs_int & right, tjs_int & bottom) {};
 	void SetHintText(iTJSDispatch2* sender, const ttstr &text) {}
 	void DisableAttentionPoint() {}
 	void GetVideoOffset(tjs_int &ofsx, tjs_int &ofsy) { ofsx = 0; ofsy = 0; }

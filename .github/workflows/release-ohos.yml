@@ -311,41 +311,19 @@ jobs:
             done
             echo 'signed=agc' >> "$GITHUB_OUTPUT"
           elif [[ "$SIGN_MODE" == 'community' ]]; then
-            echo 'Signing with the community OpenHarmony debug certificate.'
-            sign_dir="$RUNNER_TEMP/ohos-autosign"; mkdir -p "$sign_dir"
-            cp "$sign_tool" "$sign_dir/hap-sign-tool.jar"
-            # Vendored from openharmony/developtools_hapsigner
-            # (tools/ohos/autosign/, source commit b7c706fcc71a4a4a81ed5b091fc141d23f240e86)
-            # so community signing never executes un-pinned upstream code.
-            for file in autosign.py createRootAndSubCert.config createAppCertAndProfile.config signHap.config UnsgnedReleasedProfileTemplate.json; do
-              cp "$GITHUB_WORKSPACE/tools/ohos/autosign/$file" "$sign_dir/$file"
-            done
-            cd "$sign_dir"
-            sed -i "s#config.signtool=.*#config.signtool=$sign_dir/hap-sign-tool.jar#" *.config
-            now="$(date +%s)"; future="$(date -d '+10 years' +%s)"
-            jq --arg now "$now" --arg future "$future" '.validity = {"not-before": ($now|tonumber), "not-after": ($future|tonumber)} | .["bundle-info"]["bundle-name"]="$APP_BUNDLE_IDENTIFIER" | .["bundle-info"]["app-feature"]="hos_normal_app"' UnsgnedReleasedProfileTemplate.json > profile.tmp.json
-            mv profile.tmp.json UnsgnedReleasedProfileTemplate.json
-            sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createRootAndSubCert.config
-            sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' createAppCertAndProfile.config
-            sed -i 's#sub-ca.app.keyAlias=.*#sub-ca.app.keyAlias=oh-app-sign-srv-ca-key-v1#' createAppCertAndProfile.config
-            sed -i 's#sub-ca.app.subject=.*#sub-ca.app.subject=C=CN,O=OpenHarmony,OU=OpenHarmony Community,CN= Application Signature Service CA#' createAppCertAndProfile.config
-            sed -i 's#sub-ca.app.outFile=.*#sub-ca.app.outFile=app-sign-srv-ca1.cer#' createAppCertAndProfile.config
-            sed -i 's#root-ca.outFile=.*#root-ca.outFile=root-ca1.cer#' createAppCertAndProfile.config
-            sed -i 's#profile.keypair.keyAlias=.*#profile.keypair.keyAlias=oh-profile-key-v1#' createAppCertAndProfile.config
-            sed -i 's#cert.profile.outFile=.*#cert.profile.outFile=profile1.pem#' createAppCertAndProfile.config
-            sed -i 's#common.keystoreFile=.*#common.keystoreFile=ohtest.p12#' signHap.config
-            run_autosign() { python3 autosign.py "$1" || { cat error.txt 2>/dev/null || true; cat log.txt 2>/dev/null || true; exit 1; }; }
-            run_autosign createRootAndSubCert
-            run_autosign createAppCertAndProfile
-            for hap in "$HAP_HARMONYOS" "$HAP_OPENHARMONY"; do
-              base="$(basename "$hap" .hap)"
-              cp "$hap" "$sign_dir/app1-unsigned.hap"
-              sed -i "s#sign.app.outFile=.*#sign.app.outFile=app1-signed.hap#" signHap.config
-              run_autosign signHap
-              signed="$sign_dir/result/app1-signed.hap"
-              [[ -f "$signed" ]] || { echo 'Community signing failed' >&2; exit 1; }
-              cp "$signed" "$RUNNER_TEMP/$base-signed.hap"
-            done
+            echo 'Signing with the pinned OpenHarmony community test certificate.'
+            # Pin the official OpenHarmony test chain (tools/ohos/autosign/pinned/)
+            # instead of regenerating a fresh root CA on every build: devices
+            # trust the official test root, so every published HAP installs
+            # unmodified. Rationale and flow: tools/ohos/autosign/pin_sign.py
+            python3 tools/ohos/autosign/pin_sign.py \
+              --jar "$sign_tool" \
+              --keystore "$GITHUB_WORKSPACE/tools/ohos/autosign/pinned/ohtest.p12" \
+              --app-cert "$GITHUB_WORKSPACE/tools/ohos/autosign/pinned/app1.pem" \
+              --profile-cert "$GITHUB_WORKSPACE/tools/ohos/autosign/pinned/profile1.pem" \
+              --bundle-name "$APP_BUNDLE_IDENTIFIER" \
+              --out-dir "$RUNNER_TEMP" \
+              "$HAP_HARMONYOS" "$HAP_OPENHARMONY"
             echo 'signed=community' >> "$GITHUB_OUTPUT"
           else
             echo "Bad sign mode: $SIGN_MODE" >&2; exit 1

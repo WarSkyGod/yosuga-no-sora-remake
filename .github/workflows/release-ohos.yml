@@ -266,6 +266,7 @@ jobs:
           HAP_HARMONYOS: ${{ steps.build.outputs.hap-harmonyos }}
           HAP_OPENHARMONY: ${{ steps.build.outputs.hap-openharmony }}
           SIGN_MODE: ${{ steps.release.outputs.sign-mode }}
+          APP_BUNDLE_IDENTIFIER: ${{ vars.APP_BUNDLE_IDENTIFIER || 'com.shuimo0413.yosuganosora.hdremake' }}
           KEYSTORE_BASE64: ${{ secrets.OHOS_KEYSTORE_P12_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.OHOS_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.OHOS_KEY_ALIAS }}

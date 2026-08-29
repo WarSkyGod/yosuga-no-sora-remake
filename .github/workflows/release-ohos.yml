@@ -182,6 +182,16 @@ jobs:
         with:
           path: ohos-sdk-cache
           key: ohos-sdk-${{ vars.OHOS_COMMAND_LINE_TOOLS_URL || '5.0.3' }}
+      - name: Complete the device definitions for HarmonyOS device types
+        shell: bash
+        run: |
+          set -euo pipefail
+          # See tools/complete_ohos_device_define.py: the OpenHarmony SDK
+          # lacks phone/2in1 capability sets, which would make hvigor's
+          # SysCapTransform fail on the declared deviceTypes. Derive them
+          # from the standard-system set so the HAP targets phones,
+          # tablets, and 2-in-1 PCs like any HarmonyOS NEXT app.
+          python3 tools/complete_ohos_device_define.py
       - name: Prepare the OpenHarmony project
         shell: bash
         run: |

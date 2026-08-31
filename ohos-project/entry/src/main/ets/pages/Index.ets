@@ -1,5 +1,4 @@
 import entryNapi from 'libentry.so';
-import deviceInfo from '@ohos.deviceInfo';
 import { common, wantAgent, Want, bundleManager, abilityAccessCtrl, Permissions } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
@@ -1574,8 +1573,7 @@ struct Index {
     } catch (e) {
       // already exists
     }
-    const isHarmonyOs = deviceInfo.osFullName.indexOf('HarmonyOS') === 0;
-    if (!isHarmonyOs) {
+    if (this.buildFlavor !== 'harmonyos') {
       // KaihongOS / OpenHarmony: scoped storage blocks multi-select and
       // every folder-uri read, so take ONE file per picker round and let
       // the user decide when the payload is complete.

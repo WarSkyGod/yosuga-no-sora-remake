@@ -151,7 +151,10 @@ public class BootstrapActivity extends Activity {
     private void runOnUi(Runnable r) {
         BootstrapActivity a = sCurrent;
         if (a != null) {
-            a.runOnUi(r);
+            // MUST be runOnUiThread: it was mass-renamed to runOnUi in one
+            // sed pass, which made runOnUi call itself and blow the stack
+            // (StackOverflowError) the first time any message was shown.
+            a.runOnUiThread(r);
         }
     }
 

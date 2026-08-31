@@ -644,22 +644,23 @@ struct Index {
       const originalManifestUrl = this.baseUrl + 'data-assets.json';
       const proxy = this.proxyUrl.trim();
       const manifestUrl = proxy !== '' ? proxy + originalManifestUrl : originalManifestUrl;
-      const req = http.createHttp();
       let parsed: DataManifest | null = null;
       try {
-        const resp: http.HttpResponse = await req.request(manifestUrl, {
+        // Same hard-timeout wrapper as the transfer loop: on KaihongOS even
+        // this small STRING request can hang with no built-in timeout.
+        const resp: http.HttpResponse = await this.fetchWithTimeout(manifestUrl, {
           method: http.RequestMethod.GET,
           expectDataType: http.HttpDataType.STRING,
-          connectTimeout: 30000,
-          readTimeout: 60000
-        });
+          connectTimeout: 15000,
+          readTimeout: 15000
+        }, 20000);
         if (resp.responseCode === 200) {
           parsed = JSON.parse(resp.result as string) as DataManifest;
         } else {
           this.message = '获取数据清单失败（HTTP ' + resp.responseCode + '），请检查下载地址';
         }
       } finally {
-        req.destroy();
+        // lifecycle owned by fetchWithTimeout
       }
       if (parsed !== null) {
         // Keep the user's base (direct or proxy); only adopt the bundled
@@ -1088,7 +1089,10 @@ struct Index {
     // commonly drop mid-transfer; each chunk is retried a few times and
     // written at its exact offset so a retry continues where it left off.
     const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
-    const chunkSize = 8 * 1024 * 1024;
+    // 1MB per request: KaihongOS's http stack hangs on large ARRAY_BUFFER
+    // responses (the manifest, a few KB, succeeds while 8MB chunks never
+    // return and never time out). Small chunks sidestep it entirely.
+    const chunkSize = 1024 * 1024;
     let offset = 0;
     try {
       while (offset < totalSize) {
@@ -1102,16 +1106,16 @@ struct Index {
             onAttempt(attempt);
           }
           try {
-            // 45s hard deadline per chunk attempt; the built-in timeouts
-            // (30s connect / 30s read) are kept as an inner belt - the
+            // 20s hard deadline per chunk attempt; the built-in timeouts
+            // (15s connect / 15s read) are kept as an inner belt - the
             // wrapper above is what actually guarantees progress.
             const response: http.HttpResponse = await this.fetchWithTimeout(url, {
               method: http.RequestMethod.GET,
               header: { 'Range': 'bytes=' + offset + '-' + end },
               expectDataType: http.HttpDataType.ARRAY_BUFFER,
-              connectTimeout: 30000,
-              readTimeout: 30000
-            }, 45000);
+              connectTimeout: 15000,
+              readTimeout: 15000
+            }, 20000);
             if (response.responseCode === 206) {
               const data = response.result as ArrayBuffer;
               const length = data.byteLength;

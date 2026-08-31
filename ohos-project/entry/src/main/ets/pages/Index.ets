@@ -1146,9 +1146,9 @@ struct Index {
               }
               throw new Error(String(e));
             }
-          } finally {
-            httpRequest.destroy();
           }
+          // Request lifecycle (createHttp/destroy) is owned by
+          // fetchWithTimeout - there is no outer handle to clean up here.
         }
         if (!got && offset < totalSize) {
           throw new Error('下载中断，无法继续');

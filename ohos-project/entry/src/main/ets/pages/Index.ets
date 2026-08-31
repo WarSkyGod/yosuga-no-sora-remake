@@ -1000,10 +1000,15 @@ struct Index {
           // state-driven refresh fails on this system version.
           this.uiEpoch++;
         }, (attempt: number) => {
-          // Keep the user informed while a chunk stalls: without this the
-          // text stays on the initial "正在下载 <name>" for minutes.
+          // Only announce RETRIES. attempt 0 fires at the start of every
+          // 1MB chunk - rewriting the text there would wipe the live
+          // progress readout and make it flicker back to the bare
+          // "正在下载 <name>" between chunks.
+          if (attempt === 0) {
+            return;
+          }
           this.progressText = '正在下载 ' + asset.name +
-            (attempt > 0 ? '  （网络停滞，重试 ' + attempt + '）' : '');
+            '  （网络停滞，重试 ' + attempt + '）';
           this.uiEpoch++;
         });
         if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {

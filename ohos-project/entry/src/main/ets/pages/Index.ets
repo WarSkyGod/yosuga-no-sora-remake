@@ -998,6 +998,12 @@ struct Index {
           // Force a rebuild so the progress text is repainted even if the
           // state-driven refresh fails on this system version.
           this.uiEpoch++;
+        }, (attempt: number) => {
+          // Keep the user informed while a chunk stalls: without this the
+          // text stays on the initial "正在下载 <name>" for minutes.
+          this.progressText = '正在下载 ' + asset.name +
+            (attempt > 0 ? '  （网络停滞，重试 ' + attempt + '）' : '');
+          this.uiEpoch++;
         });
         if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {
           throw new Error('SHA-256 校验失败，请重试');
@@ -1030,8 +1036,54 @@ struct Index {
     }
   }
 
+  /** Hard-per-request-timeout wrapper: on some system versions (observed
+   *  on KaihongOS) http.request() can hang forever - the documented
+   *  connect/read timeouts never fire, the TCP connection is torn down
+   *  before any byte arrives, and the download UI freezes on its initial
+   *  text with no connection open. This wrapper enforces the deadline at
+   *  the JS layer: when it fires the request is destroyed and the attempt
+   *  loop retries. */
+  private fetchWithTimeout(url: string, options: http.HttpRequestOptions,
+    timeoutMs: number): Promise<http.HttpResponse> {
+    return new Promise<http.HttpResponse>((resolve, reject) => {
+      const httpRequest = http.createHttp();
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try {
+            httpRequest.destroy();
+          } catch (e) {
+            // already gone
+          }
+          reject(new Error('请求超时（' + Math.round(timeoutMs / 1000) + 's 无响应）'));
+        }
+      }, timeoutMs);
+      httpRequest.request(url, options).then((res: http.HttpResponse) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(res);
+        } else {
+          try {
+            httpRequest.destroy();
+          } catch (e) {
+            // already gone
+          }
+        }
+      }).catch((e: Error) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(e);
+        }
+      });
+    });
+  }
+
   async downloadFile(url: string, dest: string, totalSize: number,
-    onProgress?: (downloaded: number) => void): Promise<void> {
+    onProgress?: (downloaded: number) => void,
+    onAttempt?: (attempt: number) => void): Promise<void> {
     // Range-chunked download with resume + retry. GitHub release downloads
     // commonly drop mid-transfer; each chunk is retried a few times and
     // written at its exact offset so a retry continues where it left off.
@@ -1046,15 +1098,20 @@ struct Index {
           if (attempt > 0) {
             await this.delay(2000);
           }
-          const httpRequest = http.createHttp();
+          if (onAttempt) {
+            onAttempt(attempt);
+          }
           try {
-            const response: http.HttpResponse = await httpRequest.request(url, {
+            // 45s hard deadline per chunk attempt; the built-in timeouts
+            // (30s connect / 30s read) are kept as an inner belt - the
+            // wrapper above is what actually guarantees progress.
+            const response: http.HttpResponse = await this.fetchWithTimeout(url, {
               method: http.RequestMethod.GET,
               header: { 'Range': 'bytes=' + offset + '-' + end },
               expectDataType: http.HttpDataType.ARRAY_BUFFER,
-              connectTimeout: 60000,
-              readTimeout: 120000
-            });
+              connectTimeout: 30000,
+              readTimeout: 30000
+            }, 45000);
             if (response.responseCode === 206) {
               const data = response.result as ArrayBuffer;
               const length = data.byteLength;

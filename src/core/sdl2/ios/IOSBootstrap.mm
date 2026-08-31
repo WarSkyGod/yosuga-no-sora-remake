@@ -291,6 +291,10 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     UIView *_container;
     BOOL _busy;
     BOOL _importPickerOpen;
+    /* Pointer-hover highlight (mouse / trackpad), mirroring the touch
+     * pressed state. */
+    NSInteger _hoverAction;
+    NSInteger _hoverProxy;
     /* Background execution time while a transfer runs (see setBusy:). */
     UIBackgroundTaskIdentifier _bgTask;
     NSInteger _selectedProxy;
@@ -478,6 +482,9 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     _ghProxyButton.frame = CGRectMake(570, 425, 410, 145);
     _craftProxyButton = [self makeOverlayButton:@"CRAFT-HELLO PROXY"];
     _craftProxyButton.tag = 3;
+    [self attachHover:_directButton];
+    [self attachHover:_ghProxyButton];
+    [self attachHover:_craftProxyButton];
     _craftProxyButton.frame = CGRectMake(980, 425, 740, 145);
     for (UIButton *button in @[_directButton, _ghProxyButton, _craftProxyButton])
     {
@@ -495,6 +502,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                                UIControlEventTouchUpOutside];
     [_downloadButton addTarget:self action:@selector(onDownload)
               forControlEvents:UIControlEventTouchUpInside];
+    [self attachHover:_downloadButton];
     _downloadButton.frame = CGRectMake(1240, 755, 300, 135);
     [_container addSubview:_downloadButton];
     UILongPressGestureRecognizer *settingsGesture = [[UILongPressGestureRecognizer alloc]
@@ -510,6 +518,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
                              UIControlEventTouchUpOutside];
     [_importButton addTarget:self action:@selector(onImport)
             forControlEvents:UIControlEventTouchUpInside];
+    [self attachHover:_importButton];
     _importButton.frame = CGRectMake(1450, 755, 430, 135);
     [_container addSubview:_importButton];
 
@@ -596,11 +605,46 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     [self updateProxyArtwork];
 }
 
+/* Mouse / trackpad hover (iPad pointer): show the active artwork while the
+ * pointer is over a button, restore when it leaves. UIHoverGestureRecognizer
+ * is iOS 13+; on older systems this simply does nothing. */
+- (void)attachHover:(UIButton *)button
+{
+    if (@available(iOS 13.0, *))
+    {
+        UIHoverGestureRecognizer *hover = [[UIHoverGestureRecognizer alloc]
+            initWithTarget:self action:@selector(onPointerHover:)];
+        [button addGestureRecognizer:hover];
+    }
+}
+
+- (void)onPointerHover:(UIHoverGestureRecognizer *)recognizer
+{
+    UIButton *button = (UIButton *)recognizer.view;
+    if (![button isKindOfClass:[UIButton class]])
+        return;
+    BOOL over = recognizer.state == UIGestureRecognizerStateBegan
+             || recognizer.state == UIGestureRecognizerStateChanged;
+    BOOL isProxy = button == _directButton || button == _ghProxyButton
+                || button == _craftProxyButton;
+    if (isProxy)
+    {
+        _hoverProxy = over ? button.tag : (_hoverProxy == button.tag ? 0 : _hoverProxy);
+        [self updateProxyArtwork];
+    }
+    else
+    {
+        _hoverAction = over ? button.tag : (_hoverAction == button.tag ? 0 : _hoverAction);
+        [self updateActionArtwork];
+    }
+}
+
 - (void)updateProxyArtwork
 {
     for (NSInteger tag = 1; tag <= 3; ++tag)
     {
-        NSString *suffix = _selectedProxy == tag ? @"_selected" : @"";
+        NSString *suffix = (_selectedProxy == tag || _hoverProxy == tag)
+            ? @"_selected" : @"";
         [self setArtwork:[self proxyArtworkForTag:tag]
                     name:[self proxyArtworkNameForTag:tag suffix:suffix]];
     }
@@ -624,8 +668,9 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 
 - (void)updateActionArtwork
 {
-    BOOL downloadActive = _busy && _activeAction == 1;
-    BOOL importActive = (_busy && _activeAction == 2) || _importPickerOpen;
+    BOOL downloadActive = (_busy && _activeAction == 1) || _hoverAction == 1;
+    BOOL importActive = (_busy && _activeAction == 2) || _importPickerOpen
+        || _hoverAction == 2;
     [self setArtwork:_downloadArtwork name:downloadActive
         ? @"download_label_active" : @"download_label"];
     [self setArtwork:_importArtwork name:importActive

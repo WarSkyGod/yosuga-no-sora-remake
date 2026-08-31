@@ -86,6 +86,10 @@ struct Index {
   @State proxyUrl: string = '';
   @State selectedProxy: number = 1;
   @State pressedAction: number = 0;
+  // Pointer-hover highlight (mouse / trackpad): mirrors pressedAction so
+  // hovering a button shows its active artwork without pressing.
+  @State hoverAction: number = 0;
+  @State hoverProxy: number = 0;
   @State activeAction: number = 0;
   @State message: string = '';
   @State needInit: boolean = false;
@@ -1914,6 +1918,14 @@ struct Index {
     }
   }
 
+  private trackActionHover(action: number, isHover: boolean): void {
+    this.hoverAction = isHover ? action : (this.hoverAction === action ? 0 : this.hoverAction);
+  }
+
+  private trackProxyHover(proxy: number, isHover: boolean): void {
+    this.hoverProxy = isHover ? proxy : (this.hoverProxy === proxy ? 0 : this.hoverProxy);
+  }
+
   build() {
     Stack({ alignContent: Alignment.Center }) {
       // Title background image shipped inside the HAP (rawfile); only on
@@ -2126,7 +2138,7 @@ struct Index {
           // The proxy/action labels are shipped as images because their
           // outline typography is part of the supplied artwork. Buttons
           // below remain transparent hit targets layered above these views.
-          if (this.selectedProxy === 1) {
+          if (this.selectedProxy === 1 || this.hoverProxy === 1) {
             Image($rawfile('github_direct_selected.png'))
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
@@ -2135,7 +2147,7 @@ struct Index {
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 2) {
+          if (this.selectedProxy === 2 || this.hoverProxy === 2) {
             Image($rawfile('gh_proxy_label_selected.png'))
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
@@ -2144,7 +2156,7 @@ struct Index {
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 3) {
+          if (this.selectedProxy === 3 || this.hoverProxy === 3) {
             Image($rawfile('craft_hello_label_selected.png'))
               .width('35.05%').height('9.72%')
               .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
@@ -2153,7 +2165,7 @@ struct Index {
               .width('35.05%').height('9.72%')
               .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)
           }
-          if (this.pressedAction === 1) {
+          if (this.pressedAction === 1 || this.hoverAction === 1) {
             Image($rawfile('download_label_active.png'))
               .width('7.08%').height('5.28%')
               .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
@@ -2162,7 +2174,7 @@ struct Index {
               .width('7.08%').height('5.28%')
               .position({ x: '66.15%', y: '74.07%' }).objectFit(ImageFit.Fill)
           }
-          if (this.pressedAction === 2) {
+          if (this.pressedAction === 2 || this.hoverAction === 2) {
             Image($rawfile('import_label_active.png'))
               .width('10.47%').height('5.28%')
               .position({ x: '76.56%', y: '74.07%' }).objectFit(ImageFit.Fill)
@@ -2188,6 +2200,9 @@ struct Index {
             .position({ x: '1%', y: '39.4%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('直连')
+            .onHover((isHover: boolean) => {
+              this.trackProxyHover(1, isHover);
+            })
             .onClick(() => {
               this.toggleProxy(1);
             })
@@ -2195,6 +2210,9 @@ struct Index {
             .position({ x: '29.7%', y: '39.4%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('GH-PROXY')
+            .onHover((isHover: boolean) => {
+              this.trackProxyHover(2, isHover);
+            })
             .onClick(() => {
               this.toggleProxy(2);
             })
@@ -2202,6 +2220,9 @@ struct Index {
             .position({ x: '51%', y: '39.4%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('CRAFT-HELLO PROXY')
+            .onHover((isHover: boolean) => {
+              this.trackProxyHover(3, isHover);
+            })
             .onClick(() => {
               this.toggleProxy(3);
             })
@@ -2210,6 +2231,9 @@ struct Index {
             .position({ x: '64.6%', y: '69.9%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('开始下载')
+            .onHover((isHover: boolean) => {
+              this.trackActionHover(1, isHover);
+            })
             .onTouch((event: TouchEvent) => {
               this.trackActionTouch(1, event);
             })
@@ -2220,6 +2244,9 @@ struct Index {
             .position({ x: '75.5%', y: '69.9%' })
             .backgroundColor('#00000000').fontColor('#00000000').borderWidth(0)
             .accessibilityText('导入本地文件')
+            .onHover((isHover: boolean) => {
+              this.trackActionHover(2, isHover);
+            })
             .onTouch((event: TouchEvent) => {
               this.trackActionTouch(2, event);
             })
@@ -2233,7 +2260,7 @@ struct Index {
         // progress control on the supplied center track. This makes the
         // button action observable without changing the fixed canvas layout.
         Stack({ alignContent: Alignment.TopStart }) {
-          if (this.selectedProxy === 1) {
+          if (this.selectedProxy === 1 || this.hoverProxy === 1) {
             Image($rawfile('github_direct_selected.png'))
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
@@ -2242,7 +2269,7 @@ struct Index {
               .width('18.54%').height('11.39%')
               .position({ x: '10.42%', y: '39.81%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 2) {
+          if (this.selectedProxy === 2 || this.hoverProxy === 2) {
             Image($rawfile('gh_proxy_label_selected.png'))
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
@@ -2251,7 +2278,7 @@ struct Index {
               .width('17.60%').height('9.72%')
               .position({ x: '31.25%', y: '40.74%' }).objectFit(ImageFit.Fill)
           }
-          if (this.selectedProxy === 3) {
+          if (this.selectedProxy === 3 || this.hoverProxy === 3) {
             Image($rawfile('craft_hello_label_selected.png'))
               .width('35.05%').height('9.72%')
               .position({ x: '52.08%', y: '40.74%' }).objectFit(ImageFit.Fill)

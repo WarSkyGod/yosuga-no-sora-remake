@@ -142,6 +142,10 @@ public class BootstrapActivity extends Activity {
     private static volatile boolean busy = false;
     private int selectedProxy = PROXY_DIRECT;
     private static volatile int activeAction = ACTION_NONE;
+    // Pointer-hover highlight (mouse / trackpad): mirrors pressed state so
+    // hovering a button shows its active artwork without pressing.
+    private int hoverAction = ACTION_NONE;
+    private int hoverProxy = ACTION_NONE;
 
     /** The currently alive activity instance. Transfer threads keep running
      *  across recreations; routing their UI callbacks through this reference
@@ -356,9 +360,9 @@ public class BootstrapActivity extends Activity {
         importButton = makeOverlayButton("导入本地文件");
         importButton.setOnClickListener(v -> startImport());
         attachActionFeedback(downloadButton, downloadLabelView,
-                R.drawable.download_label, R.drawable.download_label_active);
+                R.drawable.download_label, R.drawable.download_label_active, ACTION_DOWNLOAD);
         attachActionFeedback(importButton, importLabelView,
-                R.drawable.import_label, R.drawable.import_label_active);
+                R.drawable.import_label, R.drawable.import_label_active, ACTION_IMPORT);
         canvas.addView(downloadButton, frame(300, 135, 1240, 755));
         canvas.addView(importButton, frame(430, 125, 1450, 755));
 
@@ -409,6 +413,16 @@ public class BootstrapActivity extends Activity {
 
     private void attachProxyFeedback(Button button, int proxy) {
         button.setOnClickListener(view -> toggleProxy(proxy));
+        button.setOnHoverListener((view, event) -> {
+            if (view.isEnabled() && event.getAction() == MotionEvent.ACTION_HOVER_ENTER) {
+                hoverProxy = proxy;
+                updateProxyArtwork();
+            } else if (event.getAction() == MotionEvent.ACTION_HOVER_EXIT) {
+                if (hoverProxy == proxy) hoverProxy = ACTION_NONE;
+                updateProxyArtwork();
+            }
+            return false;
+        });
     }
 
     private void toggleProxy(int proxy) {
@@ -426,11 +440,14 @@ public class BootstrapActivity extends Activity {
     }
 
     private void updateProxyArtwork() {
-        directLabelView.setImageResource(selectedProxy == PROXY_DIRECT
+        directLabelView.setImageResource(
+                selectedProxy == PROXY_DIRECT || hoverProxy == PROXY_DIRECT
                 ? R.drawable.github_direct_selected : R.drawable.github_direct);
-        ghProxyLabelView.setImageResource(selectedProxy == PROXY_GH
+        ghProxyLabelView.setImageResource(
+                selectedProxy == PROXY_GH || hoverProxy == PROXY_GH
                 ? R.drawable.gh_proxy_label_selected : R.drawable.gh_proxy_label);
-        craftProxyLabelView.setImageResource(selectedProxy == PROXY_CRAFT
+        craftProxyLabelView.setImageResource(
+                selectedProxy == PROXY_CRAFT || hoverProxy == PROXY_CRAFT
                 ? R.drawable.craft_hello_label_selected : R.drawable.craft_hello_label);
         directButton.setSelected(selectedProxy == PROXY_DIRECT);
         ghProxyButton.setSelected(selectedProxy == PROXY_GH);
@@ -438,7 +455,7 @@ public class BootstrapActivity extends Activity {
     }
 
     private void attachActionFeedback(Button button, ImageView artwork,
-            int normalResource, int activeResource) {
+            int normalResource, int activeResource, int action) {
         button.setOnTouchListener((view, event) -> {
             if (!view.isEnabled()) return false;
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -449,12 +466,26 @@ public class BootstrapActivity extends Activity {
             }
             return false;
         });
+        // Mouse / trackpad hover: light the button up while the pointer is
+        // over it, restore the normal artwork when it leaves.
+        button.setOnHoverListener((view, event) -> {
+            if (view.isEnabled() && event.getAction() == MotionEvent.ACTION_HOVER_ENTER) {
+                hoverAction = action;
+                artwork.setImageResource(activeResource);
+            } else if (event.getAction() == MotionEvent.ACTION_HOVER_EXIT) {
+                if (hoverAction == action) hoverAction = ACTION_NONE;
+                updateActionArtwork();
+            }
+            return false;
+        });
     }
 
     private void updateActionArtwork() {
-        downloadLabelView.setImageResource(busy && activeAction == ACTION_DOWNLOAD
+        downloadLabelView.setImageResource(
+                (busy && activeAction == ACTION_DOWNLOAD) || hoverAction == ACTION_DOWNLOAD
                 ? R.drawable.download_label_active : R.drawable.download_label);
-        importLabelView.setImageResource(busy && activeAction == ACTION_IMPORT
+        importLabelView.setImageResource(
+                (busy && activeAction == ACTION_IMPORT) || hoverAction == ACTION_IMPORT
                 ? R.drawable.import_label_active : R.drawable.import_label);
     }
 

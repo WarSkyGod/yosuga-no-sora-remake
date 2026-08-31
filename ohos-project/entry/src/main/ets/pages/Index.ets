@@ -1098,72 +1098,79 @@ struct Index {
     // responses (the manifest, a few KB, succeeds while 8MB chunks never
     // return and never time out). Small chunks sidestep it entirely.
     const chunkSize = 1024 * 1024;
-    let offset = 0;
+    // 4 concurrent Range workers over 1MB chunks: KaihongOS's http stack
+    // only delivers ~700KB/s per request on this device (larger responses
+    // hang), so throughput comes from parallelism, not bigger chunks.
+    const starts: number[] = [];
+    for (let off = 0; off < totalSize; off += chunkSize) {
+      starts.push(off);
+    }
+    let nextIndex = 0;
+    let doneTotal = 0;
+    let failed = false;
     try {
-      while (offset < totalSize) {
-        const end = Math.min(offset + chunkSize - 1, totalSize - 1);
-        let got = false;
-        for (let attempt = 0; attempt < 4 && !got; attempt++) {
-          if (attempt > 0) {
-            await this.delay(2000);
-          }
-          if (onAttempt) {
-            onAttempt(attempt);
-          }
-          try {
-            // 20s hard deadline per chunk attempt; the built-in timeouts
-            // (15s connect / 15s read) are kept as an inner belt - the
-            // wrapper above is what actually guarantees progress.
-            const response: http.HttpResponse = await this.fetchWithTimeout(url, {
-              method: http.RequestMethod.GET,
-              header: { 'Range': 'bytes=' + offset + '-' + end },
-              expectDataType: http.HttpDataType.ARRAY_BUFFER,
-              connectTimeout: 15000,
-              readTimeout: 15000
-            }, 20000);
-            if (response.responseCode === 206) {
-              const data = response.result as ArrayBuffer;
-              const length = data.byteLength;
-              if (length > 0) {
-                fs.writeSync(file.fd, data, { offset: offset });
-                offset += length;
-                if (onProgress) {
-                  onProgress(offset);
+      const worker = async (): Promise<void> => {
+        while (!failed && nextIndex < starts.length) {
+          const start = starts[nextIndex++];
+          const end = Math.min(start + chunkSize - 1, totalSize - 1);
+          let got = false;
+          for (let attempt = 0; attempt < 4 && !got; attempt++) {
+            if (attempt > 0) {
+              await this.delay(2000);
+            }
+            if (onAttempt && attempt > 0) {
+              onAttempt(attempt);
+            }
+            try {
+              // 20s hard deadline per chunk attempt; the built-in timeouts
+              // (15s connect / 15s read) are kept as an inner belt - the
+              // wrapper above is what actually guarantees progress.
+              const response: http.HttpResponse = await this.fetchWithTimeout(url, {
+                method: http.RequestMethod.GET,
+                header: { 'Range': 'bytes=' + start + '-' + end },
+                expectDataType: http.HttpDataType.ARRAY_BUFFER,
+                connectTimeout: 15000,
+                readTimeout: 15000
+              }, 20000);
+              if (response.responseCode === 206) {
+                const data = response.result as ArrayBuffer;
+                const length = data.byteLength;
+                if (length > 0) {
+                  fs.writeSync(file.fd, data, { offset: start });
+                  doneTotal += length;
+                  if (onProgress) {
+                    onProgress(doneTotal);
+                  }
+                  got = true;
                 }
+              } else if (response.responseCode === 416) {
+                // Range beyond EOF - treat as already covered; the SHA-256
+                // check after download guards real holes.
                 got = true;
+              } else if (attempt === 3) {
+                throw new Error('HTTP ' + response.responseCode);
               }
-            } else if (response.responseCode === 200) {
-              // Server ignored the Range: write the whole body from the start.
-              const data = response.result as ArrayBuffer;
-              fs.truncateSync(file.fd, 0);
-              fs.writeSync(file.fd, data, { offset: 0 });
-              offset = totalSize;
-              got = true;
-              if (onProgress) {
-                onProgress(totalSize);
+            } catch (e) {
+              if (attempt === 3) {
+                failed = true;
+                if (e instanceof Error) {
+                  throw e;
+                }
+                throw new Error(String(e));
               }
-            } else if (response.responseCode === 416) {
-              offset = totalSize;
-              got = true;
-            } else if (attempt === 3) {
-              throw new Error('HTTP ' + response.responseCode);
             }
-          } catch (e) {
-            if (attempt === 3) {
-              if (e instanceof Error) {
-                throw e;
-              }
-              throw new Error(String(e));
-            }
+            // Request lifecycle (createHttp/destroy) is owned by
+            // fetchWithTimeout - there is no outer handle to clean up here.
           }
-          // Request lifecycle (createHttp/destroy) is owned by
-          // fetchWithTimeout - there is no outer handle to clean up here.
+          if (!got) {
+            failed = true;
+            throw new Error('下载中断，无法继续');
+          }
         }
-        if (!got && offset < totalSize) {
-          throw new Error('下载中断，无法继续');
-        }
-        await this.delay(50);
-      }
+      };
+      await Promise.all([
+        worker(), worker(), worker(), worker()
+      ]);
     } finally {
       fs.closeSync(file);
     }

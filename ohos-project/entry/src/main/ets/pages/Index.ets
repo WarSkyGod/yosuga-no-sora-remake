@@ -986,6 +986,11 @@ struct Index {
       const url = proxy !== '' ? proxy + originalUrl : originalUrl;
       this.progressText = '正在下载 ' + asset.name;
       const tmp = cacheDir + '/' + asset.name;
+      // uiEpoch forces a full page rebuild (incl. re-decoding the large
+      // background art); driving it from every progress tick can black out
+      // the screen mid-download. State updates alone repaint the text and
+      // bar; the rebuild is throttled to 2 Hz as a belt-and-braces refresh.
+      let lastUiRebuild = 0;
       try {
         await this.downloadFile(url, tmp, asset.size, (downloaded: number) => {
           const doneTotal = doneBytes + downloaded;
@@ -996,9 +1001,11 @@ struct Index {
           this.progressText = '正在下载 ' + asset.name + '  ' + pct + '%  ' +
             this.fmtSize(doneTotal) + ' / ' + this.fmtSize(totalBytes) +
             '  (' + this.fmtSpeed(speed) + ')';
-          // Force a rebuild so the progress text is repainted even if the
-          // state-driven refresh fails on this system version.
-          this.uiEpoch++;
+          const now = Date.now();
+          if (now - lastUiRebuild >= 500) {
+            lastUiRebuild = now;
+            this.uiEpoch++;
+          }
         }, (attempt: number) => {
           // Only announce RETRIES. attempt 0 fires at the start of every
           // 1MB chunk - rewriting the text there would wipe the live
@@ -1009,7 +1016,10 @@ struct Index {
           }
           this.progressText = '正在下载 ' + asset.name +
             '  （网络停滞，重试 ' + attempt + '）';
-          this.uiEpoch++;
+          if (Date.now() - lastUiRebuild >= 500) {
+            lastUiRebuild = Date.now();
+            this.uiEpoch++;
+          }
         });
         if (asset.sha256 !== '' && !(await this.verifySha256(tmp, asset.sha256))) {
           throw new Error('SHA-256 校验失败，请重试');
@@ -1090,17 +1100,104 @@ struct Index {
   async downloadFile(url: string, dest: string, totalSize: number,
     onProgress?: (downloaded: number) => void,
     onAttempt?: (attempt: number) => void): Promise<void> {
-    // Range-chunked download with resume + retry. GitHub release downloads
-    // commonly drop mid-transfer; each chunk is retried a few times and
-    // written at its exact offset so a retry continues where it left off.
+    // Range-chunked download with retry; each chunk is written at its exact
+    // offset so a retry continues where it left off. Strategy per flavor:
+    //  - HarmonyOS: the original sequential 8MB flow (its network stack is
+    //    healthy; keep the proven path and its full-body 200 handling).
+    //  - OpenHarmony/KaihongOS: 6 concurrent 1MB workers - the stack there
+    //    delivers ~700KB/s per request and hangs on large responses, so
+    //    throughput comes from parallelism, not bigger chunks.
     const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
-    // 1MB per request: KaihongOS's http stack hangs on large ARRAY_BUFFER
-    // responses (the manifest, a few KB, succeeds while 8MB chunks never
-    // return and never time out). Small chunks sidestep it entirely.
+    try {
+      if (this.buildFlavor === 'harmonyos') {
+        await this.downloadSequential(file, url, totalSize, onProgress, onAttempt);
+      } else {
+        await this.downloadParallel(file, url, totalSize, onProgress, onAttempt);
+      }
+    } finally {
+      fs.closeSync(file);
+    }
+  }
+
+  /** HarmonyOS flavor: the original sequential flow. */
+  private async downloadSequential(file: fs.File, url: string, totalSize: number,
+    onProgress?: (downloaded: number) => void,
+    onAttempt?: (attempt: number) => void): Promise<void> {
+    const chunkSize = 8 * 1024 * 1024;
+    let offset = 0;
+    try {
+      while (offset < totalSize) {
+        const end = Math.min(offset + chunkSize - 1, totalSize - 1);
+        let got = false;
+        for (let attempt = 0; attempt < 4 && !got; attempt++) {
+          if (attempt > 0) {
+            await this.delay(2000);
+          }
+          if (onAttempt && attempt > 0) {
+            onAttempt(attempt);
+          }
+          try {
+            const response: http.HttpResponse = await this.fetchWithTimeout(url, {
+              method: http.RequestMethod.GET,
+              header: { 'Range': 'bytes=' + offset + '-' + end },
+              expectDataType: http.HttpDataType.ARRAY_BUFFER,
+              connectTimeout: 30000,
+              readTimeout: 60000
+            }, 90000);
+            if (response.responseCode === 206) {
+              const data = response.result as ArrayBuffer;
+              const length = data.byteLength;
+              if (length > 0) {
+                fs.writeSync(file.fd, data, { offset: offset });
+                offset += length;
+                if (onProgress) {
+                  onProgress(offset);
+                }
+                got = true;
+              }
+            } else if (response.responseCode === 200) {
+              // Server ignored the Range: write the whole body from the start.
+              const data = response.result as ArrayBuffer;
+              fs.truncateSync(file.fd, 0);
+              fs.writeSync(file.fd, data, { offset: 0 });
+              offset = totalSize;
+              got = true;
+              if (onProgress) {
+                onProgress(totalSize);
+              }
+            } else if (response.responseCode === 416) {
+              offset = totalSize;
+              got = true;
+            } else if (attempt === 3) {
+              throw new Error('HTTP ' + response.responseCode);
+            }
+          } catch (e) {
+            if (attempt === 3) {
+              if (e instanceof Error) {
+                throw e;
+              }
+              throw new Error(String(e));
+            }
+          }
+        }
+        if (!got && offset < totalSize) {
+          throw new Error('下载中断，无法继续');
+        }
+        await this.delay(50);
+      }
+    } catch (e) {
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new Error(String(e));
+    }
+  }
+
+  /** OpenHarmony/KaihongOS flavor: 6 concurrent Range workers. */
+  private async downloadParallel(file: fs.File, url: string, totalSize: number,
+    onProgress?: (downloaded: number) => void,
+    onAttempt?: (attempt: number) => void): Promise<void> {
     const chunkSize = 1024 * 1024;
-    // 4 concurrent Range workers over 1MB chunks: KaihongOS's http stack
-    // only delivers ~700KB/s per request on this device (larger responses
-    // hang), so throughput comes from parallelism, not bigger chunks.
     const starts: number[] = [];
     for (let off = 0; off < totalSize; off += chunkSize) {
       starts.push(off);
@@ -1122,9 +1219,6 @@ struct Index {
               onAttempt(attempt);
             }
             try {
-              // 20s hard deadline per chunk attempt; the built-in timeouts
-              // (15s connect / 15s read) are kept as an inner belt - the
-              // wrapper above is what actually guarantees progress.
               const response: http.HttpResponse = await this.fetchWithTimeout(url, {
                 method: http.RequestMethod.GET,
                 header: { 'Range': 'bytes=' + start + '-' + end },
@@ -1144,8 +1238,7 @@ struct Index {
                   got = true;
                 }
               } else if (response.responseCode === 416) {
-                // Range beyond EOF - treat as already covered; the SHA-256
-                // check after download guards real holes.
+                // Range beyond EOF - treat as covered; SHA-256 guards holes.
                 got = true;
               } else if (attempt === 3) {
                 throw new Error('HTTP ' + response.responseCode);
@@ -1159,8 +1252,6 @@ struct Index {
                 throw new Error(String(e));
               }
             }
-            // Request lifecycle (createHttp/destroy) is owned by
-            // fetchWithTimeout - there is no outer handle to clean up here.
           }
           if (!got) {
             failed = true;
@@ -1169,10 +1260,13 @@ struct Index {
         }
       };
       await Promise.all([
-        worker(), worker(), worker(), worker()
+        worker(), worker(), worker(), worker(), worker(), worker()
       ]);
-    } finally {
-      fs.closeSync(file);
+    } catch (e) {
+      if (e instanceof Error) {
+        throw e;
+      }
+      throw new Error(String(e));
     }
   }
 

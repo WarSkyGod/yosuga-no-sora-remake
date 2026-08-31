@@ -1025,8 +1025,14 @@ struct Index {
           throw new Error('SHA-256 校验失败，请重试');
         }
       } catch (e) {
-        this.bootState = 5;
+        // bootState 5 renders a bare black placeholder (engine-startup
+        // stage) - landing there reads as a random black screen. Go back to
+        // the setup page instead, where the error text and the proxy
+        // buttons are visible for an immediate retry.
         await this.setScreenOn(false);
+        this.progressValue = 0;
+        this.bootState = 2;
+        this.uiEpoch++;
         this.message = '下载失败：' + asset.name + '（' + JSON.stringify(e) + '）\n' +
           '若为网络问题，请返回引导页点击「gh-proxy」或「我的代理」切换加速后再下载';
         return;
@@ -1132,9 +1138,9 @@ struct Index {
           const start = starts[nextIndex++];
           const end = Math.min(start + chunkSize - 1, totalSize - 1);
           let got = false;
-          for (let attempt = 0; attempt < 4 && !got; attempt++) {
+          for (let attempt = 0; attempt < 6 && !got; attempt++) {
             if (attempt > 0) {
-              await this.delay(2000);
+              await this.delay(2000 * attempt);
             }
             if (onAttempt && attempt > 0) {
               onAttempt(attempt);

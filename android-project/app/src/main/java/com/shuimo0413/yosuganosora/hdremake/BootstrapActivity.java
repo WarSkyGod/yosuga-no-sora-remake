@@ -830,9 +830,9 @@ public class BootstrapActivity extends Activity {
                                 try { Thread.sleep(2000); }
                                 catch (InterruptedException ie) { return; }
                             }
-                            HttpURLConnection conn = (HttpURLConnection)
-                                    new URL(urlStr).openConnection();
+                            HttpURLConnection conn = null;
                             try {
+                                conn = (HttpURLConnection) new URL(urlStr).openConnection();
                                 conn.setConnectTimeout(20000);
                                 conn.setReadTimeout(60000);
                                 conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
@@ -870,7 +870,7 @@ public class BootstrapActivity extends Activity {
                             } catch (IOException e) {
                                 if (attempt == 2) failure.compareAndSet(null, e);
                             } finally {
-                                conn.disconnect();
+                                if (conn != null) conn.disconnect();
                             }
                         }
                         if (!got) return;

@@ -66,6 +66,15 @@ interface DataManifest {
 const APP_FOLDER = 'com.shuimo0413.yosuganosora.hdremake';
 const DOWNLOAD_ROOT = '/storage/Users/currentUser/Download';
 
+// Module-level transfer state: these survive an ability recreation (the
+// system can destroy and rebuild the page while a download/import thread
+// keeps running in the background). A per-instance flag would reset to
+// false on recreation and let a second tap start a PARALLEL transfer
+// against the still-running first one - two loops fighting over the same
+// progress UI and the same partial files.
+let transferActive: boolean = false;
+let transferAction: number = 0; // 1 download, 2 import
+
 @Entry
 @Component
 struct Index {
@@ -98,6 +107,7 @@ struct Index {
   private extracting: boolean = false;
   private confirming: boolean = false;
   private extractTaskStarted: boolean = false;
+  private bgTaskCount: number = 0;
   @State readyForGame: boolean = false;
   private sandboxFiles: string = '';
   private baseDir: string = '';
@@ -125,6 +135,21 @@ struct Index {
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
     this.buildFlavor = this.readBuildFlavor();
     this.log('appear t=0 flavor=' + this.buildFlavor);
+    if (transferActive) {
+      // A transfer thread survived this ability recreation: re-show the
+      // progress screen instead of the action buttons. The running thread
+      // still holds the OLD page instance, so the live numbers keep
+      // updating there; this re-shown screen tells the user the transfer
+      // is still going and blocks a duplicate start.
+      this.activeAction = transferAction;
+      this.bootState = transferAction === 2 ? 4 : 3;
+      this.message = '';
+      this.progressText = '传输仍在后台进行，请稍候…';
+      this.progressValue = 0;
+      this.uiEpoch++;
+      this.log('appear: transfer active (action=' + transferAction + '), progress screen restored');
+      return;
+    }
     // Raise the video XComponent above the game XComponent while the AVPlayer
     // plays; poll the native flag (100ms) instead of a NAPI callback thread.
     setInterval(() => {
@@ -223,7 +248,7 @@ struct Index {
       // keep updating the progress screen: NEVER reset the page for them,
       // or the bars vanish while the transfer continues and a second tap
       // starts a parallel flow (two loops fighting over the same UI).
-      if (this.bootState === 3 || this.bootState === 4 ||
+      if (transferActive || this.bootState === 3 || this.bootState === 4 ||
         this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
         this.startingGame || this.confirming) {
         return;
@@ -238,7 +263,10 @@ struct Index {
   }
 
   async prepare(): Promise<void> {
-    if (this.bootState === 3 || this.bootState === 4 ||
+    // transferActive is module-level: after an ability recreation the new
+    // instance boots with bootState=0, so without it the probe would reset
+    // the re-shown progress screen.
+    if (transferActive || this.bootState === 3 || this.bootState === 4 ||
       this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
       this.startingGame || this.confirming) {
       return; // already running / downloading / importing / starting / asking
@@ -305,6 +333,7 @@ struct Index {
   private async startExtractTask(): Promise<void> {
     try {
       if (this.extractTaskStarted) {
+        this.bgTaskCount++;
         return;
       }
       const ctx = getContext(this) as common.UIAbilityContext;
@@ -325,6 +354,7 @@ struct Index {
         agent
       );
       this.extractTaskStarted = true;
+      this.bgTaskCount = 1;
       this.log('extract continuous task started');
     } catch (e) {
       this.log('startExtractTask failed: ' + JSON.stringify(e));
@@ -333,9 +363,17 @@ struct Index {
 
   private async stopExtractTask(): Promise<void> {
     try {
+      // Reference-counted: downloadAll/importLocal hold the task for the
+      // whole transfer while unzip/install still start their own inner
+      // scopes, so an inner stop must not drop the outer protection.
       if (!this.extractTaskStarted) {
         return;
       }
+      if (this.bgTaskCount > 1) {
+        this.bgTaskCount--;
+        return;
+      }
+      this.bgTaskCount = 0;
       await backgroundTaskManager.stopBackgroundRunning(
         getContext(this) as common.UIAbilityContext
       );
@@ -874,13 +912,29 @@ struct Index {
   }
 
   async downloadAll(): Promise<void> {
-    // Re-entry guard: a download/import that keeps running behind the
-    // scenes (e.g. the user left the app and came back) must never be
-    // started twice - two flows would fight over the progress UI and the
-    // partially written files.
-    if (this.bootState === 3 || this.bootState === 4) {
+    // Cross-instance re-entry guard: transferActive is module-level and
+    // survives an ability recreation, so a second tap can never start a
+    // parallel transfer against the still-running first one.
+    if (transferActive || this.bootState === 3 || this.bootState === 4) {
       return;
     }
+    transferActive = true;
+    transferAction = 1;
+    try {
+      // Long-running DATA_TRANSFER task held for the WHOLE download: while
+      // the user is away the system would otherwise reclaim the ability,
+      // the UI would reset to the action buttons and a re-tap would start
+      // a parallel download.
+      await this.startExtractTask();
+      await this.downloadAllRun();
+    } finally {
+      transferActive = false;
+      transferAction = 0;
+      await this.stopExtractTask();
+    }
+  }
+
+  private async downloadAllRun(): Promise<void> {
     // Enter the download screen IMMEDIATELY - fetching data-assets.json
     // over the network can take a while and must not look like a hang.
     // Keep the screen ON and the bars hidden while downloading/extracting.
@@ -1392,11 +1446,23 @@ struct Index {
   }
 
   async importLocal(): Promise<void> {
-    // Re-entry guard: never run two download/import flows in parallel
-    // (see downloadAll).
-    if (this.bootState === 3 || this.bootState === 4) {
+    // Cross-instance re-entry guard (see downloadAll).
+    if (transferActive || this.bootState === 3 || this.bootState === 4) {
       return;
     }
+    transferActive = true;
+    transferAction = 2;
+    try {
+      await this.startExtractTask();
+      await this.importLocalRun();
+    } finally {
+      transferActive = false;
+      transferAction = 0;
+      await this.stopExtractTask();
+    }
+  }
+
+  private async importLocalRun(): Promise<void> {
     await this.setScreenOn(true);
     this.applyImmersive();
     this.activeAction = 2;
@@ -1409,20 +1475,18 @@ struct Index {
       const result = await documentPicker.select({ maxSelectNumber: 20 });
       uris = result;
     } catch (e) {
-      // User cancelled the picker: rebuild the whole bootstrap page so the
-      // picker (also a UIExtension) cannot leave it blank. Leave the
-      // importing state first so prepare() is allowed to run.
+      // User cancelled the picker: fall back to the setup page. The wrapper
+      // (importLocal) resets transferActive in its finally right after, so
+      // calling prepare() here would just be swallowed by its guard.
       this.bootState = 2;
       this.uiEpoch++;
       this.message = '未选择文件';
-      this.prepare();
       return;
     }
     if (uris.length === 0) {
       this.bootState = 2;
       this.uiEpoch++;
       this.message = '未选择文件';
-      this.prepare();
       return;
     }
     // Force a rebuild after the picker (UIExtension) closes so the page is
@@ -1506,11 +1570,11 @@ struct Index {
       }
       return;
     }
-    // Nothing usable was selected: back to the setup page (leave the
-    // importing state first so prepare() is allowed to run).
+    // Nothing usable was selected: back to the setup page (the wrapper's
+    // finally resets transferActive right after; prepare() would be a no-op
+    // behind its guard anyway).
     this.bootState = 2;
     this.uiEpoch++;
-    this.prepare();
   }
 
   /** First data.xp3 candidate: the app root, then the app-owned public

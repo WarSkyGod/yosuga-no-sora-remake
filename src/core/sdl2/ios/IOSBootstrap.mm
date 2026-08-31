@@ -262,6 +262,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 @property (nonatomic) NSUInteger assetIndex;
 @property (nonatomic) long long doneBytes;
 @property (nonatomic) long long totalBytes;
+/* Whole-download start instant for the average speed display. */
+@property (nonatomic) CFAbsoluteTime downloadStart;
 @property (nonatomic, strong) NSURLSession *activeSession;
 @property (nonatomic, strong) NSURLSessionDownloadTask *activeTask;
 @property (nonatomic, copy) NSDictionary *activeTaskState;
@@ -746,6 +748,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
         self->_assetIndex = 0;
         self->_doneBytes = 0;
         self->_totalBytes = 0;
+        self->_downloadStart = CFAbsoluteTimeGetCurrent();
         for (NSDictionary *a in assets)
         {
             NSNumber *size = a[@"size"];
@@ -816,9 +819,14 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     long long doneTotal = self.doneBytes + totalBytesWritten;
     float pct = self.totalBytes > 0
         ? (float)((double)doneTotal * 100.0 / (double)self.totalBytes) : 0.0f;
+    /* Progress text unified with the OHOS build:
+     * "正在下载 <name>  <pct>%  <done> / <total>  (<speed>)". */
+    NSTimeInterval elapsed = MAX(0.001, CFAbsoluteTimeGetCurrent() - self.downloadStart);
+    NSString *speed = [[self fmtSize:(long long)(doneTotal / elapsed)]
+        stringByAppendingString:@"/s"];
     [self setProgressText:[NSString stringWithFormat:
-        @"正在下载 %@  %.0f%%  %@ / %@", name, pct,
-        [self fmtSize:doneTotal], [self fmtSize:self.totalBytes]]
+        @"正在下载 %@  %.0f%%  %@ / %@  (%@)", name, pct,
+        [self fmtSize:doneTotal], [self fmtSize:self.totalBytes], speed]
         progress:MIN(0.99f, pct / 100.0f)];
 }
 

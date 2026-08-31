@@ -690,6 +690,7 @@ public class BootstrapActivity extends Activity {
                     long total = 0;
                     for (String[] a : assets) total += Long.parseLong(a[2]);
                     long done = 0;
+                    long startTime = System.currentTimeMillis();
                     int index = 0;
                     for (String[] asset : assets) {
                         index++;
@@ -697,7 +698,7 @@ public class BootstrapActivity extends Activity {
                         String sha = asset[1];
                         long size = Long.parseLong(asset[2]);
                         File zip = new File(getCacheDir(), name);
-                        downloadFile(asset[3], zip, size, done, total, name);
+                        downloadFile(asset[3], zip, size, done, total, name, startTime);
                         verifySha(zip, sha);
                         extractZipTo(zip, dataDir, "解压 " + name);
                         zip.delete();
@@ -762,7 +763,7 @@ public class BootstrapActivity extends Activity {
     }
 
     private void downloadFile(String urlStr, File dest, long size,
-            long doneBase, long total, String label) throws IOException {
+            long doneBase, long total, String label, long startTime) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(60000);
@@ -776,12 +777,32 @@ public class BootstrapActivity extends Activity {
                 out.write(buf, 0, n);
                 done += n;
                 int pct = total > 0 ? (int) ((doneBase + done) * 100 / total) : 0;
-                setProgress(String.format(Locale.US, "正在下载 %s  %.1f%%", label,
-                        total > 0 ? (doneBase + done) * 100.0 / total : 0), Math.min(99, pct));
+                // Progress text unified with the OHOS build:
+                // "正在下载 <name>  <pct>%  <done> / <total>  (<speed>)".
+                long doneTotal = doneBase + done;
+                double elapsedSec = Math.max(0.001,
+                        (System.currentTimeMillis() - startTime) / 1000.0);
+                setProgress(String.format(Locale.US, "正在下载 %s  %d%%  %s / %s  (%s)",
+                        label, Math.min(99, pct), fmtSize(doneTotal), fmtSize(total),
+                        fmtSize((long) (doneTotal / elapsedSec)) + "/s"), Math.min(99, pct));
             }
         } finally {
             conn.disconnect();
         }
+    }
+
+    /** Human-readable size, matching the OHOS fmtSize() scale. */
+    private static String fmtSize(long bytes) {
+        if (bytes >= 1024L * 1024 * 1024) {
+            return String.format(Locale.US, "%.2f GB", bytes / 1073741824.0);
+        }
+        if (bytes >= 1024L * 1024) {
+            return String.format(Locale.US, "%.1f MB", bytes / 1048576.0);
+        }
+        if (bytes >= 1024) {
+            return String.format(Locale.US, "%.0f KB", bytes / 1024.0);
+        }
+        return bytes + " B";
     }
 
     private void verifySha(File file, String expectedSha) throws IOException {

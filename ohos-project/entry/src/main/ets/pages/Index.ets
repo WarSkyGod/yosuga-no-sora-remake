@@ -1101,103 +1101,24 @@ struct Index {
     onProgress?: (downloaded: number) => void,
     onAttempt?: (attempt: number) => void): Promise<void> {
     // Range-chunked download with retry; each chunk is written at its exact
-    // offset so a retry continues where it left off. Strategy per flavor:
-    //  - HarmonyOS: the original sequential 8MB flow (its network stack is
-    //    healthy; keep the proven path and its full-body 200 handling).
-    //  - OpenHarmony/KaihongOS: 6 concurrent 1MB workers - the stack there
-    //    delivers ~700KB/s per request and hangs on large responses, so
-    //    throughput comes from parallelism, not bigger chunks.
+    // offset so a retry continues where it left off. All flavors run 6
+    // concurrent workers; only the chunk size differs:
+    //  - HarmonyOS: healthy network stack, 8MB chunks for max throughput.
+    //  - OpenHarmony/KaihongOS: its http stack hangs on large responses
+    //    (observed at 8MB, fine at 1MB), so keep 1MB there.
     const file = fs.openSync(dest, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE);
     try {
-      if (this.buildFlavor === 'harmonyos') {
-        await this.downloadSequential(file, url, totalSize, onProgress, onAttempt);
-      } else {
-        await this.downloadParallel(file, url, totalSize, onProgress, onAttempt);
-      }
+      await this.downloadParallel(file, url, totalSize, onProgress, onAttempt);
     } finally {
       fs.closeSync(file);
     }
   }
 
-  /** HarmonyOS flavor: the original sequential flow. */
-  private async downloadSequential(file: fs.File, url: string, totalSize: number,
-    onProgress?: (downloaded: number) => void,
-    onAttempt?: (attempt: number) => void): Promise<void> {
-    const chunkSize = 8 * 1024 * 1024;
-    let offset = 0;
-    try {
-      while (offset < totalSize) {
-        const end = Math.min(offset + chunkSize - 1, totalSize - 1);
-        let got = false;
-        for (let attempt = 0; attempt < 4 && !got; attempt++) {
-          if (attempt > 0) {
-            await this.delay(2000);
-          }
-          if (onAttempt && attempt > 0) {
-            onAttempt(attempt);
-          }
-          try {
-            const response: http.HttpResponse = await this.fetchWithTimeout(url, {
-              method: http.RequestMethod.GET,
-              header: { 'Range': 'bytes=' + offset + '-' + end },
-              expectDataType: http.HttpDataType.ARRAY_BUFFER,
-              connectTimeout: 30000,
-              readTimeout: 60000
-            }, 90000);
-            if (response.responseCode === 206) {
-              const data = response.result as ArrayBuffer;
-              const length = data.byteLength;
-              if (length > 0) {
-                fs.writeSync(file.fd, data, { offset: offset });
-                offset += length;
-                if (onProgress) {
-                  onProgress(offset);
-                }
-                got = true;
-              }
-            } else if (response.responseCode === 200) {
-              // Server ignored the Range: write the whole body from the start.
-              const data = response.result as ArrayBuffer;
-              fs.truncateSync(file.fd, 0);
-              fs.writeSync(file.fd, data, { offset: 0 });
-              offset = totalSize;
-              got = true;
-              if (onProgress) {
-                onProgress(totalSize);
-              }
-            } else if (response.responseCode === 416) {
-              offset = totalSize;
-              got = true;
-            } else if (attempt === 3) {
-              throw new Error('HTTP ' + response.responseCode);
-            }
-          } catch (e) {
-            if (attempt === 3) {
-              if (e instanceof Error) {
-                throw e;
-              }
-              throw new Error(String(e));
-            }
-          }
-        }
-        if (!got && offset < totalSize) {
-          throw new Error('下载中断，无法继续');
-        }
-        await this.delay(50);
-      }
-    } catch (e) {
-      if (e instanceof Error) {
-        throw e;
-      }
-      throw new Error(String(e));
-    }
-  }
-
-  /** OpenHarmony/KaihongOS flavor: 6 concurrent Range workers. */
+  /** All flavors: 6 concurrent Range workers over per-flavor chunk size. */
   private async downloadParallel(file: fs.File, url: string, totalSize: number,
     onProgress?: (downloaded: number) => void,
     onAttempt?: (attempt: number) => void): Promise<void> {
-    const chunkSize = 1024 * 1024;
+    const chunkSize = this.buildFlavor === 'harmonyos' ? 8 * 1024 * 1024 : 1024 * 1024;
     const starts: number[] = [];
     for (let off = 0; off < totalSize; off += chunkSize) {
       starts.push(off);

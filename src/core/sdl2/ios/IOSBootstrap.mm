@@ -933,12 +933,19 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     NSMutableDictionary *m = [self.chunkPlans[hit] mutableCopy];
     long long start = [m[@"start"] longLongValue];
     long long received = [m[@"received"] longLongValue];
-    NSError *err = nil;
-    if (![self.chunkFile writeData:data atOffset:start + received error:&err] || err)
+    @try
+    {
+        /* seek+write (not writeData:atOffset:error: - that is iOS 13+).
+         * Delegates run on the main queue, so seek and write are never
+         * interleaved with another chunk's seek+write. */
+        [self.chunkFile seekToFileOffset:(unsigned long long)(start + received)];
+        [self.chunkFile writeData:data];
+    }
+    @catch (NSException *exc)
     {
         self.chunkFailed = YES;
         [session invalidateAndCancel];
-        [self handleChunkFailure:err.localizedDescription ?: @"写入失败"];
+        [self handleChunkFailure:exc.reason ?: @"写入失败"];
         return;
     }
     m[@"received"] = @(received + data.length);

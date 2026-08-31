@@ -289,6 +289,8 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     UIView *_container;
     BOOL _busy;
     BOOL _importPickerOpen;
+    /* Background execution time while a transfer runs (see setBusy:). */
+    UIBackgroundTaskIdentifier _bgTask;
     NSInteger _selectedProxy;
     NSInteger _activeAction;
 }
@@ -406,6 +408,7 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+    _bgTask = UIBackgroundTaskInvalid;
     self.view.backgroundColor = UIColor.blackColor;
 
     /* The supplied artwork and every hit target share one 1920x1080
@@ -636,6 +639,30 @@ static NSString *HexString(const unsigned char *bytes, size_t len)
     {
         _activeAction = 0;
         _importPickerOpen = NO;
+    }
+    /* Hold background execution time while a transfer runs: without it iOS
+     * suspends the app seconds after backgrounding, the socket dies, the
+     * download errors out, and the user comes back to a reset page where a
+     * second tap starts the whole transfer over (two flows in parallel). */
+    if (busy && _bgTask == UIBackgroundTaskInvalid)
+    {
+        __weak typeof(self) weakSelf = self;
+        _bgTask = [[UIApplication sharedApplication]
+            beginBackgroundTaskWithName:@"yosuga-transfer"
+                      expirationHandler:^{
+            typeof(self) blockSelf = weakSelf;
+            if (blockSelf && blockSelf->_bgTask != UIBackgroundTaskInvalid)
+            {
+                [[UIApplication sharedApplication]
+                    endBackgroundTask:blockSelf->_bgTask];
+                blockSelf->_bgTask = UIBackgroundTaskInvalid;
+            }
+        }];
+    }
+    else if (!busy && _bgTask != UIBackgroundTaskInvalid)
+    {
+        [[UIApplication sharedApplication] endBackgroundTask:_bgTask];
+        _bgTask = UIBackgroundTaskInvalid;
     }
     [UIApplication sharedApplication].idleTimerDisabled = busy;
     _downloadButton.enabled = !busy;

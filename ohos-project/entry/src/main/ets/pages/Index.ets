@@ -219,7 +219,12 @@ struct Index {
     // page is visible (avoid stalling startup). Never disturb a game that is
     // already starting (black transition screen).
     setTimeout(() => {
-      if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
+      // Downloading (3) / importing (4) keep running in the background and
+      // keep updating the progress screen: NEVER reset the page for them,
+      // or the bars vanish while the transfer continues and a second tap
+      // starts a parallel flow (two loops fighting over the same UI).
+      if (this.bootState === 3 || this.bootState === 4 ||
+        this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
         this.startingGame || this.confirming) {
         return;
       }
@@ -233,9 +238,10 @@ struct Index {
   }
 
   async prepare(): Promise<void> {
-    if (this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
+    if (this.bootState === 3 || this.bootState === 4 ||
+      this.bootState === 6 || this.bootState === 5 || this.bootState === 7 ||
       this.startingGame || this.confirming) {
-      return; // already running / starting / extracting / asking
+      return; // already running / downloading / importing / starting / asking
     }
     // Back on the setup page: stop keeping the screen on (the bars stay
     // hidden - the whole app is immersive now).
@@ -868,6 +874,13 @@ struct Index {
   }
 
   async downloadAll(): Promise<void> {
+    // Re-entry guard: a download/import that keeps running behind the
+    // scenes (e.g. the user left the app and came back) must never be
+    // started twice - two flows would fight over the progress UI and the
+    // partially written files.
+    if (this.bootState === 3 || this.bootState === 4) {
+      return;
+    }
     // Enter the download screen IMMEDIATELY - fetching data-assets.json
     // over the network can take a while and must not look like a hang.
     // Keep the screen ON and the bars hidden while downloading/extracting.
@@ -1379,6 +1392,11 @@ struct Index {
   }
 
   async importLocal(): Promise<void> {
+    // Re-entry guard: never run two download/import flows in parallel
+    // (see downloadAll).
+    if (this.bootState === 3 || this.bootState === 4) {
+      return;
+    }
     await this.setScreenOn(true);
     this.applyImmersive();
     this.activeAction = 2;
@@ -1392,12 +1410,17 @@ struct Index {
       uris = result;
     } catch (e) {
       // User cancelled the picker: rebuild the whole bootstrap page so the
-      // picker (also a UIExtension) cannot leave it blank.
+      // picker (also a UIExtension) cannot leave it blank. Leave the
+      // importing state first so prepare() is allowed to run.
+      this.bootState = 2;
+      this.uiEpoch++;
       this.message = '未选择文件';
       this.prepare();
       return;
     }
     if (uris.length === 0) {
+      this.bootState = 2;
+      this.uiEpoch++;
       this.message = '未选择文件';
       this.prepare();
       return;
@@ -1483,7 +1506,10 @@ struct Index {
       }
       return;
     }
-    // Nothing usable was selected: back to the setup page.
+    // Nothing usable was selected: back to the setup page (leave the
+    // importing state first so prepare() is allowed to run).
+    this.bootState = 2;
+    this.uiEpoch++;
     this.prepare();
   }
 

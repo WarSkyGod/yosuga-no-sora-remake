@@ -134,9 +134,26 @@ public class BootstrapActivity extends Activity {
     private Button craftProxyButton;
     private Button downloadButton;
     private Button importButton;
-    private boolean busy = false;
+    // Static + volatile on purpose: the transfer threads outlive an Activity
+    // recreation (backgrounding the app can destroy and rebuild it). An
+    // instance flag would reset to false on recreation, so the re-shown
+    // action buttons would let a second tap start a PARALLEL download that
+    // fights the still-running first one over the same files and the UI.
+    private static volatile boolean busy = false;
     private int selectedProxy = PROXY_DIRECT;
-    private int activeAction = ACTION_NONE;
+    private static volatile int activeAction = ACTION_NONE;
+
+    /** The currently alive activity instance. Transfer threads keep running
+     *  across recreations; routing their UI callbacks through this reference
+     *  keeps the progress bar updating on the NEW instance. */
+    private static volatile BootstrapActivity sCurrent;
+
+    private void runOnUi(Runnable r) {
+        BootstrapActivity a = sCurrent;
+        if (a != null) {
+            a.runOnUi(r);
+        }
+    }
 
     private static final int STORAGE_PERMISSION_REQUEST = 9001;
 
@@ -150,7 +167,23 @@ public class BootstrapActivity extends Activity {
         buildUi();
         applyImmersive();
         requestStoragePermissionIfNeeded();
-        probeData();
+        sCurrent = this;
+        if (busy) {
+            // A transfer survived this recreation: re-attach the progress UI
+            // (setBusy is idempotent and rebinds every view to this instance)
+            // instead of probing back to the setup page.
+            setBusy(true);
+        } else {
+            probeData();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (sCurrent == this) {
+            sCurrent = null;
+        }
+        super.onDestroy();
     }
 
     @Override
@@ -159,8 +192,14 @@ public class BootstrapActivity extends Activity {
         applyImmersive();
         // Returning from the system Settings screen (MANAGE_EXTERNAL_STORAGE
         // on Android 11+) may have just granted public storage: re-probe so
-        // a ready data tree starts the game directly.
-        if (!busy) probeData();
+        // a ready data tree starts the game directly. While a transfer is
+        // running, re-attach the progress UI instead - probing would reset
+        // the page and invite a parallel second download.
+        if (busy) {
+            setBusy(true);
+        } else {
+            probeData();
+        }
     }
 
     /** Storage permission for the public Downloads write (mirrors the engine
@@ -449,7 +488,7 @@ public class BootstrapActivity extends Activity {
     }
 
     private void setProgress(String text, int percent) {
-        runOnUiThread(() -> {
+        runOnUi(() -> {
             progressView.setText(text);
             int clamped = Math.max(0, Math.min(100, percent));
             FrameLayout.LayoutParams params =
@@ -460,13 +499,13 @@ public class BootstrapActivity extends Activity {
     }
 
     private void setMessage(String text) {
-        runOnUiThread(() -> messageView.setText(text));
+        runOnUi(() -> messageView.setText(text));
     }
 
     private void setBusy(boolean value) {
         busy = value;
         if (!value) activeAction = ACTION_NONE;
-        runOnUiThread(() -> {
+        runOnUi(() -> {
             downloadButton.setEnabled(!value);
             importButton.setEnabled(!value);
             directButton.setEnabled(!value);
@@ -935,7 +974,7 @@ public class BootstrapActivity extends Activity {
         } else if (new File(dataDir, "startup.tjs").isFile()) {
             markConfirmed();
             final File ready = dataDir;
-            runOnUiThread(() -> {
+            runOnUi(() -> {
                 if (dataReady(ready)) startEngine(ready);
                 else fail("数据安装后仍不可用，请重新导入");
             });
@@ -1021,7 +1060,7 @@ public class BootstrapActivity extends Activity {
             new File(tmp.getAbsolutePath() + ".progress").delete();
             markConfirmed();
             final File ready = dataDir;
-            runOnUiThread(() -> {
+            runOnUi(() -> {
                 if (dataReady(ready)) startEngine(ready);
                 else fail("解包完成但数据不可用");
             });
@@ -1057,7 +1096,7 @@ public class BootstrapActivity extends Activity {
 
     private void fail(String message) {
         Log.e(TAG, message);
-        runOnUiThread(() -> {
+        runOnUi(() -> {
             setMessage(message);
             setProgress("", 0);
         });

@@ -1138,7 +1138,7 @@ struct Index {
           const start = starts[nextIndex++];
           const end = Math.min(start + chunkSize - 1, totalSize - 1);
           let got = false;
-          for (let attempt = 0; attempt < 6 && !got; attempt++) {
+          for (let attempt = 0; attempt < 10 && !got; attempt++) {
             if (attempt > 0) {
               await this.delay(2000 * attempt);
             }

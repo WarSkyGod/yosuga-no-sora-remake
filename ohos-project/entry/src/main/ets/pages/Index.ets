@@ -1568,36 +1568,131 @@ struct Index {
     this.message = '';
     this.progressText = '正在导入，请稍等';
     const documentPicker = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
-    // KaihongOS cannot multi-select (and cannot read folder uris at all),
-    // so import ONE file per picker round and let the user decide when the
-    // payload is complete. Zip parts merge into the same staging dir.
-    const staging = this.sandboxFiles + '/unzip.tmp';
-    await taskpool.execute(removeTreeTask, staging);
     const cacheDir = this.sandboxFiles + '/cache';
     try {
       fs.mkdirSync(cacheDir, true);
     } catch (e) {
       // already exists
     }
-    let zipCount = 0;
-    let cancelled = false;
-    while (!cancelled) {
+    const isHarmonyOs = deviceInfo.osFullName.indexOf('HarmonyOS') === 0;
+    if (!isHarmonyOs) {
+      // KaihongOS / OpenHarmony: scoped storage blocks multi-select and
+      // every folder-uri read, so take ONE file per picker round and let
+      // the user decide when the payload is complete.
+      await this.showNotice('导入须知', '每次只能选择一个压缩包或 data.xp3。\n分卷请逐个添加，全部添加完后点「完成导入」。');
+      const staging = this.sandboxFiles + '/unzip.tmp';
+      await taskpool.execute(removeTreeTask, staging);
+      let zipCount = 0;
+      let cancelled = false;
+      while (!cancelled) {
+        this.uiEpoch++;
+        let uris: string[] = [];
+        try {
+          const result = await documentPicker.select({ maxSelectNumber: 1 });
+          uris = result;
+        } catch (e) {
+          cancelled = true;
+          break;
+        }
+        if (uris.length === 0) {
+          cancelled = true;
+          break;
+        }
+        this.bootState = 4;
+        const uri = uris[0];
+        const name = uri.substring(uri.lastIndexOf('/') + 1);
+        const lower = name.toLowerCase();
+        try {
+          if (lower.endsWith('.xp3')) {
+            this.progressText = '正在导入 ' + name;
+            this.uiEpoch++;
+            await this.copyFromUri(uri, this.baseDir + '/data.xp3');
+            await this.extractAndFinalize(this.baseDir + '/data.xp3');
+            return;
+          } else if (lower.endsWith('.zip')) {
+            this.progressText = '正在解压 ' + name + (zipCount > 0 ? '（第 ' + (zipCount + 1) + ' 个）' : '');
+            this.uiEpoch++;
+            const tmp = cacheDir + '/' + name;
+            await this.copyFromUri(uri, tmp);
+            try {
+              await this.unzipTo(tmp, staging);
+            } catch (eZ) {
+              try {
+                fs.unlinkSync(tmp);
+              } catch (e) {
+                // ignore
+              }
+              await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
+              continue;
+            }
+            try {
+              fs.unlinkSync(tmp);
+            } catch (e) {
+              // ignore
+            }
+            zipCount++;
+          } else if (lower.endsWith('.7z') || lower.endsWith('.001') || lower.endsWith('.002')) {
+            await this.showNotice('暂不支持 7z 格式', '请选择 zip 压缩包或 data.xp3 文件');
+            continue;
+          } else {
+            await this.showNotice('不支持的文件类型：' + name, '请选择 zip 压缩包或 data.xp3 文件');
+            continue;
+          }
+        } catch (e) {
+          this.bootState = 2;
+          const detail = JSON.stringify(e);
+          await this.setScreenOn(false);
+          this.uiEpoch++;
+          this.message = '导入失败：' + name + ' | ' + detail;
+          await this.showNotice('导入失败', detail);
+          return;
+        }
+        const goOn = await this.showConfirm('继续添加？', '已添加 ' + zipCount + ' 个压缩包。分卷请全部添加完再点「完成导入」。', '继续添加', '完成导入');
+        if (!goOn) {
+          break;
+        }
+      }
+      if (zipCount === 0) {
+        this.bootState = 2;
+        this.uiEpoch++;
+        this.message = '未选择文件';
+        return;
+      }
+      this.progressText = '正在合并安装已添加的 ' + zipCount + ' 个压缩包…';
       this.uiEpoch++;
-      let uris: string[] = [];
-      try {
-        const result = await documentPicker.select({ maxSelectNumber: 1 });
-        uris = result;
-      } catch (e) {
-        // User cancelled the picker round: finish with what we have.
-        cancelled = true;
-        break;
+      const ok = await this.installUnzipped(staging);
+      if (!ok) {
+        this.bootState = 2;
+        this.progressValue = 0;
+        this.uiEpoch++;
+        this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+        await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
       }
-      if (uris.length === 0) {
-        cancelled = true;
-        break;
-      }
-      this.bootState = 4;
-      const uri = uris[0];
+      return;
+    }
+    // HarmonyOS: original multi-select flow, untouched.
+    let uris: string[] = [];
+    try {
+      const result = await documentPicker.select({ maxSelectNumber: 20 });
+      uris = result;
+    } catch (e) {
+      // User cancelled the picker: fall back to the setup page.
+      this.bootState = 2;
+      this.uiEpoch++;
+      this.message = '未选择文件';
+      return;
+    }
+    if (uris.length === 0) {
+      this.bootState = 2;
+      this.uiEpoch++;
+      this.message = '未选择文件';
+      return;
+    }
+    this.uiEpoch++;
+    this.bootState = 4;
+    const zipUris: string[] = [];
+    for (let i = 0; i < uris.length; i++) {
+      const uri = uris[i];
       const name = uri.substring(uri.lastIndexOf('/') + 1);
       const lower = name.toLowerCase();
       try {
@@ -1608,68 +1703,64 @@ struct Index {
           await this.extractAndFinalize(this.baseDir + '/data.xp3');
           return;
         } else if (lower.endsWith('.zip')) {
-          this.progressText = '正在解压 ' + name +
-            (zipCount > 0 ? '（第 ' + (zipCount + 1) + ' 个）' : '');
-          this.uiEpoch++;
-          const tmp = cacheDir + '/' + name;
-          await this.copyFromUri(uri, tmp);
-          try {
-            await this.unzipTo(tmp, staging);
-          } catch (eZ) {
-            try {
-              fs.unlinkSync(tmp);
-            } catch (e) {
-              // ignore
-            }
-            await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
-            continue;
-          }
-          try {
-            fs.unlinkSync(tmp);
-          } catch (e) {
-            // ignore
-          }
-          zipCount++;
+          zipUris.push(uri);
         } else if (lower.endsWith('.7z') || lower.endsWith('.001') || lower.endsWith('.002')) {
+          this.message = '暂不支持 7z 格式，请使用 zip 压缩包或 data.xp3';
           await this.showNotice('暂不支持 7z 格式', '请选择 zip 压缩包或 data.xp3 文件');
-          continue;
         } else {
-          await this.showNotice('不支持的文件类型：' + name, '请选择 zip 压缩包或 data.xp3 文件');
-          continue;
+          this.message = '不支持的文件类型：' + name;
+          await this.showNotice('不支持的文件类型', '请选择 zip 压缩包或 data.xp3 文件');
         }
       } catch (e) {
         this.bootState = 2;
         const detail = JSON.stringify(e);
         await this.setScreenOn(false);
-        this.uiEpoch++;
-        this.message = '导入失败：' + name + ' | ' + detail;
+        this.message = '导入失败：' + name + ' | ' + detail + ' | uri: ' + uri;
         await this.showNotice('导入失败', detail);
         return;
       }
-      const goOn = await this.showConfirm('继续添加？',
-        '已添加 ' + zipCount + ' 个压缩包。分卷请全部添加完再点「完成导入」。',
-        '继续添加', '完成导入');
-      if (!goOn) {
-        break;
-      }
     }
-    if (zipCount === 0) {
-      this.bootState = 2;
-      this.uiEpoch++;
-      this.message = cancelled ? '未选择文件' : this.message;
+    if (zipUris.length > 0) {
+      const unzipTmp = this.sandboxFiles + '/unzip.tmp';
+      await taskpool.execute(removeTreeTask, unzipTmp);
+      for (let i = 0; i < zipUris.length; i++) {
+        const uri = zipUris[i];
+        const name = uri.substring(uri.lastIndexOf('/') + 1);
+        this.progressText = '正在解压 ' + name + '（' + (i + 1) + '/' + zipUris.length + '）';
+        this.progressValue = Math.floor(i * 100 / Math.max(1, zipUris.length));
+        this.uiEpoch++;
+        const tmp = cacheDir + '/' + name;
+        await this.copyFromUri(uri, tmp);
+        try {
+          await this.unzipTo(tmp, unzipTmp);
+        } catch (eZ) {
+          this.bootState = 2;
+          await this.setScreenOn(false);
+          this.uiEpoch++;
+          this.message = '导入失败：' + name + ' 不是有效的 zip 压缩包，请重新选择';
+          await this.showNotice('导入失败', name + ' 不是有效的 zip 压缩包，请重新选择');
+          return;
+        }
+        try {
+          fs.unlinkSync(tmp);
+        } catch (e) {
+          // ignore
+        }
+      }
+      const ok = await this.installUnzipped(unzipTmp);
+      if (!ok) {
+        this.bootState = 2;
+        this.progressValue = 0;
+        this.uiEpoch++;
+        this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
+        await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+      }
       return;
     }
-    this.progressText = '正在合并安装已添加的 ' + zipCount + ' 个压缩包…';
+    this.bootState = 2;
     this.uiEpoch++;
-    const ok = await this.installUnzipped(staging);
-    if (!ok) {
-      this.bootState = 2;
-      this.progressValue = 0;
-      this.uiEpoch++;
-      this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
-      await this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
-    }
   }
+
 
   /** First data.xp3 candidate: the app root, then the app-owned public
    *  Download folder. Returns '' when none exists. */

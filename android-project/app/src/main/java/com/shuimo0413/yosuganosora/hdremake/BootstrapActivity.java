@@ -42,7 +42,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
+import java.nio.channels.FileChannel;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -795,30 +802,107 @@ public class BootstrapActivity extends Activity {
 
     private void downloadFile(String urlStr, File dest, long size,
             long doneBase, long total, String label, long startTime) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(60000);
-        conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
-        long done = 0;
-        try (InputStream in = new BufferedInputStream(conn.getInputStream());
-             OutputStream out = new BufferedOutputStream(new FileOutputStream(dest))) {
-            byte[] buf = new byte[1 << 20];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
-                done += n;
-                int pct = total > 0 ? (int) ((doneBase + done) * 100 / total) : 0;
-                // Progress text unified with the OHOS build:
-                // "正在下载 <name>  <pct>%  <done> / <total>  (<speed>)".
-                long doneTotal = doneBase + done;
-                double elapsedSec = Math.max(0.001,
-                        (System.currentTimeMillis() - startTime) / 1000.0);
-                setProgress(String.format(Locale.US, "正在下载 %s  %d%%  %s / %s  (%s)",
-                        label, Math.min(99, pct), fmtSize(doneTotal), fmtSize(total),
-                        fmtSize((long) (doneTotal / elapsedSec)) + "/s"), Math.min(99, pct));
+        // 6 concurrent Range workers over 8MB chunks, same scheme as the
+        // OHOS build: throughput comes from parallelism. Each worker writes
+        // its chunk at the exact offset via FileChannel.positional write,
+        // so retries stay resume-safe and SHA-256 guards the result.
+        final int threads = 6;
+        final long chunk = 8L * 1024 * 1024;
+        final long nChunks = (size + chunk - 1) / chunk;
+        final AtomicInteger next = new AtomicInteger(0);
+        final AtomicLong doneSum = new AtomicLong(0);
+        final AtomicReference<IOException> failure = new AtomicReference<>(null);
+        final FileChannel channel = new RandomAccessFile(dest, "rw").getChannel();
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            java.util.List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    byte[] buf = new byte[1 << 16];
+                    while (failure.get() == null) {
+                        int idx = next.getAndIncrement();
+                        if (idx >= nChunks) return;
+                        long start = idx * chunk;
+                        long end = Math.min(start + chunk, size) - 1;
+                        boolean got = false;
+                        for (int attempt = 0; attempt < 3 && !got; attempt++) {
+                            if (attempt > 0) {
+                                try { Thread.sleep(2000); }
+                                catch (InterruptedException ie) { return; }
+                            }
+                            HttpURLConnection conn = (HttpURLConnection)
+                                    new URL(urlStr).openConnection();
+                            try {
+                                conn.setConnectTimeout(20000);
+                                conn.setReadTimeout(60000);
+                                conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
+                                conn.setRequestProperty("Range",
+                                        "bytes=" + start + "-" + end);
+                                int code = conn.getResponseCode();
+                                if (code != 206) {
+                                    throw new IOException("HTTP " + code);
+                                }
+                                long pos = start;
+                                try (InputStream in = new BufferedInputStream(
+                                        conn.getInputStream())) {
+                                    int n;
+                                    while ((n = in.read(buf)) > 0) {
+                                        channel.write(java.nio.ByteBuffer.wrap(buf, 0, n), pos);
+                                        pos += n;
+                                    }
+                                }
+                                if (pos != end + 1) {
+                                    throw new IOException("short chunk: " + pos);
+                                }
+                                long done = doneSum.addAndGet(end + 1 - start);
+                                got = true;
+                                int pct = total > 0 ? (int) (done * 100 / total) : 0;
+                                // Progress text unified with the OHOS build.
+                                long doneTotal = doneBase + done;
+                                double elapsedSec = Math.max(0.001,
+                                        (System.currentTimeMillis() - startTime) / 1000.0);
+                                setProgress(String.format(Locale.US,
+                                        "正在下载 %s  %d%%  %s / %s  (%s)",
+                                        label, Math.min(99, pct), fmtSize(doneTotal),
+                                        fmtSize(total),
+                                        fmtSize((long) (doneTotal / elapsedSec)) + "/s"),
+                                        Math.min(99, pct));
+                            } catch (IOException e) {
+                                if (attempt == 2) failure.compareAndSet(null, e);
+                            } finally {
+                                conn.disconnect();
+                            }
+                        }
+                        if (!got) return;
+                    }
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (java.util.concurrent.ExecutionException ee) {
+                    if (ee.getCause() instanceof IOException) {
+                        failure.compareAndSet(null, (IOException) ee.getCause());
+                    } else {
+                        failure.compareAndSet(null,
+                                new IOException(String.valueOf(ee.getCause())));
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("下载被中断", ie);
+                }
             }
         } finally {
-            conn.disconnect();
+            pool.shutdownNow();
+            try {
+                channel.close();
+            } catch (IOException e) {
+                // ignore
+            }
+        }
+        IOException err = failure.get();
+        if (err != null) {
+            throw err;
         }
     }
 

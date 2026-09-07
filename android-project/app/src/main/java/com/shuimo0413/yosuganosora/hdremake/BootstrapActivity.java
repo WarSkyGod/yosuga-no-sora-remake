@@ -1249,9 +1249,11 @@ public class BootstrapActivity extends Activity {
 
     private static void refreshAcceleratorNodesOnce() {
             final String repo = "TsangAsuna/yosuga-no-sora-remake";
+            // raw first: CDN mirrors (jsDelivr) can serve a stale copy after a
+            // node-list change, and a stale list would show removed nodes.
             final String[] sources = {
-                "https://cdn.jsdelivr.net/gh/" + repo + "@main/accelerator-nodes.json",
-                "https://raw.githubusercontent.com/" + repo + "/main/accelerator-nodes.json"
+                "https://raw.githubusercontent.com/" + repo + "/main/accelerator-nodes.json",
+                "https://cdn.jsdelivr.net/gh/" + repo + "@main/accelerator-nodes.json"
             };
             String[][] loaded = null;
             for (String urlStr : sources) {
@@ -1310,8 +1312,15 @@ public class BootstrapActivity extends Activity {
 
     /** Returns RTT in ms for a proxy prefix (small Range GET), or -1. */
     private static long pingNodeLatency(String proxyPrefix) {
+        // Probe the host the downloader actually uses (github.com release
+        // assets), NOT raw.githubusercontent.com: the two routes can differ
+        // (raw blocked while github.com works, or vice versa), and a probe
+        // against the wrong host would wrongly report "timeout" yet still
+        // download fine. Any HTTP answer (200/206/301/404...) means the
+        // prefix reaches github.com, so only connection-level failures
+        // count as unreachable.
         final String probeUrl = proxyPrefix
-                + "https://raw.githubusercontent.com/krkrz/krkrz/master/README.md";
+                + "https://github.com/";
         long t0 = System.currentTimeMillis();
         try {
             HttpURLConnection conn = (HttpURLConnection) new java.net.URL(probeUrl).openConnection();
@@ -1326,7 +1335,9 @@ public class BootstrapActivity extends Activity {
                 while (in.read(tmp) >= 0) { /* drain */ }
             }
             conn.disconnect();
-            if (code != 200 && code != 206) return -1;
+            // Any HTTP status counts as "reaches github.com"; only connection
+            // failures (exceptions above) mean the prefix is unreachable.
+            if (code <= 0) return -1;
             return System.currentTimeMillis() - t0;
         } catch (Exception e) {
             return -1;

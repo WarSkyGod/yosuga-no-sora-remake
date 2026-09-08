@@ -12,6 +12,16 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import deviceInfo from '@ohos.deviceInfo';
 import { unzipTask, copyFileTask, sha256Task, copyUriTask, moveTreeTask, mergeTreeTask, removeTreeTask } from '../workers/DataWorkers';
 
+/* PC/tablet game surface: FIXED virtual resolution in physical pixels.
+ * Real-device forensics (v1.0.8) proved the HarmonyOS PC ArkUI framework
+ * crashes inside its XComponent surface-resize path with an identical
+ * wild-pc stack regardless of what the render thread does, so the surface
+ * must never change size on window resizes. The game surface stays at this
+ * fixed size and is fitted into the window with a GPU transform (.scale);
+ * window resizes only change the transform. */
+const GAME_VIRTUAL_W_PX = 1920;
+const GAME_VIRTUAL_H_PX = 1080;
+
 
 /** data-assets.json entry. */
 interface DataAsset {
@@ -173,13 +183,20 @@ struct Index {
   private hbTick: number = 0;
   private hbStart: number = 0;
 
-  // Game surface layout policy. PC/tablet form factors fill the whole
-  // window (the engine letterboxes its own 1920x1080 layer); PHONES keep
-  // the original v1.0.4 fitted 16:9 canvas (black bars left/right) - the
-  // stretched full-window surface on tall phone screens distorted the
-  // picture and lost the classic letterbox look (user report, real phone).
-  // Set once in aboutToAppear from deviceInfo.deviceType.
+  // Game surface layout policy. PC/tablet form factors use a FIXED virtual
+  // resolution (GAME_VIRTUAL_W_PX x GAME_VIRTUAL_H_PX physical px) fitted
+  // into the window with a .scale transform: the XComponent surface itself
+  // never resizes, which sidesteps the ArkUI surface-resize crash proven on
+  // real HarmonyOS PC hardware (identical wild-pc stacks across all resize
+  // directions, before AND after the render-thread fixes that cured the
+  // phone). PHONES keep the original v1.0.4 fitted 16:9 canvas (black bars
+  // left/right) - that variant is stable on phones (confirmed working).
   @State gameFillsWindow: boolean = true;
+  // PC/tablet transform: gameScale = min(win_px / VIRTUAL_W, win_px / VIRTUAL_H);
+  // gameOffsetX/Y are the centred game-surface origin in window px.
+  @State gameScale: number = 1;
+  @State rootWpx: number = 0;
+  @State rootHpx: number = 0;
 
   aboutToAppear(): void {
     this.hbStart = Date.now();
@@ -2658,6 +2675,35 @@ struct Index {
     }
   }
 
+  /* Touch/mouse mapping helpers. PC/tablet (fixed virtual surface): window
+   * px -> game surface px via the centred transform; the native side then
+   * maps surface px 1:1 onto the 1920x1080 logical window (g_physical equals
+   * the fixed surface size, so its scaling is an identity). Phones: pass the
+   * raw fitted-surface px through unchanged (native scales from it). */
+  private gameOffsetX(): number {
+    return (this.rootWpx - GAME_VIRTUAL_W_PX * this.gameScale) / 2;
+  }
+
+  private gameOffsetY(): number {
+    return (this.rootHpx - GAME_VIRTUAL_H_PX * this.gameScale) / 2;
+  }
+
+  private mapTouchX(xVp: number): number {
+    const px = vp2px(xVp);
+    if (this.gameFillsWindow && this.gameScale > 0) {
+      return (px - this.gameOffsetX()) / this.gameScale;
+    }
+    return px;
+  }
+
+  private mapTouchY(yVp: number): number {
+    const px = vp2px(yVp);
+    if (this.gameFillsWindow && this.gameScale > 0) {
+      return (px - this.gameOffsetY()) / this.gameScale;
+    }
+    return px;
+  }
+
   build() {
     Stack({ alignContent: Alignment.Center }) {
       // Title background image shipped inside the HAP (rawfile); only on
@@ -2726,22 +2772,19 @@ struct Index {
                 this.log('onLoad exception: ' + JSON.stringify(e));
               }
             })
-            // PC/tablet: fill the whole window - the engine renders the
-            // game's 16:9 layer (1920x1080) letterboxed into whatever
-            // surface size it gets, so the surface must NOT be resized
-            // through ArkTS state when fullscreen toggles - the root-driven
-            // double relayout (root stack 100%x100% AND this.gameW/H)
-            // destroyed the surface twice in one frame and the render
-            // thread SEGV'd on the stale one (cppcrash right after the
-            // fullscreen ack). This mirrors the working v1.0.4 layout.
-            // PHONES: the original v1.0.4 fitted 16:9 canvas (gameW/gameH
-            // from fitGameCanvas) with black bars left/right - phones were
-            // always fullscreen so the double-relayout hazard never applied
-            // there, and the full-window stretch distorted the picture on
-            // tall screens (user report). Only the bootstrap UI keeps the
-            // fitted canvas on PC.
-            .width(this.gameFillsWindow ? '100%' : this.gameW)
-            .height(this.gameFillsWindow ? '100%' : this.gameH)
+            // PC/tablet: FIXED virtual-resolution surface (1920x1080
+            // physical px) fitted with a GPU .scale transform. The surface
+            // never resizes on window changes - real-device forensics showed
+            // ArkUI crashes in its own surface-resize path on HarmonyOS PC
+            // regardless of the render thread, so resizes must only ever
+            // change this transform. PHONES: the original v1.0.4 fitted
+            // 16:9 canvas (gameW/gameH from fitGameCanvas, black bars
+            // left/right), confirmed stable on a real phone in v1.0.8.
+            .width(this.gameFillsWindow ? px2vp(GAME_VIRTUAL_W_PX) : this.gameW)
+            .height(this.gameFillsWindow ? px2vp(GAME_VIRTUAL_H_PX) : this.gameH)
+            .scale(this.gameFillsWindow
+              ? { x: this.gameScale, y: this.gameScale }
+              : { x: 1, y: 1 })
             // Report the real component size to the engine: the native
             // OnSurfaceChanged callback never fires on this system, so
             // without this the SDL window size stays at the fallback and
@@ -2841,10 +2884,10 @@ struct Index {
                   // emulate the finger tap exactly: sendTouch.
                   if (event.type === TouchType.Down) {
                     const mt = event.touches[0];
-                    if (mt) entryNapi.sendTouch(0, vp2px(mt.x), vp2px(mt.y));
+                    if (mt) entryNapi.sendTouch(0, this.mapTouchX(mt.x), this.mapTouchY(mt.y));
                   } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
                     const mt = event.touches[0];
-                    if (mt) entryNapi.sendTouch(1, vp2px(mt.x), vp2px(mt.y));
+                    if (mt) entryNapi.sendTouch(1, this.mapTouchX(mt.x), this.mapTouchY(mt.y));
                   }
                   return;
                 }
@@ -2858,7 +2901,7 @@ struct Index {
                 // advances text, skips the logo movie).
                 const t = event.touches[0];
                 if (t) {
-                  entryNapi.sendTouch(type, vp2px(t.x), vp2px(t.y));
+                  entryNapi.sendTouch(type, this.mapTouchX(t.x), this.mapTouchY(t.y));
                 }
                 // EVERY finger must reach SDL as a FINGER event: the engine
                 // maps a two-finger tap onto the right mouse button, which
@@ -2868,7 +2911,7 @@ struct Index {
                 const changed = event.changedTouches;
                 for (let i = 0; i < changed.length; i++) {
                   const f = changed[i];
-                  entryNapi.sendFinger(type, f.id, vp2px(f.x), vp2px(f.y));
+                  entryNapi.sendFinger(type, f.id, this.mapTouchX(f.x), this.mapTouchY(f.y));
                 }
               } catch (e) {
                 this.log('overlay onTouch exception: ' + JSON.stringify(e));
@@ -2882,11 +2925,11 @@ struct Index {
                   // LEFT button skipped here (phones deliver it as a touch-source
                   // event handled in onTouch); right/middle buttons stay on
                   // this ArkUI mouse callback, as do move/hover.
-                  if (b !== 1) { entryNapi.sendMouse(0, b, vp2px(event.x), vp2px(event.y)); }
+                  if (b !== 1) { entryNapi.sendMouse(0, b, this.mapTouchX(event.x), this.mapTouchY(event.y)); }
                 } else if (event.action === MouseAction.Release) {
-                  if (b !== 1) { entryNapi.sendMouse(1, b, vp2px(event.x), vp2px(event.y)); }
+                  if (b !== 1) { entryNapi.sendMouse(1, b, this.mapTouchX(event.x), this.mapTouchY(event.y)); }
                 } else if (event.action === MouseAction.Move || event.action === MouseAction.Hover) {
-                  entryNapi.sendMouse(3, b, vp2px(event.x), vp2px(event.y));
+                  entryNapi.sendMouse(3, b, this.mapTouchX(event.x), this.mapTouchY(event.y));
                 }
               } catch (e) {
                 // ignore malformed events
@@ -3134,6 +3177,20 @@ struct Index {
     // misplaced the bootstrap buttons).
     .onAreaChange((oldRoot: Area, newRoot: Area) => {
       this.fitGameCanvas(newRoot.width as number, newRoot.height as number);
+      if (this.gameFillsWindow) {
+        // PC/tablet: the game surface is fixed-size; only this transform
+        // follows the window. Touch mapping uses the same numbers.
+        const rw = vp2px(newRoot.width as number);
+        const rh = vp2px(newRoot.height as number);
+        if (rw > 0 && rh > 0) {
+          this.rootWpx = rw;
+          this.rootHpx = rh;
+          const k = Math.min(rw / GAME_VIRTUAL_W_PX, rh / GAME_VIRTUAL_H_PX);
+          if (k > 0 && Math.abs(k - this.gameScale) > 0.0001) {
+            this.gameScale = k;
+          }
+        }
+      }
     })
     .backgroundColor('#000000')
     .expandSafeArea([SafeAreaType.SYSTEM])

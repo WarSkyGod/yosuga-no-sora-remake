@@ -72,13 +72,9 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf data
-          # TEMPORARY fork-build override: pull the data parts from the
-          # UPSTREAM repository -- a fork has no data-vN release of its own
-          # yet, so the auto-pick would fail. Revert to the auto-pick line
-          # below once this repository has published its own data-vN.
-          python3 tools/fetch_data_parts.py --repo shuimo0413/yosuga-no-sora-remake --dest data
-          # Original auto-pick (restore before publishing data-v(N+1) here):
-          # python3 tools/fetch_data_parts.py --dest data
+          # Auto-pick the newest data-vN release of THIS repository
+          # (publishing data-v(N+1) needs no workflow edits).
+          python3 tools/fetch_data_parts.py --dest data
       # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest, so the content
       # manifest records the hash of the file that actually ships.

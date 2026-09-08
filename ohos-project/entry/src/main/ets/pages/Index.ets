@@ -275,23 +275,47 @@ struct Index {
                 return mainWindow.setFullScreen(fsReq === 1).then((): Promise<void> => {
                   if (fsReq === 0) {
                     // Leaving fullscreen: setFullScreen(false) only drops the
-                    // fullscreen flag - if the window is still MAXIMIZED the
-                    // user sees no visual change at all and reports "cannot
-                    // switch back to windowed". Shrink it to a proper
-                    // 16:9 floating window (1280x720 px). Safe now: the game
-                    // surface is a fixed virtual resolution, so a window
-                    // resize only changes the .scale transform and never
-                    // touches the XComponent surface (the v1.0.9 crash is
-                    // bypassed by design).
-                    return mainWindow.resize(px2vp(1280), px2vp(720)).then((): void => {
+                    // fullscreen flag - the window stays MAXIMIZED, so the
+                    // user sees no visual change (v1.0.10 emulator forensics:
+                    // poll=0 -> applied, acked yet "windowed" looked dead; the
+                    // resize() call was silently ignored while maximized).
+                    // API 12 REMOVED setWindowMode/WindowMode entirely - the
+                    // supported way out of a maximized window is Window#
+                    // recover(), which restores the pre-maximized size and
+                    // (now floating) unlocks resize. Enforce a 16:9
+                    // game-friendly 1280x720 px floating window after it.
+                    return mainWindow.recover().then((): Promise<void> => {
                       try {
-                        entryNapi.diagLog('shell: windowed resize 1280x720px applied');
-                      } catch (eDg5) {
-                        // ignore
+                        entryNapi.diagLog('shell: recover() ok');
+                      } catch (eDg6) {
+                        // diag channel not ready
                       }
-                    }).catch((): void => {
-                      // resize may be unsupported on some form factors; the
-                      // fullscreen flag was still dropped correctly.
+                      return mainWindow.resize(px2vp(1920), px2vp(1080)).then((): void => {
+                        try {
+                          entryNapi.diagLog('shell: windowed resize 1920x1080px applied');
+                        } catch (eDg5) {
+                          // diag channel not ready
+                        }
+                      }).catch((eRz: Error): void => {
+                        try {
+                          entryNapi.diagLog('shell: resize-after-recover FAILED: ' + JSON.stringify(eRz));
+                        } catch (eDg7) {
+                          // diag channel not ready
+                        }
+                      });
+                    }).catch((eRc: Error): Promise<void> => {
+                      try {
+                        entryNapi.diagLog('shell: recover() FAILED: ' + JSON.stringify(eRc));
+                      } catch (eDg8) {
+                        // diag channel not ready
+                      }
+                      return mainWindow.resize(px2vp(1920), px2vp(1080)).catch((eRz2: Error): void => {
+                        try {
+                          entryNapi.diagLog('shell: windowed resize FAILED: ' + JSON.stringify(eRz2));
+                        } catch (eDg9) {
+                          // diag channel not ready
+                        }
+                      });
                     });
                   }
                   return Promise.resolve();

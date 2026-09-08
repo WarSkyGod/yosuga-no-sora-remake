@@ -51,12 +51,32 @@ static void TVPIOSRelayoutSDLWindow(UIWindowScene *scene)
     CGRect sceneBounds = scene.coordinateSpace.bounds;
     if(CGRectIsEmpty(sceneBounds)) return;
 
+    /* Use integral points so the Metal drawable size never keeps a sub-pixel
+     * remainder: a fractional height (e.g. 1079.5 pt) can leave the engine
+     * rendering one row short at the bottom edge of the title screen. */
+    sceneBounds = CGRectMake(floor(sceneBounds.origin.x), floor(sceneBounds.origin.y),
+                             floor(sceneBounds.size.width), floor(sceneBounds.size.height));
+
     window.frame = sceneBounds;
     UIView *contentView = window.rootViewController.view;
     if(contentView) {
         contentView.frame = window.bounds;
         [contentView setNeedsLayout];
         [contentView layoutIfNeeded];
+        /* Force the actual SDL rendering view (Metal/GL) to the same bounds:
+         * layoutIfNeeded alone can leave it at the old size until the next
+         * interaction, which is exactly the "title screen bottom gap" that
+         * disappears after switching to settings. */
+        for(UIView *sub in contentView.subviews) {
+            Class metalViewClass = NSClassFromString(@"SDL_uikitmetalview");
+            Class openglViewClass = NSClassFromString(@"SDL_uikitopenglview");
+            BOOL isRenderView = (metalViewClass && [sub isKindOfClass:metalViewClass])
+                             || (openglViewClass && [sub isKindOfClass:openglViewClass]);
+            if(isRenderView) {
+                sub.frame = contentView.bounds;
+                [sub layoutIfNeeded];
+            }
+        }
     }
     [window setNeedsLayout];
     [window layoutIfNeeded];
@@ -81,6 +101,17 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
        interaction triggers another layout.  A final pass covers it. */
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
         (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
+    /* The title screen (and its background surface) can appear well after
+       the 0.5s pass; keep running late passes so the bottom edge is covered
+       even with a slow data mount or slow first frame. */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         TVPIOSRelayoutSDLWindow(weakScene);
     });
 }

@@ -936,6 +936,11 @@ public class BootstrapActivity extends Activity {
             sLatestUpstreamAt = now;
             return sLatestUpstreamBase;
         } catch (Exception e) {
+            // Cache the failure too: when api.github.com is unreachable
+            // (no proxy / GFW), retrying on every loadManifest() would add
+            // up to ~16s of dead timeout per call. Remember the attempt so
+            // the next 10 minutes go straight to FALLBACK_BASE_URL.
+            sLatestUpstreamAt = now;
             return null;
         }
     }

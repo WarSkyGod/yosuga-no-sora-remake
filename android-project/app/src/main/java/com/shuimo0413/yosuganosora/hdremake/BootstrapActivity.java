@@ -1000,6 +1000,15 @@ public class BootstrapActivity extends Activity {
 
     private void downloadFile(String urlStr, File dest, long size,
             long doneBase, long total, String label, long startTime) throws IOException {
+        // Show download progress immediately: the "正在获取下载清单…" text set
+        // by startDownload stays on screen until the FIRST chunk completes,
+        // which with slow mirrors looks like the manifest fetch is hanging
+        // while the OS network meter already shows heavy traffic.
+        int startPct = total > 0 ? (int) (doneBase * 100 / total) : 0;
+        setProgress(String.format(Locale.US,
+                "正在下载 %s  %d%%  %s / %s",
+                label, Math.min(99, startPct), fmtSize(doneBase), fmtSize(total)),
+                Math.min(99, startPct));
         // 6 concurrent Range workers over 8MB chunks, same scheme as the
         // OHOS build: throughput comes from parallelism. Each worker writes
         // its chunk at the exact offset via FileChannel.positional write,
@@ -1130,7 +1139,11 @@ public class BootstrapActivity extends Activity {
                                     doneSum.addAndGet(size - resumedBytes.get());
                                     got = true;
                                     long doneTotal = doneBase + doneSum.get();
-                                    int pct = total > 0 ? (int) (doneSum.get() * 100 / total) : 0;
+                                    // Percent is cumulative across all files
+                                    // (doneBase + current file), so the bar
+                                    // advances smoothly instead of resetting
+                                    // to 0% at each file boundary.
+                                    int pct = total > 0 ? (int) (doneTotal * 100 / total) : 0;
                                     long rate = speedFn.apply(doneTotal);
                                     setProgress(String.format(Locale.US,
                                             "正在下载 %s  %d%%  %s / %s  (%s)",
@@ -1157,9 +1170,13 @@ public class BootstrapActivity extends Activity {
                                 }
                                 long done = doneSum.addAndGet(end + 1 - start);
                                 got = true;
-                                int pct = total > 0 ? (int) (done * 100 / total) : 0;
                                 // Progress text unified with the OHOS build.
                                 long doneTotal = doneBase + done;
+                                // Percent is cumulative across all files
+                                // (doneBase + current file), so the bar
+                                // advances smoothly instead of resetting
+                                // to 0% at each file boundary.
+                                int pct = total > 0 ? (int) (doneTotal * 100 / total) : 0;
                                 long rate = speedFn.apply(doneTotal);
                                 setProgress(String.format(Locale.US,
                                         "正在下载 %s  %d%%  %s / %s  (%s)",

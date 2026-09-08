@@ -1543,16 +1543,22 @@ class MessageFrame extends Sprite, SelectItemNotifyBase{
 			if(!_advObj.hitretState) break;
 			if(_voice === void || _voice == "") break;
 			if(IsFavoriteVoice(_voice)){
-				if(RemoveFavoriteVoice(_voice))
-					Information("已取消收藏", 1000);
-				else
-					Information("取消收藏失败", 1000);
-			}else{
-				if(AddFavoriteVoice(_voice, %[name:_name, text:_mess, face:_layoutFace]))
-					Information("已收藏语音", 1000);
-				else
-					Information("该语音已收藏", 1000);
-			}
+							if(RemoveFavoriteVoice(_voice)){
+								Information("已取消收藏", 1000);
+								_btn[_btnFavVoice].ptnNormal = FAV_VOICE_NORMAL_PTN; // 恢复白色
+								_btn[_btnFavVoice].setButton(FAV_VOICE_NORMAL_PTN);
+							}
+							else
+								Information("取消收藏失败", 1000);
+						}else{
+							if(AddFavoriteVoice(_voice, %[name:_name, text:_mess, face:_layoutFace])){
+								Information("已收藏语音", 1000);
+								_btn[_btnFavVoice].ptnNormal = FAV_VOICE_FOCUS_PTN; // 收藏后显示灰色
+								_btn[_btnFavVoice].setButton(FAV_VOICE_FOCUS_PTN);
+							}
+							else
+								Information("该语音已收藏", 1000);
+						}
 			break;
 		case _btn[_btnTextSettings] :
 			if(_textSettingsMenu.visible){

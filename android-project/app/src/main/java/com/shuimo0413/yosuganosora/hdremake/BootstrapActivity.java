@@ -494,10 +494,26 @@ public class BootstrapActivity extends Activity {
             new Thread(() -> {
                 long bestMs = Long.MAX_VALUE;
                 String bestPrefix = "";
+                // Probe the REAL manifest URL (prefix + upstream data-assets.json)
+                // instead of the github.com homepage: many mirrors forward
+                // download paths fine but are slow/blocked on the large
+                // homepage, which would wrongly report every node as dead.
+                String target = null;
+                try {
+                    String base = resolveBaseUrl();
+                    target = base + "data-assets.json";
+                } catch (Exception ignored) {
+                }
                 for (String[] node : ACCEL_NODES) {
                     String prefix = node[1];
                     if (prefix.isEmpty()) continue; // skip direct
-                    long ms = pingNodeLatency(prefix);
+                    long ms;
+                    if (target != null) {
+                        ms = probeOnce(prefix + target, systemProxy(), 2500);
+                        if (ms < 0) ms = probeOnce(prefix + target, java.net.Proxy.NO_PROXY, 6000);
+                    } else {
+                        ms = pingNodeLatency(prefix);
+                    }
                     if (ms >= 0 && ms < bestMs) {
                         bestMs = ms;
                         bestPrefix = prefix;

@@ -79,6 +79,18 @@ jobs:
           python3 tools/fetch_data_parts.py --repo shuimo0413/yosuga-no-sora-remake --dest data
           # Original auto-pick (restore before publishing data-v(N+1) here):
           # python3 tools/fetch_data_parts.py --dest data
+      # Overlay gameplay patches on top of the source data so releases ship
+      # fixes that are not (yet) in the upstream data: voice favorite toggle
+      # (MessageFrame: second tap cancels, does not repeat "already added").
+      - name: Apply data patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in tools/data-patches/system/*.tjs; do
+            [ -e "$f" ] || continue
+            cp -f "$f" "data/system/$(basename "$f")"
+            echo "patched data/system/$(basename "$f")"
+          done
       # Version follows the release tag (shared with every platform):
       # stamped into status.tjs before the manifest, so the content
       # manifest records the hash of the file that actually ships.

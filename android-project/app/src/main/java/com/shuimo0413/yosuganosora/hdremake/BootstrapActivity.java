@@ -697,12 +697,17 @@ public class BootstrapActivity extends Activity {
         File parent = chooseDataParent();
         if (parent != null) {
             ensureNoMedia(parent);
+            // Pre-existing data (e.g. an app update kept the folder): mark
+            // the asset tree and the save folder for the media scanner too.
+            ensureNoMedia(new File(parent, "data"));
+            ensureNoMedia(new File(downloadRoot(), "savedata"));
         }
         maybeConfirmUpdate(ready);
     }
 
-    private void ensureNoMedia(File parent) {
-        File marker = new File(parent, ".nomedia");
+    private void ensureNoMedia(File dir) {
+        if (dir == null || !dir.isDirectory()) return;
+        File marker = new File(dir, ".nomedia");
         if (!marker.exists()) {
             try { marker.createNewFile(); } catch (IOException ignored) {}
         }
@@ -1479,6 +1484,36 @@ public class BootstrapActivity extends Activity {
     }
 
     private void markConfirmed() {
+        // The import-progress records (data-assets-<N>.json) have done their
+        // job once the dataset is complete: drop them (and any leftover
+        // in-pack manifest) so a re-import after an app UPDATE is not
+        // rejected with "第 N 个压缩包已导入过" - the records survive an
+        // update install because the app data folder is preserved.
+        try {
+            File parent = chooseDataParent();
+            if (parent != null) {
+                // Media-scan exclusion: game assets and saves must never be
+                // published into the system gallery. The save folder is
+                // created on demand so the marker exists before the first
+                // save (the engine writes its own marker on later boots).
+                File dataTree = new File(parent, "data");
+                if (!dataTree.isDirectory()) dataTree.mkdirs();
+                ensureNoMedia(dataTree);
+                File saveDir = new File(downloadRoot(), "savedata");
+                if (!saveDir.isDirectory()) saveDir.mkdirs();
+                ensureNoMedia(saveDir);
+                File[] kids = parent.listFiles();
+                if (kids != null) {
+                    Pattern rec = Pattern.compile("data-assets-(\\d+)\\.json");
+                    for (File f : kids) {
+                        String n = f.getName();
+                        if (n.equals("data-assets.json") || rec.matcher(n).matches()) {
+                            f.delete();
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
         try {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putInt(KEY_CONFIRMED_VERSION, getVersionCode()).apply();

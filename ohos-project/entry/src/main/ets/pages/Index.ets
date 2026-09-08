@@ -10,6 +10,7 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { promptAction, window } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import deviceInfo from '@ohos.deviceInfo';
+import display from '@ohos.display';
 import { unzipTask, copyFileTask, sha256Task, copyUriTask, moveTreeTask, mergeTreeTask, removeTreeTask } from '../workers/DataWorkers';
 
 /* PC/tablet game surface: FIXED virtual resolution in physical pixels.
@@ -273,8 +274,56 @@ struct Index {
                   // ignore
                 }
                 return mainWindow.setFullScreen(fsReq === 1).then((): Promise<void> => {
+                  if (fsReq === 1) {
+                    // Entering fullscreen: stretch the layout into the
+                    // system-bar insets as well. setFullScreen(true) toggles
+                    // the OS fullscreen state, but on 2-in-1 desktops the
+                    // layout may still keep reserved insets - layoutFullScreen
+                    // is the supported stretch (setWindowSystemBarEnable([])
+                    // is a no-op on API 12 2-in-1 devices).
+                    return mainWindow.setWindowLayoutFullScreen(true).then((): Promise<void> => {
+                      try {
+                        entryNapi.diagLog('shell: layoutFullScreen(1) ok');
+                      } catch (eDgA) {
+                        // diag channel not ready
+                      }
+                      // The root onAreaChange is unreliable right after a
+                      // programmatic window change: recompute the fitted
+                      // 16:9 bootstrap canvas AND the fixed-surface
+                      // transform explicitly from the physical display
+                      // size, so the download/import controls stay laid
+                      // out and the picture fills the screen.
+                      try {
+                        const dspFs2 = display.getDefaultDisplaySync();
+                        if (dspFs2.width > 0 && dspFs2.height > 0) {
+                          this.fitGameCanvas(px2vp(dspFs2.width),
+                            px2vp(dspFs2.height));
+                          this.rootWpx = dspFs2.width;
+                          this.rootHpx = dspFs2.height;
+                          const kFs2 = Math.min(dspFs2.width / GAME_VIRTUAL_W_PX,
+                            dspFs2.height / GAME_VIRTUAL_H_PX);
+                          if (kFs2 > 0 &&
+                            Math.abs(kFs2 - this.gameScale) > 0.0001) {
+                            this.gameScale = kFs2;
+                          }
+                        }
+                      } catch (eFsFit) {
+                        // display API unavailable - onAreaChange fallback
+                      }
+                      return Promise.resolve();
+                    }).catch((eLf: Error): Promise<void> => {
+                      try {
+                        entryNapi.diagLog('shell: layoutFullScreen(1) FAILED: ' + JSON.stringify(eLf));
+                      } catch (eDgB) {
+                        // diag channel not ready
+                      }
+                      return Promise.resolve();
+                    });
+                  }
                   if (fsReq === 0) {
-                    // Leaving fullscreen: setFullScreen(false) only drops the
+                    // Leaving fullscreen: restore normal layout first (the
+                    // fullscreen branch stretched it into the insets), then
+                    // setFullScreen(false) only drops the fullscreen flag -
                     // fullscreen flag - the window stays MAXIMIZED, so the
                     // user sees no visual change (v1.0.10 emulator forensics:
                     // poll=0 -> applied, acked yet "windowed" looked dead; the
@@ -284,7 +333,10 @@ struct Index {
                     // recover(), which restores the pre-maximized size and
                     // (now floating) unlocks resize. Enforce a 16:9
                     // game-friendly 1280x720 px floating window after it.
-                    return mainWindow.recover().then((): Promise<void> => {
+                    return mainWindow.setWindowLayoutFullScreen(false).catch((): void => {
+                      // layout restore is best-effort
+                    }).then((): Promise<void> => {
+                      return mainWindow.recover().then((): Promise<void> => {
                       try {
                         entryNapi.diagLog('shell: recover() ok');
                       } catch (eDg6) {
@@ -296,6 +348,13 @@ struct Index {
                         } catch (eDg5) {
                           // diag channel not ready
                         }
+                        // Explicit re-fit after a programmatic resize (the
+                        // root onAreaChange does not fire reliably): keeps
+                        // the bootstrap controls inside the smaller window.
+                        this.fitGameCanvas(px2vp(1920), px2vp(1080));
+                        this.rootWpx = 1920;
+                        this.rootHpx = 1080;
+                        this.gameScale = 1;
                       }).catch((eRz: Error): void => {
                         try {
                           entryNapi.diagLog('shell: resize-after-recover FAILED: ' + JSON.stringify(eRz));
@@ -309,7 +368,12 @@ struct Index {
                       } catch (eDg8) {
                         // diag channel not ready
                       }
-                      return mainWindow.resize(px2vp(1920), px2vp(1080)).catch((eRz2: Error): void => {
+                      return mainWindow.resize(px2vp(1920), px2vp(1080)).then((): void => {
+                        this.fitGameCanvas(px2vp(1920), px2vp(1080));
+                        this.rootWpx = 1920;
+                        this.rootHpx = 1080;
+                        this.gameScale = 1;
+                      }).catch((eRz2: Error): void => {
                         try {
                           entryNapi.diagLog('shell: windowed resize FAILED: ' + JSON.stringify(eRz2));
                         } catch (eDg9) {
@@ -317,6 +381,7 @@ struct Index {
                         }
                       });
                     });
+                     });
                   }
                   return Promise.resolve();
                 });
@@ -394,6 +459,9 @@ struct Index {
         this.log('xp3 present without loose tree -> auto-extract');
         this.extractAndFinalize(this.baseDir + '/data.xp3');
       } else {
+        // Pre-existing data (e.g. an app update kept the folder): the data/
+        // and savedata trees may predate the media-exclusion marker.
+        this.writeNomediaTree();
         this.readyForGame = true;
         this.log('ready -> confirm/start');
         this.confirmDataVersion();
@@ -664,6 +732,45 @@ struct Index {
     }
   }
 
+  /** .nomedia for the whole data layout: the public root, the data/ asset
+   *  tree and the savedata folder. Runs after a download/import completes
+   *  AND when an app update boots with pre-existing data (that data may
+   *  predate the marker - the media library would otherwise index the
+   *  game sprites and save thumbnails into the gallery). */
+  private writeNomediaTree(): void {
+    this.writeNomedia(this.baseDir);
+    this.writeNomedia(this.dataDir);
+    this.writeNomedia(this.saveDir);
+    // Verification breadcrumb (sandbox-visible via hdc): which .nomedia
+    // markers exist after the pass. Uses statSync - this device's
+    // accessSync reports nonexistent paths as present.
+    try {
+      const st = (p: string): string => {
+        try {
+          fs.statSync(p);
+          return '1';
+        } catch (e) {
+          return '0';
+        }
+      };
+      const f = fs.openSync(this.sandboxFiles + '/nomedia_check.txt',
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      const imgHpx = Math.min(this.rootWpx, this.rootHpx * 16 / 9);
+      fs.writeSync(f.fd, 'base=' + st(this.baseDir + '/.nomedia') +
+        ' data=' + st(this.dataDir + '/.nomedia') +
+        ' save=' + st(this.saveDir + '/.nomedia') +
+        ' | gameW=' + this.gameW + ' gameH=' + this.gameH +
+        ' rootWpx=' + this.rootWpx + ' rootHpx=' + this.rootHpx +
+        ' vp1px=' + px2vp(1) +
+        ' barVp=' + (this.rootHpx > 0 && this.rootWpx > 0
+          ? px2vp((this.rootHpx - imgHpx) / 2) : -1) +
+        ' fills=' + (this.gameFillsWindow ? 1 : 0));
+      fs.closeSync(f);
+    } catch (e) {
+      // best effort
+    }
+  }
+
   /**
    * Synchronously resolve baseDir/saveDir/dataDir from the app-owned public
    * Download folder (marker-present) or the sandbox, so a data-ready app can
@@ -890,6 +997,7 @@ struct Index {
         // may already exist
       }
       this.writeNomedia(dir);
+      this.writeNomedia(dir + '/savedata');
       this.lastDirectError = '';
       this.log('tryDirectAt: ok ' + dir);
       return true;
@@ -922,6 +1030,7 @@ struct Index {
       // already exists
     }
     this.writeNomedia(this.appDir);
+    this.writeNomedia(this.saveDir);
     this.message = '';
     this.log('data dir: public ' + this.appDir);
   }
@@ -962,6 +1071,7 @@ struct Index {
           // may already exist
         }
         this.writeNomedia(this.appDir);
+        this.writeNomedia(this.appDir + '/savedata');
         try {
           const marker = fs.openSync(this.appDir + '/.granted',
             fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
@@ -2608,6 +2718,13 @@ struct Index {
         return;
       }
       this.readyForGame = true;
+      // The import-progress records (data-assets-<N>.json) have done their
+      // job once the dataset is complete: drop them (and any leftover
+      // in-pack manifest) so a re-import after an app UPDATE is not
+      // rejected with "第 N 个压缩包已导入过" - the records survive an
+      // update install because the app data folder is preserved.
+      this.clearPackRecords();
+      this.writeNomediaTree();
       // Record that THIS app version already confirmed the current data,
       // so an app update asks again exactly once.
       this.writeTextFile(this.sandboxFiles + '/data_confirm.txt',
@@ -2630,6 +2747,22 @@ struct Index {
     this.progressValue = 0;
     this.message = '压缩包内容不正确：未找到 data 文件夹或 data.xp3，请重新选择或下载';
     this.showNotice('数据不完整', '请检查压缩包是否包含 data 文件夹或 data.xp3 文件');
+  }
+
+  /** Drop the import-progress records once the dataset is complete: they
+   *  only back the completeness gate during an import round, and stale
+   *  records surviving an app update would block a fresh re-import. */
+  private clearPackRecords(): void {
+    for (const name of this.tryList(this.baseDir)) {
+      if (name === 'data-assets.json' ||
+        (name.startsWith('data-assets-') && name.endsWith('.json'))) {
+        try {
+          fs.unlinkSync(this.baseDir + '/' + name);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
   }
 
   delay(ms: number): Promise<void> {
@@ -2713,6 +2846,26 @@ struct Index {
    * it as the shared game/bootstrap canvas. Only ever called from the root
    * stack's onAreaChange (which is always 100% x 100% of the window), never
    * from a fitted component itself. */
+  /** Vertical offset for the bootstrap control stacks: the background
+   *  artwork is Contain-fitted and CENTERED in the root stack, while the
+   *  control stacks top-align inside the wrapping Column - on non-16:9
+   *  windows they sit above the artwork by exactly the TOP black bar.
+   *  Phones have no bar (fullscreen 16:9) and get 0. Falls back to the
+   *  PC-tuned 37vp while the window size is not yet known. */
+  private bootStackOffsetY(): number {
+    if (this.rootWpx <= 0 || this.rootHpx <= 0) {
+      return 37;
+    }
+    // Contain-fit height of the 16:9 artwork inside the root stack, then
+    // the TOP black bar from centering it vertically.
+    const imgHpx = Math.min(this.rootWpx * 9 / 16, this.rootHpx);
+    const barPx = (this.rootHpx - imgHpx) / 2;
+    if (barPx <= 0) {
+      return 0;
+    }
+    return px2vp(barPx);
+  }
+
   private fitGameCanvas(stageW: number, stageH: number): void {
     if (stageW > 0 && stageH > 0) {
       let gw: number = stageW;
@@ -3132,9 +3285,17 @@ struct Index {
             })
         }
         // Fitted 16:9 canvas, sized by the root stack (transparent so the
-        // bootstrap artwork stays visible around it).
+        // bootstrap artwork stays visible around it). PC/tablet non-16:9
+        // windows: the background Contain content sits ~50vp below the
+        // stack's origin - shift the controls (render + hit-test) down to
+        // line up with the artwork.
         .width(this.gameW)
         .height(this.gameH)
+        // PC/tablet: the artwork sits barVp below the stack origin (root
+        // stack centers the Contain image, the Column top-aligns this
+        // stack) - shift down by the top bar. Phones: fullscreen 16:9,
+        // no bar, 0.
+        .translate({ x: 0, y: this.gameFillsWindow ? this.bootStackOffsetY() : 0 })
       } else if (this.bootState === 3 || this.bootState === 4 || this.bootState === 7) {
         // Keep the same artwork during download/import and overlay the live
         // progress control on the supplied center track. This makes the
@@ -3214,9 +3375,11 @@ struct Index {
             .fontSize(18).fontColor(Color.White).maxLines(3)
             .textAlign(TextAlign.Center)
         }
-        // Fitted 16:9 canvas, sized by the root stack (same rule).
+        // Fitted 16:9 canvas, sized by the root stack (same rule). Same
+        // non-16:9 compensation as the setup screen above.
         .width(this.gameW)
         .height(this.gameH)
+        .translate({ x: 0, y: this.gameFillsWindow ? this.bootStackOffsetY() : 0 })
       } else {
         Column({ space: 14 }) {
           Text('需要授权').fontSize(18).fontColor(Color.White)

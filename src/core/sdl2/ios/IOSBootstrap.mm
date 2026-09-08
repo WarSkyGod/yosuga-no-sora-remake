@@ -1544,8 +1544,57 @@ static int ExtractProgressCb(void *ctx, int done, int total, const char *nameUtf
     }];
 }
 
+/* .nomedia markers for the media-library exclusion convention: the game
+ * asset tree and the save folder must never be published into a gallery
+ * app. Runs after a download/import completes AND when the app boots with
+ * pre-existing data (the folder may predate the marker). */
+static void EnsureNoMediaAll(void)
+{
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *root = DataRootPath();
+    if (!root) return;
+    NSString *dataDir = [root stringByAppendingPathComponent:@"data"];
+    NSString *saveDir = [root stringByAppendingPathComponent:@"savedata"];
+    if (![fm fileExistsAtPath:saveDir])
+    {
+        [fm createDirectoryAtPath:saveDir
+            withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    for (NSString *dir in [NSArray arrayWithObjects:root, dataDir, saveDir,
+                           nil])
+    {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:dir isDirectory:&isDir] || !isDir)
+            continue;
+        NSString *marker = [dir stringByAppendingPathComponent:@".nomedia"];
+        if (![fm fileExistsAtPath:marker])
+            [fm createFileAtPath:marker contents:[NSData data] attributes:nil];
+    }
+}
+
 - (void)dataInstalled
 {
+    /* The import-progress records (data-assets-<N>.json) have done their
+     * job once the dataset is complete: drop them (and any leftover
+     * in-pack manifest) so a re-import after an app UPDATE is not rejected
+     * with "already imported" - the records survive an update install
+     * because the app data folder is preserved. */
+    {
+        NSError *cleanupErr = nil;
+        NSArray *items = [[NSFileManager defaultManager]
+            contentsOfDirectoryAtPath:DataRootPath() error:&cleanupErr];
+        for (NSString *name in items)
+        {
+            if ([name isEqualToString:@"data-assets.json"] ||
+                ([name hasPrefix:@"data-assets-"] && [name hasSuffix:@".json"]))
+            {
+                [[NSFileManager defaultManager] removeItemAtPath:
+                    [DataRootPath() stringByAppendingPathComponent:name]
+                              error:nil];
+            }
+        }
+    }
+    EnsureNoMediaAll();
     MarkDataComplete();
     IosLog(@"data installed, engine starting");
     [self setMessage:@""];
@@ -1779,7 +1828,10 @@ int krkrsdl2_ios_run_bootstrap(void)
         }
         IosLog(@"bootstrap start");
         if (GameDataReady())
+        {
+            EnsureNoMediaAll();
             return 1;
+        }
         IosLog(@"showing bootstrap UI");
 
         TVPIOSBootstrapVC *vc = [[TVPIOSBootstrapVC alloc] init];

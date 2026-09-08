@@ -97,6 +97,7 @@ EM_JS_DEPS(main, "$FS,$IDBFS");
 extern "C" {
 void SDL_OHOS_SetAppFullscreen(int fullscreen) __attribute__((weak));
 int SDL_OHOS_GetAppFullscreenState(void) __attribute__((weak));
+void SDL_OHOS_SetAppWindowSize(int w, int h) __attribute__((weak));
 void SDL_OHOS_DiagLog(const char *line) __attribute__((weak));
 }
 #endif
@@ -2622,6 +2623,21 @@ void TVPWindowWindow::SetZoom(tjs_int numer, tjs_int denom, bool set_logical)
 {
 #ifdef KRKRSDL2_ENABLE_ZOOM
 	bool ischanged = false;
+#ifdef __OHOS__
+	/* OHOS: the settings menu "resolution" switch is DISABLED. The
+	 * window-resize chain (OS window following the logical size) proved
+	 * unstable on this system - resize() intermittently fails with 1300002
+	 * while still being applied, the root onAreaChange reports stale areas
+	 * after programmatic resizes, and the surface/touch state desynced
+	 * (clipped picture, offset buttons). While windowed, the engine zoom
+	 * is pinned to 1:1 so the picture never changes whatever the menu
+	 * selects; fullscreen keeps the native fit-zoom (boot flow needs it). */
+	if (!this->GetFullScreenMode())
+	{
+		numer = 1;
+		denom = 1;
+	}
+#endif
 	// set layer zooming factor;
 	// the zooming factor is passed in numerator/denoiminator style.
 	// we must find GCM to optimize numer/denium via Euclidean algorithm.
@@ -2634,6 +2650,15 @@ void TVPWindowWindow::SetZoom(tjs_int numer, tjs_int denom, bool set_logical)
 		}
 		this->ZoomNumer = numer;
 		this->ZoomDenom = denom;
+	}
+	if (SDL_OHOS_DiagLog)
+	{
+		char diagbuf[128];
+		snprintf(diagbuf, sizeof(diagbuf),
+			"engine: SetZoom(%d/%d) inner=%dx%d renderer=%s", numer, denom,
+			this->GetInnerWidth(), this->GetInnerHeight(),
+			this->renderer ? "yes" : "no");
+		SDL_OHOS_DiagLog(diagbuf);
 	}
 	this->UpdateActualZoom();
 #endif
@@ -2688,9 +2713,18 @@ void TVPWindowWindow::SetInnerHeight(tjs_int v)
 void TVPWindowWindow::SetInnerSize(tjs_int w, tjs_int h)
 {
 #ifdef KRKRSDL2_ENABLE_ZOOM
-	this->InnerWidth = w;
-	this->InnerHeight = h;
-	this->UpdateActualZoom();
+	/* OHOS: the settings menu "resolution" switch is DISABLED (see SetZoom).
+	 * TJS calls setInnerSize() BEFORE super.setZoom(), so freezing only the
+	 * zoom still let the inner size (and UpdateActualZoom's letterbox
+	 * viewport) change and the picture moved. While windowed, freeze the
+	 * inner size entirely: the menu selection is a no-op. Fullscreen keeps
+	 * the native behavior (the boot fit flow sets a real inner size). */
+	if (this->GetFullScreenMode())
+	{
+		this->InnerWidth = w;
+		this->InnerHeight = h;
+		this->UpdateActualZoom();
+	}
 #endif
 	this->SetSize(w, h);
 }

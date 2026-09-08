@@ -118,6 +118,16 @@ add_subdirectory(${REPO_ROOT} krkrsdl2_ohos EXCLUDE_FROM_ALL)
 target_link_libraries(krkrsdl2 EGL GLESv3 libhilog_ndk.z.so libnative_window.so libohaudio.so)
 # OHOS: define __OHOS__ for the krkrsdl2 target (engine source uses it)
 target_compile_definitions(krkrsdl2 PRIVATE __OHOS__=1)
+# OHOS: enable the engine zoom path. Without KRKRSDL2_ENABLE_ZOOM the whole
+# zoom chain is compiled out - TVPWindowWindow::SetZoom() has an empty body,
+# SetInnerSize() degrades to SetWidth(), and WINDOW_SIZE_IS_LAYER_SIZE makes
+# THAT a no-op too - so the game settings menu "resolution" buttons (TJS
+# window.zoom -> super.setZoom -> engine SetZoom) silently did nothing.
+# With zoom enabled, UpdateActualZoom() renders the layer into a letterboxed
+# viewport of the requested logical size inside the fixed 1920x1080 surface.
+# krkrsdl2common is the target compiling visual/sdl2/WindowImpl.cpp; PUBLIC
+# so the krkrsdl2 target inherits it.
+target_compile_definitions(krkrsdl2common PUBLIC KRKRSDL2_ENABLE_ZOOM)
 
 # ---- The NAPI entry library (libentry.so) ----------------------------------
 add_library(entry SHARED

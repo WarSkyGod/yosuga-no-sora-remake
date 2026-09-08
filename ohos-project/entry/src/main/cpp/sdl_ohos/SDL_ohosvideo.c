@@ -614,7 +614,18 @@ static void OHOS_SetWindowPosition(_THIS, SDL_Window *window)
 static void OHOS_SetWindowSize(_THIS, SDL_Window *window)
 {
 	(void)_this;
-	(void)window;
+	/* krkr2 settings-menu "resolution" switches funnel into
+	 * SDL_SetWindowSize. The old stub made the control a silent no-op.
+	 * Log the request so a dead control (script disables it before ever
+	 * calling here) is distinguishable from a swallowed request. The
+	 * compositor keeps presenting the fixed 1920x1080 surface. */
+	if (SDL_OHOS_DiagLog)
+	{
+		char diagbuf[96];
+		snprintf(diagbuf, sizeof(diagbuf),
+			"driver: OHOS_SetWindowSize %dx%d", window->w, window->h);
+		SDL_OHOS_DiagLog(diagbuf);
+	}
 }
 
 static void OHOS_ShowWindow(_THIS, SDL_Window *window)
@@ -663,31 +674,21 @@ static void OHOS_SetWindowFullscreen(_THIS, SDL_Window *window, SDL_VideoDisplay
 
 static atomic_int g_ohos_fullscreen_request = -1; /* -1 none / 0 windowed / 1 fullscreen */
 static atomic_int g_ohos_fullscreen_state = -1;   /* -1 unknown / 0 windowed / 1 fullscreen */
+static atomic_int g_ohos_winsize_req_w = -1;      /* pending window-size request, -1 = none */
+static atomic_int g_ohos_winsize_req_h = -1;      /* pending window-size request, -1 = none */
 
 /* Diagnostic sink shared by engine, driver and shell (napi diagLog).
  * Appends one line to <data dir>/diag_fullscreen.log, falling back to the
  * app files dir. Callers throttle repeated values themselves. */
 void SDL_OHOS_DiagLog(const char *line)
 {
-	const char *dir = SDL_OHOS_GetDataDir ? SDL_OHOS_GetDataDir() : NULL;
-	if ((!dir || !dir[0]) && SDL_OHOS_GetFilesDir)
-		dir = SDL_OHOS_GetFilesDir();
-	if (!dir || !dir[0] || !line || !line[0])
-		return;
-	char path[1024];
-	snprintf(path, sizeof(path), "%s/diag_fullscreen.log", dir);
-	FILE *f = fopen(path, "a");
-	if (!f)
-		return;
-	struct timespec ts;
-	clock_gettime(CLOCK_REALTIME, &ts);
-	struct tm tmv;
-	localtime_r(&ts.tv_sec, &tmv);
-	fprintf(f, "[%02d:%02d:%02d.%03ld][t%ld] %s\n",
-		tmv.tm_hour, tmv.tm_min, tmv.tm_sec,
-		(long)(ts.tv_nsec / 1000000), (long)gettid(), line);
-	fclose(f);
+	/* Diagnostics disabled (shipping build): the fullscreen/window-size
+	 * forensics are done, so the log file is no longer written. The symbol
+	 * and all call sites are kept so the traces can be re-enabled by
+	 * restoring this body. */
+	(void)line;
 }
+
 
 void SDL_OHOS_SetAppFullscreen(int fullscreen)
 {
@@ -704,6 +705,18 @@ void SDL_OHOS_SetAppFullscreen(int fullscreen)
 
 int SDL_OHOS_GetAppFullscreenState(void)
 {
+	/* Prefer a PENDING request over the last applied state: the settings
+	 * menu draws its toggle from this value, and returning the applied
+	 * state makes the control lag one interaction behind - the request
+	 * needs an ArkUI round trip (setFullScreen + recover + resize) before
+	 * the ack lands, while the menu repaints immediately after the click.
+	 * The ack clears the request to -1, so the real applied state wins
+	 * again once the shell has caught up. */
+	int r = atomic_load_explicit(&g_ohos_fullscreen_request, memory_order_acquire);
+	if (r == 0 || r == 1)
+	{
+		return r;
+	}
 	int s = atomic_load_explicit(&g_ohos_fullscreen_state, memory_order_acquire);
 	/* Throttled: the settings menu polls this constantly (FullScreenGuard);
 	 * only log when the applied state actually changes. */
@@ -740,4 +753,45 @@ void SDL_OHOS_AckFullscreen(int applied)
 			atomic_load_explicit(&g_ohos_fullscreen_request, memory_order_acquire));
 		SDL_OHOS_DiagLog(diagbuf);
 	}
+}
+
+/* --- Window-size request state (OHOS desktop "resolution" switch) --------- */
+/* The engine's SetZoom forwards the requested logical size here (windowed
+ * mode only); the shell's poll picks it up and resizes the OS window. One
+ * atomic exchange consumes the pair, so a request is applied exactly once. */
+void SDL_OHOS_SetAppWindowSize(int w, int h)
+{
+	if (w <= 0 || h <= 0)
+	{
+		return;
+	}
+	atomic_store_explicit(&g_ohos_winsize_req_w, w, memory_order_release);
+	atomic_store_explicit(&g_ohos_winsize_req_h, h, memory_order_release);
+	if (SDL_OHOS_DiagLog)
+	{
+		char diagbuf[96];
+		snprintf(diagbuf, sizeof(diagbuf), "state: winsize request=%dx%d", w, h);
+		SDL_OHOS_DiagLog(diagbuf);
+	}
+}
+
+int SDL_OHOS_PollWindowSizeRequest(int *w, int *h)
+{
+	int rw = atomic_exchange_explicit(&g_ohos_winsize_req_w, -1,
+		memory_order_acq_rel);
+	int rh = atomic_exchange_explicit(&g_ohos_winsize_req_h, -1,
+		memory_order_acq_rel);
+	if (rw <= 0 || rh <= 0)
+	{
+		return 0;
+	}
+	if (w)
+	{
+		*w = rw;
+	}
+	if (h)
+	{
+		*h = rh;
+	}
+	return 1;
 }

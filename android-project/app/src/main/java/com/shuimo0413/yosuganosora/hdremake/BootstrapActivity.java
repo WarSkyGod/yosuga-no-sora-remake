@@ -898,21 +898,36 @@ public class BootstrapActivity extends Activity {
             return sLatestUpstreamBase;
         }
         try {
-            HttpURLConnection conn = (HttpURLConnection)
-                    new URL("https://api.github.com/repos/WarSkyGod/yosuga-no-sora-remake/releases?per_page=30")
-                            .openConnection(systemProxy());
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
-            conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
-            StringBuilder sb = new StringBuilder();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(
-                    conn.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) sb.append(line).append('\n');
-            } finally {
-                conn.disconnect();
+            // Query the upstream releases via BOTH the direct API and the
+            // gh-proxy.cn mirror (Fujian-reachable): the manifest fetch is
+            // already accelerated, but this version lookup used to run
+            // unaccelerated and could stall ~16s on a blocked api.github.com.
+            String apiDirect = "https://api.github.com/repos/WarSkyGod/yosuga-no-sora-remake/releases?per_page=30";
+            String apiMirror = "https://gh-proxy.cn/" + apiDirect;
+            String jsonText = null;
+            for (String candidate : new String[]{apiDirect, apiMirror}) {
+                try {
+                    HttpURLConnection c = (HttpURLConnection)
+                            new URL(candidate).openConnection(systemProxy());
+                    c.setConnectTimeout(4000);
+                    c.setReadTimeout(4000);
+                    c.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
+                    StringBuilder sb = new StringBuilder();
+                    try (BufferedReader r = new BufferedReader(new InputStreamReader(
+                            c.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = r.readLine()) != null) sb.append(line).append('\n');
+                    } finally {
+                        c.disconnect();
+                    }
+                    jsonText = sb.toString();
+                    break;
+                } catch (Exception ignored) {
+                    // try next candidate
+                }
             }
-            JSONArray releases = new JSONArray(sb.toString());
+            if (jsonText == null) return null;
+            JSONArray releases = new JSONArray(jsonText);
             String tag = null;
             for (int i = 0; i < releases.length() && tag == null; i++) {
                 JSONObject rel = releases.optJSONObject(i);
@@ -1029,8 +1044,8 @@ public class BootstrapActivity extends Activity {
                 : (proxy + base + "data-assets.json");
         HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl)
                 .openConnection(systemProxy());
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(30000);
+        conn.setConnectTimeout(8000);
+        conn.setReadTimeout(10000);
         conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
         StringBuilder sb = new StringBuilder();
         try (BufferedReader r = new BufferedReader(new InputStreamReader(
@@ -1109,26 +1124,32 @@ public class BootstrapActivity extends Activity {
         final Object speedLock = new Object();
         // Called on each chunk completion with the cumulative downloaded bytes
         // for this file (doneBase + doneSum). Returns a bytes/sec rate.
+        // IMPORTANT: sub-second windows return 0 so concurrent 8MB chunk
+        // completions can never divide by a few milliseconds and explode to
+        // absurd values (240MB/s, 7GB/s).
         java.util.function.LongFunction<Long> speedFn = (doneTotal) -> {
             long now = System.currentTimeMillis();
             synchronized (speedLock) {
                 if (speedWin[1] == 0) {
                     speedWin[0] = doneTotal;
                     speedWin[1] = now;
+                    speedWin[3] = now;
                     return 0L;
                 }
                 speedWin[2] += doneTotal - speedWin[0];
-                speedWin[3] = (speedWin[3] == 0) ? now : speedWin[3];
                 speedWin[0] = doneTotal;
                 speedWin[1] = now;
                 long windowMs = now - speedWin[3];
+                if (windowMs < 1000) {
+                    return 0L; // too short to be meaningful; keep last shown rate
+                }
                 if (windowMs >= 3000) {
                     long rate = (long) (speedWin[2] * 1000.0 / windowMs);
                     speedWin[2] = 0;
                     speedWin[3] = now;
                     return rate;
                 }
-                return (long) (speedWin[2] * 1000.0 / Math.max(1, windowMs));
+                return (long) (speedWin[2] * 1000.0 / windowMs);
             }
         };
         final FileChannel channel = new RandomAccessFile(dest, "rw").getChannel();
@@ -1728,8 +1749,8 @@ public class BootstrapActivity extends Activity {
                 : (proxy + base + "data-assets.json");
         HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl)
                 .openConnection(systemProxy());
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(30000);
+        conn.setConnectTimeout(8000);
+        conn.setReadTimeout(10000);
         conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
         StringBuilder sb = new StringBuilder();
         try (BufferedReader r = new BufferedReader(new InputStreamReader(

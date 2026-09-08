@@ -82,10 +82,13 @@ static NSString *StagingPath(void)
 
 static BOOL GameDataReady(void)
 {
+    /* Same rule as Android / OHOS: the presence of data/startup.tjs alone
+     * means the dataset is launchable. The extra .complete marker (written
+     * only by the in-app download/import flow) used to block manually
+     * placed data from ever auto-starting the game. */
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *startup = [DataDirPath() stringByAppendingPathComponent:@"startup.tjs"];
-    NSString *marker = [DataRootPath() stringByAppendingPathComponent:@".complete"];
-    return [fm fileExistsAtPath:startup] && [fm fileExistsAtPath:marker];
+    return [fm fileExistsAtPath:startup];
 }
 
 /* Append a diagnostic line to Documents/<bundle>/bootstrap.log so a crash

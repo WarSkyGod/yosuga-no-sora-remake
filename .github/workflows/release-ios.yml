@@ -260,7 +260,7 @@ jobs:
           if [[ -n "$INPUT_DATA_BASE_URL" ]]; then
             base_url="$INPUT_DATA_BASE_URL"
           else
-            base_url="https://github.com/${{ github.repository }}/releases/latest/download/"
+            base_url="https://github.com/TsangAsuna/yosuga-no-sora-remake/releases/download/v1.0.8/"
           fi
           printf '{"baseUrl":"%s","releaseTag":"%s"}\n' \
             "$base_url" "${{ steps.release.outputs.tag }}" \

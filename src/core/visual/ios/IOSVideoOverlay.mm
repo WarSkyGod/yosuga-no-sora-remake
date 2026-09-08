@@ -51,11 +51,12 @@ static void TVPIOSRelayoutSDLWindow(UIWindowScene *scene)
     CGRect sceneBounds = scene.coordinateSpace.bounds;
     if(CGRectIsEmpty(sceneBounds)) return;
 
-    /* Use integral points so the Metal drawable size never keeps a sub-pixel
-     * remainder: a fractional height (e.g. 1079.5 pt) can leave the engine
-     * rendering one row short at the bottom edge of the title screen. */
-    sceneBounds = CGRectMake(floor(sceneBounds.origin.x), floor(sceneBounds.origin.y),
-                             floor(sceneBounds.size.width), floor(sceneBounds.size.height));
+    /* Use CEILING so the window always covers the whole scene: a fractional
+         * height (e.g. 1366.5 pt) must round UP, not down - flooring would make
+         * the window 1px shorter and leave the exact bottom-edge line this is
+         * meant to kill. */
+        sceneBounds = CGRectMake(floor(sceneBounds.origin.x), floor(sceneBounds.origin.y),
+                                 ceil(sceneBounds.size.width), ceil(sceneBounds.size.height));
 
     window.frame = sceneBounds;
     UIView *contentView = window.rootViewController.view;

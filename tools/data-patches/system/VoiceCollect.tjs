@@ -616,16 +616,30 @@ function RemoveFavoriteVoice(voicePath)
 	}
 	if(!removed) return false;
 
-	// Persist list first. Local list mutation is not durable until Save succeeds.
-	if(!SaveFavoriteVoices(list)) return false;
+	// Persist the modified list first. Local mutation is not durable until
+	// Save succeeds, so only a failed save means the removal actually failed.
+	// Empty list: delete the slot files instead of saving an empty array
+	// (saveStruct/evalStorage round-trip can lose .count on an empty array
+	// and fail verification, which the UI would report as "取消收藏失败" even
+	// though the item was removed in memory).
+	if(list.count == 0)
+	{
+		TryDeleteStoragePath(VOICE_FAVORITES_SLOT_A_FILE);
+		TryDeleteStoragePath(VOICE_FAVORITES_SLOT_B_FILE);
+		TryDeleteStoragePath(VOICE_FAVORITES_FILE);
+	}
+	else if(!SaveFavoriteVoices(list)) return false;
 
-	var deletesOk = true;
+	// Clean up the mini-save files. Failure here is NOT a removal failure:
+	// the favorite is already gone from the list; a leftover save file only
+	// wastes a little space. Return success so the UI never shows
+	// "取消收藏失败" when the favorite was actually removed.
 	for(i = 0; i < removedSaveFiles.count; i++)
 	{
 		if(!DeleteFavoriteVoiceSaveFile(removedSaveFiles[i]))
-			deletesOk = false;
+			Debug.message("Voice favorite save residual: " + removedSaveFiles[i]);
 	}
-	return deletesOk;
+	return true;
 }
 
 // Jump to favorite progress (same path as load). Returns false if no save.

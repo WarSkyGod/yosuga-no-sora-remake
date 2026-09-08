@@ -134,6 +134,17 @@ OHOS_EXPORT int SDL_OHOS_PollFullscreenRequest(void) __attribute__((weak));
  * with a CAS so a newer request written in between is not lost. */
 OHOS_EXPORT void SDL_OHOS_AckFullscreen(int applied) __attribute__((weak));
 
+/* OHOS desktop "resolution" switch: the engine's SetZoom forwards the
+ * requested logical window size here (windowed mode only); the shell's
+ * poll reads it with SDL_OHOS_PollWindowSizeRequest and resizes the OS
+ * window. Implemented in SDL_ohosvideo.c (libkrkrsdl2.so). */
+OHOS_EXPORT void SDL_OHOS_SetAppWindowSize(int w, int h) __attribute__((weak));
+
+/* Polled by the ArkTS shell (libentry.so): consumes a pending window-size
+ * request (one-shot exchange). Returns 1 and fills w/h when a request was
+ * pending, 0 otherwise. */
+OHOS_EXPORT int SDL_OHOS_PollWindowSizeRequest(int *w, int *h) __attribute__((weak));
+
 /* Append one diagnostic line to <data dir>/diag_fullscreen.log (falls back
  * to the files dir). Used to trace the fullscreen switch chain (TJS ->
  * engine -> driver -> state atom -> napi -> ArkTS) and the actual

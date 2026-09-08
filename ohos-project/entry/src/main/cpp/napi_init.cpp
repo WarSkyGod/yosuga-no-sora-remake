@@ -368,6 +368,29 @@ static napi_value AckFullscreen(napi_env env, napi_callback_info info)
 	return nullptr;
 }
 
+/* pollWindowSize(): consume a pending window-size request written by the
+ * engine's SetZoom (OHOS desktop "resolution" switch). Returns [w, h] when
+ * a request was pending, [] otherwise; the shell resizes the OS window to
+ * the returned px size via mainWindow.resize(px2vp(w), px2vp(h)). */
+static napi_value PollWindowSize(napi_env env, napi_callback_info info)
+{
+	(void)info;
+	napi_value result;
+	int w = 0;
+	int h = 0;
+	napi_create_array_with_length(env, 2, &result);
+	if (SDL_OHOS_PollWindowSizeRequest(&w, &h))
+	{
+		napi_value vw;
+		napi_value vh;
+		napi_create_int32(env, w, &vw);
+		napi_create_int32(env, h, &vh);
+		napi_set_element(env, result, 0, vw);
+		napi_set_element(env, result, 1, vh);
+	}
+	return result;
+}
+
 /* diagLog(line): append one diagnostic line to <data dir>/diag_fullscreen.log
  * (see SDL_OHOS_DiagLog in SDL_ohosvideo.c). Used by the ArkTS shell to trace
  * the fullscreen poll and the XComponent canvas size alongside the native
@@ -620,6 +643,7 @@ static napi_value Init(napi_env env, napi_value exports)
 		{"isEngineRunning", nullptr, IsEngineRunning, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"pollFullscreen", nullptr, PollFullscreen, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"ackFullscreen", nullptr, AckFullscreen, nullptr, nullptr, nullptr, napi_default, nullptr},
+	{"pollWindowSize", nullptr, PollWindowSize, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"diagLog", nullptr, DiagLog, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"freeDiskSpace", nullptr, FreeDiskSpace, nullptr, nullptr, nullptr, napi_default, nullptr},
 		{"setSurfaceSize", nullptr, SetSurfaceSize, nullptr, nullptr, nullptr, napi_default, nullptr},

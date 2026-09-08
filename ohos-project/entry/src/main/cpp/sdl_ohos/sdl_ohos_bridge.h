@@ -67,6 +67,15 @@ OHOS_EXPORT int SDL_OHOS_WaitForNativeWindow(int timeout_ms) __attribute__((weak
 /* Return the OHNativeWindow, or NULL when the surface is not ready. */
 OHOS_EXPORT void *SDL_OHOS_GetNativeWindow(void) __attribute__((weak));
 
+/* Frame-scoped surface acquisition: returns the OHNativeWindow with the
+ * surface lifecycle lock HELD so OnSurfaceDestroyed/OnSurfaceChanged cannot
+ * run mid-frame. MUST be paired with SDL_OHOS_ReleaseNativeWindow() on every
+ * exit path. Returns NULL when the surface is not ready (no lock held). */
+OHOS_EXPORT void *SDL_OHOS_AcquireNativeWindow(void) __attribute__((weak));
+
+/* Release the lifecycle lock taken by SDL_OHOS_AcquireNativeWindow. */
+OHOS_EXPORT void SDL_OHOS_ReleaseNativeWindow(void) __attribute__((weak));
+
 /* Return the current surface size in pixels. Returns 1 when valid. */
 OHOS_EXPORT int SDL_OHOS_GetSurfaceSize(int *width, int *height) __attribute__((weak));
 

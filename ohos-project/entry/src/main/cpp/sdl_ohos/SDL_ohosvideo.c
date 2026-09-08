@@ -118,7 +118,16 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	{
 		return 0;
 	}
-	native_window = (OHNativeWindow *)SDL_OHOS_GetNativeWindow();
+	/* Acquire the native window with the surface lifecycle lock HELD for the
+	 * whole frame. OnSurfaceDestroyed (UI thread) blocks until this frame's
+	 * write completes, so the render thread can never write into a surface
+	 * that is being torn down. The old flow (GetNativeWindow -> release lock
+	 * -> render) left a use-after-free window on every surface rebuild:
+	 * window resizes on real hardware crashed in EVERY drag direction
+	 * (heap corruption visible as a wild pc inside libace_compatible, and
+	 * pc=0 through a cleared callback on phones). SDL_OHOS_ReleaseNativeWindow()
+	 * must be called on EVERY exit path below. */
+	native_window = (OHNativeWindow *)SDL_OHOS_AcquireNativeWindow();
 	if (native_window == NULL)
 	{
 		return SDL_SetError("No native window");
@@ -140,6 +149,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	}
 	if (bw <= 0 || bh <= 0)
 	{
+		SDL_OHOS_ReleaseNativeWindow();
 		return SDL_SetError("OHOS: invalid buffer size");
 	}
 	/* Window resize race mitigation: during maximize/restore transitions the
@@ -153,6 +163,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		{
 			if (OH_NativeWindow_NativeWindowHandleOpt(native_window, SET_BUFFER_GEOMETRY, bw, bh) != 0)
 			{
+				SDL_OHOS_ReleaseNativeWindow();
 				return SDL_SetError("OHOS: SET_BUFFER_GEOMETRY failed");
 			}
 			last_bw = bw;
@@ -185,6 +196,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	}
 	else
 	{
+		SDL_OHOS_ReleaseNativeWindow();
 		return SDL_SetError("OHOS: NativeWindowRequestBuffer failed");
 	}
 
@@ -209,6 +221,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 			OHOS_NW_UnlockAndFlushBuffer(native_window);
 		else
 			OH_NativeWindow_NativeWindowAbortBuffer(native_window, buffer);
+		SDL_OHOS_ReleaseNativeWindow();
 		return SDL_SetError("OHOS: buffer has no writable address");
 	}
 
@@ -237,6 +250,27 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		}
 		last_w = bw;
 		last_h = bh;
+	}
+
+	/* Capacity clamp from the buffer handle itself. GET_BUFFER_GEOMETRY
+	 * reports the REQUESTED geometry - right after our own SET it echoes
+	 * that request back, so it can never catch the compositor handing out a
+	 * smaller buffer mid-resize. Real hardware (HarmonyOS PC) resizes hit
+	 * exactly that window and crashed in EVERY drag direction once the
+	 * per-frame SET was throttled (krkr_fault.txt: pc jumped to a wild
+	 * address inside libace_compatible - heap corruption from the overflow).
+	 * The handle's stride (row bytes) and total size give the true writable
+	 * area regardless of any request timing. RGBA_8888:
+	 * capacity_rows = size / stride, max_columns = stride / 4. */
+	{
+		int32_t stride_px = (handle->stride > 0) ? handle->stride / 4 : 0;
+		int32_t cap_rows = (handle->stride > 0)
+			? (int32_t)((uint64_t)handle->size / (uint64_t)handle->stride)
+			: 0;
+		if (stride_px > 0 && bw > stride_px)
+			bw = stride_px;
+		if (cap_rows > 0 && bh > cap_rows)
+			bh = cap_rows;
 	}
 
 	/* Copy the SDL surface (ARGB8888) into the native buffer, scaling from
@@ -295,6 +329,7 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 	{
 		if (OHOS_NW_UnlockAndFlushBuffer(native_window) != 0)
 		{
+			SDL_OHOS_ReleaseNativeWindow();
 			return SDL_SetError("OHOS: UnlockAndFlushBuffer failed");
 		}
 	}
@@ -305,12 +340,14 @@ static int OHOS_UpdateWindowFramebuffer(_THIS, SDL_Window *window,
 		region.rectNumber = 0;
 		if (OH_NativeWindow_NativeWindowFlushBuffer(native_window, buffer, fence_fd, region) != 0)
 		{
+			SDL_OHOS_ReleaseNativeWindow();
 			return SDL_SetError("OHOS: FlushBuffer failed");
 		}
 	}
 	(void)rects;
 	(void)numrects;
 	(void)dummy;
+	SDL_OHOS_ReleaseNativeWindow();
 	return 0;
 }
 

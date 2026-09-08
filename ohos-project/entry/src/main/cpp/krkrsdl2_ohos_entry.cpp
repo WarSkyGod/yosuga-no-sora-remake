@@ -420,6 +420,37 @@ void *SDL_OHOS_GetNativeWindow(void)
 	return window;
 }
 
+/* Frame-scoped surface acquisition: returns the native window with the
+ * lifecycle lock HELD, so a concurrent OnSurfaceDestroyed (UI thread)
+ * blocks until the frame's write completes instead of tearing the surface
+ * down mid-frame. The caller MUST pair this with
+ * SDL_OHOS_ReleaseNativeWindow() on every exit path.
+ *
+ * This closes the use-after-free window that crashed real devices on every
+ * window resize / surface rebuild (krkr_fault.txt: pc jumped to a wild
+ * address inside libace_compatible - heap corrupted by writes into an
+ * already-destroyed surface buffer; krkr_fault2.txt: pc=0 through a cleared
+ * callback). The old GetNativeWindow released the lock immediately, so the
+ * UI thread could destroy the surface while the render thread was still
+ * writing into it. OnSurfaceChanged shares g_lock, so a resize also waits
+ * for the frame boundary. */
+void *SDL_OHOS_AcquireNativeWindow(void)
+{
+	pthread_mutex_lock(&g_lock);
+	if (!g_window_ready)
+	{
+		pthread_mutex_unlock(&g_lock);
+		return nullptr;
+	}
+	/* lock intentionally held until SDL_OHOS_ReleaseNativeWindow */
+	return static_cast<void *>(g_native_window);
+}
+
+void SDL_OHOS_ReleaseNativeWindow(void)
+{
+	pthread_mutex_unlock(&g_lock);
+}
+
 int SDL_OHOS_GetSurfaceSize(int *width, int *height)
 {
 	pthread_mutex_lock(&g_lock);

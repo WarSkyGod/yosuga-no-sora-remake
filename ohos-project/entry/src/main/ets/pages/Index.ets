@@ -173,10 +173,23 @@ struct Index {
   private hbTick: number = 0;
   private hbStart: number = 0;
 
+  // Game surface layout policy. PC/tablet form factors fill the whole
+  // window (the engine letterboxes its own 1920x1080 layer); PHONES keep
+  // the original v1.0.4 fitted 16:9 canvas (black bars left/right) - the
+  // stretched full-window surface on tall phone screens distorted the
+  // picture and lost the classic letterbox look (user report, real phone).
+  // Set once in aboutToAppear from deviceInfo.deviceType.
+  @State gameFillsWindow: boolean = true;
+
   aboutToAppear(): void {
     this.hbStart = Date.now();
     this.sandboxFiles = (getContext(this) as common.UIAbilityContext).filesDir;
     this.buildFlavor = this.readBuildFlavor();
+    try {
+      this.gameFillsWindow = deviceInfo.deviceType !== 'phone';
+    } catch (eDt) {
+      // keep the fill layout when the device type is unavailable
+    }
     this.log('appear t=0 flavor=' + this.buildFlavor);
     if (transferActive) {
       // A transfer thread survived this ability recreation: re-show the
@@ -2713,17 +2726,22 @@ struct Index {
                 this.log('onLoad exception: ' + JSON.stringify(e));
               }
             })
-            // Fill the whole window: the engine renders the game's 16:9
-            // layer (1920x1080) letterboxed into whatever surface size it
-            // gets, so the surface must NOT be resized through ArkTS state
-            // when fullscreen toggles - the root-driven double relayout
-            // (root stack 100%x100% AND this.gameW/H) destroyed the surface
-            // twice in one frame and the render thread SEGV'd on the stale
-            // one (cppcrash right after the fullscreen ack). This mirrors
-            // the working v1.0.4 layout; only the bootstrap UI keeps the
-            // fitted 16:9 gameW/gameH canvas.
-            .width('100%')
-            .height('100%')
+            // PC/tablet: fill the whole window - the engine renders the
+            // game's 16:9 layer (1920x1080) letterboxed into whatever
+            // surface size it gets, so the surface must NOT be resized
+            // through ArkTS state when fullscreen toggles - the root-driven
+            // double relayout (root stack 100%x100% AND this.gameW/H)
+            // destroyed the surface twice in one frame and the render
+            // thread SEGV'd on the stale one (cppcrash right after the
+            // fullscreen ack). This mirrors the working v1.0.4 layout.
+            // PHONES: the original v1.0.4 fitted 16:9 canvas (gameW/gameH
+            // from fitGameCanvas) with black bars left/right - phones were
+            // always fullscreen so the double-relayout hazard never applied
+            // there, and the full-window stretch distorted the picture on
+            // tall screens (user report). Only the bootstrap UI keeps the
+            // fitted canvas on PC.
+            .width(this.gameFillsWindow ? '100%' : this.gameW)
+            .height(this.gameFillsWindow ? '100%' : this.gameH)
             // Report the real component size to the engine: the native
             // OnSurfaceChanged callback never fires on this system, so
             // without this the SDL window size stays at the fallback and
@@ -2801,11 +2819,14 @@ struct Index {
           // itself never receives them (libace_compatible crashes processing
           // XComponent touches). Forward to the SDL backend via napi.
           Column()
-            // Full-window overlay matching the full-window XComponent: touch
-            // px coords then line up with the surface px space the engine
-            // scales from (setSurfaceSize), edge letterbox included.
-            .width('100%')
-            .height('100%')
+            // Overlay matches the game surface's layout policy: PC/tablet
+            // fill the window (touch px coords then line up with the surface
+            // px space the engine scales from, edge letterbox included);
+            // phones match the fitted 16:9 canvas so touches over the black
+            // bars land outside the 0..1920/0..1080 logical range instead of
+            // being stretched across the whole picture.
+            .width(this.gameFillsWindow ? '100%' : this.gameW)
+            .height(this.gameFillsWindow ? '100%' : this.gameH)
             .backgroundColor('#00000000')
             .zIndex(4)
             .onTouch((event: TouchEvent) => {

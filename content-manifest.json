@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "contentVersion": "9d5811e739df91d93f82120234d8587b8b126f4af4051db36b8083cb4b2944a7",
-  "fileCount": 23016,
-  "totalSize": 4146059932,
+  "contentVersion": "86b1b16da5accdf231f14881a765bc579c8f71f2dda5f402ff20a80db8c7d164",
+  "fileCount": 23025,
+  "totalSize": 4146625669,
   "packs": [
     {
       "id": "bootstrap",
-      "fileCount": 360,
-      "totalSize": 1828012,
-      "contentVersion": "3053d8d96cfade11fbd13a019f6655c999000eb3a8fca5dffbd8d0536de4bfe3"
+      "fileCount": 361,
+      "totalSize": 2050965,
+      "contentVersion": "53d6572cec36d9bd5a5fd6dd18ca67852beb3e08446f44711cfdaeaeceb536aa"
     },
     {
       "id": "fonts",
@@ -36,9 +36,9 @@
     },
     {
       "id": "characters",
-      "fileCount": 2348,
-      "totalSize": 1039531784,
-      "contentVersion": "9d6389a1ae8e99c74f8689517f5f4d25cf148e874b52b7bde6bba5c2b4713576"
+      "fileCount": 2350,
+      "totalSize": 1039871045,
+      "contentVersion": "53de3ebb1a88ec73e0062dfeb8dfd6444c934dca5dc194a71c7316b71857c0f2"
     },
     {
       "id": "events",
@@ -56,16 +56,52 @@
       "id": "scenario",
       "fileCount": 612,
       "totalSize": 8778292,
-      "contentVersion": "bc41659df38ea3a4145c0348cbe167e33dacdd2e4d64fbff5bce5e9b50a7e54a"
+      "contentVersion": "ec82d4a54404a37e05aa375af69231dd8a341eb03c48862a51f4aae4aef8d160"
     },
     {
       "id": "misc",
-      "fileCount": 1,
-      "totalSize": 1530,
-      "contentVersion": "6dad05160394fd73702cb8a5c7cf8f812e481030ffd3b3fac0e7575fb0e003b4"
+      "fileCount": 7,
+      "totalSize": 5053,
+      "contentVersion": "c4efe1c6af43316a6e2e24c26a1412604d6af230e81d7d2ef91154fddb45fd28"
     }
   ],
   "files": [
+    {
+      "path": ".idea/.gitignore",
+      "size": 250,
+      "sha256": "6964f0665d3290c845f8973ab067b4b59fdf1d83324cbdf34563424c650cefac",
+      "pack": "misc"
+    },
+    {
+      "path": ".idea/data.iml",
+      "size": 344,
+      "sha256": "c96ea0b5b29abb7d5807671dd208fd63f63694dd236335d2fe8c074e89e94aa6",
+      "pack": "misc"
+    },
+    {
+      "path": ".idea/misc.xml",
+      "size": 281,
+      "sha256": "4ed23bf6e78c14ac230831270990ecf7802bd60b5c28c07720e615fe31db97bb",
+      "pack": "misc"
+    },
+    {
+      "path": ".idea/modules.xml",
+      "size": 267,
+      "sha256": "ec3035d43fc719fa21ef7d07e785e88f485c7c7cf63c38a73b0ac1531e1ed009",
+      "pack": "misc"
+    },
+    {
+      "path": ".idea/vcs.xml",
+      "size": 188,
+      "sha256": "d0df76de3a966f51606b564edccc430dbc21c32ee5c3f35dccf95597fad81392",
+      "pack": "misc"
+    },
+    {
+      "path": ".idea/workspace.xml",
+      "size": 2193,
+      "sha256": "1a7cf55293b1799777429e6820acfb208b59e17853901d773dd16c1393c94aa9",
+      "pack": "misc"
+    },
     {
       "path": "ASSETS.md",
       "size": 1530,
@@ -116875,9 +116911,21 @@
       "pack": "characters"
     },
     {
+      "path": "character_1920/CD10_01T.png",
+      "size": 169380,
+      "sha256": "4b927d99d906a7f69017aba8344f10efebe5603d1ab3031b1b2f34e432df96ef",
+      "pack": "characters"
+    },
+    {
       "path": "character_1920/CD10_02L.png",
       "size": 253643,
       "sha256": "02ec708e4854a1c0a9ae8c3129b048b77bd72003c48140c93b1a9cd7f5f9b345",
+      "pack": "characters"
+    },
+    {
+      "path": "character_1920/CD10_02T.png",
+      "size": 169881,
+      "sha256": "9af02194a7ade0fba846b9bdffb79ae48e7912697d800d9197ce33d3e4dba711",
       "pack": "characters"
     },
     {
@@ -126633,13 +126681,13 @@
     {
       "path": "scenario/00_b003.ks",
       "size": 12498,
-      "sha256": "5c792a54acb1a4bad4b35efa816ce06d0b0ddb64d6e450a62fba3fcc80ad3a51",
+      "sha256": "d4fee8b65163b05a9bae79cbf1b05544e07f4259d2d777bacacd36b4ffa4109d",
       "pack": "scenario"
     },
     {
       "path": "scenario/00_b003.ks.ctx",
       "size": 12529,
-      "sha256": "9866a9ffa9d84cc40c8749b2c74108f47e3dd3f7126a383c94ca4a3396d49ade",
+      "sha256": "e6dc0acad91d743a70543d6af6af66cd54d79d148b2f35386ca09a63eb2d7022",
       "pack": "scenario"
     },
     {
@@ -129728,6 +129776,12 @@
     },
     {
       "path": "system/ADVScreen.tjs",
+      "size": 221786,
+      "sha256": "2115160cdf9a942e4bf03206f91e4dc90f39942c9d03d8c27c3ebab8537688e6",
+      "pack": "bootstrap"
+    },
+    {
+      "path": "system/ADVScreen.tjs.bak",
       "size": 217546,
       "sha256": "d12f239ef2a5cd2c6ec74b3b4e1ffdbec88384499d7e22939c75d965b2218933",
       "pack": "bootstrap"
@@ -129812,14 +129866,14 @@
     },
     {
       "path": "system/ConfigWindow.tjs",
-      "size": 66297,
-      "sha256": "aada67cce15589112d27b364ab3a16e09f9bc9bfa0bb259a697c2cce24130f7a",
+      "size": 66097,
+      "sha256": "bafecf274e39a302c50cc5223ecb411c7fa3059180a93e4b1fc292c9cea45f0d",
       "pack": "bootstrap"
     },
     {
       "path": "system/ConfigWindowHD.tjs",
-      "size": 22304,
-      "sha256": "1ee415b98a934a29bc33fc11a0163b8f7279527c8fe788c90f1c1e0dd4494005",
+      "size": 22302,
+      "sha256": "42b82f341f1cde6011b9ce6dddd1f195bdfa50b170defca7cb6e56298c1fa549",
       "pack": "bootstrap"
     },
     {
@@ -129866,8 +129920,8 @@
     },
     {
       "path": "system/Initialize.tjs",
-      "size": 12458,
-      "sha256": "11b4cf00d158ced64386be8aae777a480f8ee1252a0673dc5a72c519cf28d478",
+      "size": 12716,
+      "sha256": "3db19c8121ca139d183b9c8bb8d485ccb8d5ed080f2415f88ffb514f130bd8b1",
       "pack": "bootstrap"
     },
     {
@@ -129878,8 +129932,8 @@
     },
     {
       "path": "system/LoadSaveWindowHD.tjs",
-      "size": 71227,
-      "sha256": "2286289bfb9a6b5cb775a4f44f7250da5f2b0b5f9c66da00a2c582ca0a7ca583",
+      "size": 71229,
+      "sha256": "f61dc1818c156bfc115a790b0658b7ac2010c74b9e19299a7abc3312d42ceaf9",
       "pack": "bootstrap"
     },
     {
@@ -129896,8 +129950,8 @@
     },
     {
       "path": "system/MessageFrame.tjs",
-      "size": 143339,
-      "sha256": "89bd554d47c1a131d4248dbe379f27b30c2e9e9f62aac22630c84769fb813bd2",
+      "size": 144260,
+      "sha256": "956a05b85dc7136c8492b3f293b549b561a6ea58e5afff3309d8d2d79ecbd56e",
       "pack": "bootstrap"
     },
     {
@@ -129922,12 +129976,6 @@
       "path": "system/PlaySystemVoice.tjs",
       "size": 2790,
       "sha256": "0e035406c5cba9c8e6548874a971a9b83a24c2780a1fd297edbe20e142878986",
-      "pack": "bootstrap"
-    },
-    {
-      "path": "system/ScController.tjs",
-      "size": 3959,
-      "sha256": "02deb8f80815bc9b40c0cbb420e5cfc094138ade8c1883a5f67c3cf5609b8127",
       "pack": "bootstrap"
     },
     {
@@ -129968,14 +130016,14 @@
     },
     {
       "path": "system/System.tjs",
-      "size": 39326,
-      "sha256": "6f04ceb057596dc30c6fa5724b627be136de8731e013866c8e6457a2f8321b1d",
+      "size": 39542,
+      "sha256": "4084042045ae546a22088d5410abcf498bd3ed01ef08a846c20f98084d1bddb0",
       "pack": "bootstrap"
     },
     {
       "path": "system/SystemWindow.tjs",
-      "size": 88839,
-      "sha256": "538d757337534cbcbbab641085c00bde60fd266f67087a2fea58469dc8406499",
+      "size": 88809,
+      "sha256": "7270e8ada54f96b5726f27fab637bfeec42489aaf202d8ebada032dcb684aff8",
       "pack": "bootstrap"
     },
     {
@@ -130048,6 +130096,12 @@
       "path": "system/movie.ks.ctx",
       "size": 583,
       "sha256": "53828b5d5c1f8f6bf07ce19ec1e6c44d7668d686966e262f2593e022f91891a0",
+      "pack": "bootstrap"
+    },
+    {
+      "path": "system/sccontroller.tjs",
+      "size": 3961,
+      "sha256": "d06333454b018299ee1bb90a03b4535d30ceb3c55f632d12076f02be31176635",
       "pack": "bootstrap"
     },
     {

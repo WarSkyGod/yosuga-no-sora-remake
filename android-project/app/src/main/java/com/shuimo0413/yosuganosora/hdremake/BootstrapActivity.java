@@ -89,8 +89,7 @@ public class BootstrapActivity extends Activity {
         {"GH-PROXY.ORG", "https://gh-proxy.org/"},
         {"CDN.GH-PROXY.ORG", "https://cdn.gh-proxy.org/"},
         {"AXISNOW.GH-PROXY.ORG", "https://axisnow.gh-proxy.org/"},
-        {"V6.GH-PROXY.ORG", "https://v6.gh-proxy.org/"},
-        {"CRAFT-HELLO", "https://proxy.craft-hello.top/proxy/"}
+        {"V6.GH-PROXY.ORG", "https://v6.gh-proxy.org/"}
     };
     // Live node list; starts as the built-in fallback and is replaced by the
     // fetched accelerator-nodes.json when available.
@@ -407,20 +406,12 @@ public class BootstrapActivity extends Activity {
         // The left artwork entry and the lower-right action both start the
         // same download. The old layout accidentally placed the only hit
         // target over the left entry, leaving "开始下载" inert.
-        Button localDownloadButton = makeOverlayButton("本地文件下载；长按设置下载地址和代理");
+        Button localDownloadButton = makeOverlayButton("本地文件下载");
         localDownloadButton.setOnClickListener(v -> startDownload());
-        localDownloadButton.setOnLongClickListener(v -> {
-            showDownloadSettingsDialog();
-            return true;
-        });
         canvas.addView(localDownloadButton, frame(380, 90, 210, 325));
 
-        downloadButton = makeOverlayButton("开始下载；长按设置下载地址和代理");
+        downloadButton = makeOverlayButton("开始下载");
         downloadButton.setOnClickListener(v -> startDownload());
-        downloadButton.setOnLongClickListener(v -> {
-            showDownloadSettingsDialog();
-            return true;
-        });
         importButton = makeOverlayButton("导入本地文件");
         importButton.setOnClickListener(v -> startImport());
         attachActionFeedback(downloadButton, downloadLabelView,
@@ -495,13 +486,39 @@ public class BootstrapActivity extends Activity {
         // it active; tapping another item switches the selection atomically.
         selectedProxy = proxy;
         if (selectedProxy == PROXY_GH) {
-            proxyInput.setText("https://gh-proxy.cn/");
+            // Auto-pick the fastest reachable gh-proxy node and start the
+            // download directly (no dialog): each candidate is probed with
+            // the same short Range-GET used everywhere else.
+            updateProxyArtwork();
+            setMessage("正在优选加速节点…");
+            new Thread(() -> {
+                long bestMs = Long.MAX_VALUE;
+                String bestPrefix = "";
+                for (String[] node : ACCEL_NODES) {
+                    String prefix = node[1];
+                    if (prefix.isEmpty()) continue; // skip direct
+                    long ms = pingNodeLatency(prefix);
+                    if (ms >= 0 && ms < bestMs) {
+                        bestMs = ms;
+                        bestPrefix = prefix;
+                    }
+                }
+                final String chosen = bestPrefix;
+                runOnUi(() -> {
+                    proxyInput.setText(chosen);
+                    if (chosen.isEmpty()) {
+                        setMessage("未找到可达的加速节点，已切换直连");
+                    }
+                    startDownload();
+                });
+            }).start();
         } else if (selectedProxy == PROXY_CRAFT) {
             proxyInput.setText("https://proxy.craft-hello.top/proxy/");
+            updateProxyArtwork();
         } else {
             proxyInput.setText("");
+            updateProxyArtwork();
         }
-        updateProxyArtwork();
     }
 
     private void updateProxyArtwork() {
@@ -552,135 +569,6 @@ public class BootstrapActivity extends Activity {
         importLabelView.setImageResource(
                 (busy && activeAction == ACTION_IMPORT) || hoverAction == ACTION_IMPORT
                 ? R.drawable.import_label_active : R.drawable.import_label);
-    }
-
-    private void showDownloadSettingsDialog() {
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        int padding = (int) (20 * getResources().getDisplayMetrics().density);
-        fields.setPadding(padding, 0, padding, 0);
-        EditText url = new EditText(this);
-        url.setSingleLine(true);
-        url.setText(baseUrlInput.getText());
-        url.setHint(baseUrlInput.getHint());
-        EditText proxy = new EditText(this);
-        proxy.setSingleLine(true);
-        proxy.setText(proxyInput.getText());
-        proxy.setHint(proxyInput.getHint());
-        // Accelerator nodes with live latency, refreshed every 5s.
-        final LinearLayout nodeBox = new LinearLayout(this);
-        nodeBox.setOrientation(LinearLayout.VERTICAL);
-        final java.util.List<Button> nodeRows = new java.util.ArrayList<>();
-        // dialog is created after the node rows; a one-slot array keeps the
-        // reference effectively-final for the click lambdas below.
-        final AlertDialog[] dialogRef = new AlertDialog[1];
-        for (int i = 0; i < ACCEL_NODES.length; i++) {
-            final int nodeIndex = i;
-            Button row = new Button(this);
-            row.setAllCaps(false);
-            row.setPadding(padding / 2, padding / 4, padding / 2, padding / 4);
-            // Clicking a node = apply it, close the settings dialog and
-            // immediately start the download with that node (the proxy
-            // input is overwritten, so the download cannot silently reuse
-            // a previously selected/default source).
-            row.setOnClickListener(v -> {
-                proxy.setText(ACCEL_NODES[nodeIndex][1]);
-                proxyInput.setText(ACCEL_NODES[nodeIndex][1]);
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putString(KEY_PROXY_PREFIX, ACCEL_NODES[nodeIndex][1])
-                        .apply();
-                if (dialogRef[0] != null) dialogRef[0].dismiss();
-                startDownload();
-            });
-            nodeRows.add(row);
-            nodeBox.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        fields.addView(nodeBox, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        fields.addView(url, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        fields.addView(proxy, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("下载设置")
-                .setMessage("节点=加速前缀，用于给默认上游地址生成加速链接；自定义下载地址请填直链或镜像地址（填了则直接使用，不再套前缀）")
-                .setView(fields)
-                .setPositiveButton("确定", null)
-                .create();
-        dialogRef[0] = dialog;
-        // Live node latency every 5s while the dialog is open.
-        final android.os.Handler nodePinger = new android.os.Handler(android.os.Looper.getMainLooper());
-        final Runnable pingLoop = new Runnable() {
-            @Override
-            public void run() {
-                for (int i = 0; i < ACCEL_NODES.length; i++) {
-                    final int nodeIndex = i;
-                    final Button row = nodeRows.get(i);
-                    new Thread(() -> {
-                        long ms = pingNodeLatency(ACCEL_NODES[nodeIndex][1]);
-                        NODE_LATENCY[nodeIndex] = ms;
-                        runOnUi(() -> {
-                            String lat = ms < 0 ? "超时" : (ms + " ms");
-                            row.setText(ACCEL_NODES[nodeIndex][0] + "  " + lat);
-                        });
-                    }).start();
-                }
-                nodePinger.postDelayed(this, 5000);
-            }
-        };
-        dialog.setOnShowListener(ignored -> {
-            nodePinger.post(pingLoop);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                    .setOnClickListener(v -> {
-                        String proxyText = proxy.getText().toString().trim();
-                        if (!proxyText.isEmpty()
-                                && !proxyText.startsWith("https://")
-                                && !proxyText.startsWith("http://")) {
-                            Toast.makeText(this,
-                                    "请勿填入无效加速前缀（应形如 https://gh-proxy.org/）",
-                                    Toast.LENGTH_SHORT).show();
-                            return; // keep the dialog open
-                        }
-                        // Connectivity check: reject prefixes that cannot
-                        // actually reach GitHub, so the download does not
-                        // silently fail right after confirming.
-                        if (!proxyText.isEmpty()) {
-                            Toast.makeText(this, "正在检测加速前缀连通性…",
-                                    Toast.LENGTH_SHORT).show();
-                            final String checked = proxyText;
-                            new Thread(() -> {
-                                long ms = pingNodeLatency(checked);
-                                runOnUi(() -> {
-                                    if (ms < 0) {
-                                        Toast.makeText(this,
-                                                "该加速前缀当前不可达，请更换或留空使用直连",
-                                                Toast.LENGTH_LONG).show();
-                                        return; // keep the dialog open
-                                    }
-                                    applyDownloadSettings(url, proxy, nodePinger, dialog);
-                                });
-                            }).start();
-                        } else {
-                            applyDownloadSettings(url, proxy, nodePinger, dialog);
-                        }
-                    });
-        });
-        dialog.setOnDismissListener(ignored -> nodePinger.removeCallbacksAndMessages(null));
-
-        dialog.show();
-    }
-
-    private void applyDownloadSettings(EditText url, EditText proxy,
-            android.os.Handler nodePinger, AlertDialog dialog) {
-        baseUrlInput.setText(url.getText());
-        proxyInput.setText(proxy.getText());
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_BASE_URL, url.getText().toString())
-                .putString(KEY_PROXY_PREFIX, proxy.getText().toString())
-                .apply();
-        nodePinger.removeCallbacksAndMessages(null);
-        dialog.dismiss();
     }
 
     private void setProgress(String text, int percent) {
@@ -1026,7 +914,8 @@ public class BootstrapActivity extends Activity {
         String manifestUrl = (customBase || proxy.isEmpty())
                 ? (base + "data-assets.json")
                 : (proxy + base + "data-assets.json");
-        HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl).openConnection();
+        HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl)
+                .openConnection(systemProxy());
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(30000);
         conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
@@ -1098,6 +987,37 @@ public class BootstrapActivity extends Activity {
         final java.util.concurrent.atomic.AtomicBoolean rangeSupported =
                 new java.util.concurrent.atomic.AtomicBoolean(true);
         doneSum.set(resumedBytes.get());
+        // Sliding-window speed: track (bytes, wallclock) of the latest chunk
+        // completions so the shown rate reflects actual download throughput,
+        // not the whole-run average (which is diluted by startup, queue waits
+        // and inter-file gaps). Window = 3s; multi-worker completions within
+        // the window accumulate before the rate is recomputed.
+        final long[] speedWin = new long[4]; // {baseBytes, baseTime, accBytes, accStart}
+        final Object speedLock = new Object();
+        // Called on each chunk completion with the cumulative downloaded bytes
+        // for this file (doneBase + doneSum). Returns a bytes/sec rate.
+        java.util.function.LongFunction<Long> speedFn = (doneTotal) -> {
+            long now = System.currentTimeMillis();
+            synchronized (speedLock) {
+                if (speedWin[1] == 0) {
+                    speedWin[0] = doneTotal;
+                    speedWin[1] = now;
+                    return 0L;
+                }
+                speedWin[2] += doneTotal - speedWin[0];
+                speedWin[3] = (speedWin[3] == 0) ? now : speedWin[3];
+                speedWin[0] = doneTotal;
+                speedWin[1] = now;
+                long windowMs = now - speedWin[3];
+                if (windowMs >= 3000) {
+                    long rate = (long) (speedWin[2] * 1000.0 / windowMs);
+                    speedWin[2] = 0;
+                    speedWin[3] = now;
+                    return rate;
+                }
+                return (long) (speedWin[2] * 1000.0 / Math.max(1, windowMs));
+            }
+        };
         final FileChannel channel = new RandomAccessFile(dest, "rw").getChannel();
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
@@ -1120,7 +1040,8 @@ public class BootstrapActivity extends Activity {
                             }
                             HttpURLConnection conn = null;
                             try {
-                                conn = (HttpURLConnection) new URL(urlStr).openConnection();
+                                conn = (HttpURLConnection) new URL(urlStr)
+                                        .openConnection(systemProxy());
                                 conn.setConnectTimeout(20000);
                                 conn.setReadTimeout(60000);
                                 conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
@@ -1144,14 +1065,14 @@ public class BootstrapActivity extends Activity {
                                     }
                                     doneSum.addAndGet(size - resumedBytes.get());
                                     got = true;
+                                    long doneTotal = doneBase + doneSum.get();
                                     int pct = total > 0 ? (int) (doneSum.get() * 100 / total) : 0;
+                                    long rate = speedFn.apply(doneTotal);
                                     setProgress(String.format(Locale.US,
                                             "正在下载 %s  %d%%  %s / %s  (%s)",
-                                            label, Math.min(99, pct), fmtSize(doneBase + doneSum.get()),
+                                            label, Math.min(99, pct), fmtSize(doneTotal),
                                             fmtSize(total),
-                                            fmtSize((long) ((doneBase + doneSum.get())
-                                                    / Math.max(0.001,
-                                                            (System.currentTimeMillis() - startTime) / 1000.0))) + "/s"),
+                                            fmtSize(rate) + "/s"),
                                             Math.min(99, pct));
                                     continue;
                                 }
@@ -1175,13 +1096,12 @@ public class BootstrapActivity extends Activity {
                                 int pct = total > 0 ? (int) (done * 100 / total) : 0;
                                 // Progress text unified with the OHOS build.
                                 long doneTotal = doneBase + done;
-                                double elapsedSec = Math.max(0.001,
-                                        (System.currentTimeMillis() - startTime) / 1000.0);
+                                long rate = speedFn.apply(doneTotal);
                                 setProgress(String.format(Locale.US,
                                         "正在下载 %s  %d%%  %s / %s  (%s)",
                                         label, Math.min(99, pct), fmtSize(doneTotal),
                                         fmtSize(total),
-                                        fmtSize((long) (doneTotal / elapsedSec)) + "/s"),
+                                        fmtSize(rate) + "/s"),
                                         Math.min(99, pct));
                             } catch (IOException e) {
                                 if (attempt == 2) failure.compareAndSet(null, e);
@@ -1296,8 +1216,8 @@ public class BootstrapActivity extends Activity {
             NODE_LATENCY = new long[loaded.length];
             java.util.Arrays.fill(NODE_LATENCY, -1);
             // Probe every node so the settings dialog can show live latency.
-            // Deliberately NO auto-selection: the GitHub direct / GH-PROXY /
-            // CRAFT-HELLO buttons keep their manual semantics (only the
+            // Deliberately NO auto-selection: the GitHub direct / GH-PROXY.CN /
+            // GH-PROXY.ORG buttons keep their manual semantics (only the
             // selected one prefixes the upstream data URLs).
             if (sCurrent != null && sCurrent.proxyInput != null) {
                 for (int i = 0; i < loaded.length; i++) {
@@ -1308,6 +1228,25 @@ public class BootstrapActivity extends Activity {
                     }
                 }
             }
+    }
+
+    /** Returns the system HTTP proxy (VPN/Clash etc.) or NO_PROXY when none
+     *  is configured. Android's HttpURLConnection ignores the system proxy
+     *  for non-privileged apps, so probes and downloads must apply it
+     *  explicitly to honor a running proxy. */
+    private static java.net.Proxy systemProxy() {
+        try {
+            if (sCurrent != null) {
+                android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                        sCurrent.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    java.net.Proxy p = cm.getDefaultProxy();
+                    if (p != null) return p;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return java.net.Proxy.NO_PROXY;
     }
 
     /** Returns RTT in ms for a proxy prefix (small Range GET), or -1. */
@@ -1321,11 +1260,23 @@ public class BootstrapActivity extends Activity {
         // count as unreachable.
         final String probeUrl = proxyPrefix
                 + "https://github.com/";
+        // 1) Try through the system proxy (Clash/VPN) with a short budget:
+        //    if the proxy died mid-session we must not block on its timeout.
+        java.net.Proxy sys = systemProxy();
+        long via = probeOnce(probeUrl, sys, 2500);
+        if (via >= 0) return via;
+        // 2) Proxy absent/failed: fall back to direct quickly.
+        return probeOnce(probeUrl, java.net.Proxy.NO_PROXY, 6000);
+    }
+
+    /** One Range-GET probe through the given proxy; -1 on failure. */
+    private static long probeOnce(String probeUrl, java.net.Proxy proxy, int timeoutMs) {
         long t0 = System.currentTimeMillis();
         try {
-            HttpURLConnection conn = (HttpURLConnection) new java.net.URL(probeUrl).openConnection();
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(6000);
+            HttpURLConnection conn = (HttpURLConnection)
+                    new java.net.URL(probeUrl).openConnection(proxy);
+            conn.setConnectTimeout(timeoutMs);
+            conn.setReadTimeout(timeoutMs);
             conn.setRequestMethod("GET");
             conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
             conn.setRequestProperty("Range", "bytes=0-0");
@@ -1335,8 +1286,6 @@ public class BootstrapActivity extends Activity {
                 while (in.read(tmp) >= 0) { /* drain */ }
             }
             conn.disconnect();
-            // Any HTTP status counts as "reaches github.com"; only connection
-            // failures (exceptions above) mean the prefix is unreachable.
             if (code <= 0) return -1;
             return System.currentTimeMillis() - t0;
         } catch (Exception e) {
@@ -1660,7 +1609,8 @@ public class BootstrapActivity extends Activity {
         String manifestUrl = (customBase || proxy.isEmpty())
                 ? (base + "data-assets.json")
                 : (proxy + base + "data-assets.json");
-        HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl).openConnection();
+        HttpURLConnection conn = (HttpURLConnection) new URL(manifestUrl)
+                .openConnection(systemProxy());
         conn.setConnectTimeout(20000);
         conn.setReadTimeout(30000);
         conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");

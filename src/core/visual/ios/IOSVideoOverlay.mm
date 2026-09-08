@@ -51,12 +51,11 @@ static void TVPIOSRelayoutSDLWindow(UIWindowScene *scene)
     CGRect sceneBounds = scene.coordinateSpace.bounds;
     if(CGRectIsEmpty(sceneBounds)) return;
 
-    /* Use CEILING so the window always covers the whole scene: a fractional
-         * height (e.g. 1366.5 pt) must round UP, not down - flooring would make
-         * the window 1px shorter and leave the exact bottom-edge line this is
-         * meant to kill. */
-        sceneBounds = CGRectMake(floor(sceneBounds.origin.x), floor(sceneBounds.origin.y),
-                                 ceil(sceneBounds.size.width), ceil(sceneBounds.size.height));
+    /* Round the scene size UP so the window always covers the whole scene:
+     * a fractional height (e.g. 1366.5 pt) must not shrink the window and
+     * expose a line at the bottom of the title screen. */
+    sceneBounds = CGRectMake(floor(sceneBounds.origin.x), floor(sceneBounds.origin.y),
+                             ceil(sceneBounds.size.width), ceil(sceneBounds.size.height));
 
     window.frame = sceneBounds;
     UIView *contentView = window.rootViewController.view;
@@ -64,17 +63,24 @@ static void TVPIOSRelayoutSDLWindow(UIWindowScene *scene)
         contentView.frame = window.bounds;
         [contentView setNeedsLayout];
         [contentView layoutIfNeeded];
-        /* Force the actual SDL rendering view (Metal/GL) to the same bounds:
-         * layoutIfNeeded alone can leave it at the old size until the next
-         * interaction, which is exactly the "title screen bottom gap" that
-         * disappears after switching to settings. */
+        /* The engine title screen can leave a 1px line at the bottom edge
+         * (Metal drawable rounding, especially on the first layout pass).
+         * Overscan the render view by 2pt on every side: overflow is clipped
+         * by the window, but the bottom edge is guaranteed covered instead of
+         * depending on a later layout pass. */
+        CGRect renderBounds = CGRectInset(window.bounds, -2.0f, -2.0f);
+        contentView.frame = renderBounds;
+        /* Force the actual SDL rendering view (Metal/GL) to the overscanned
+         * bounds as well: layoutIfNeeded alone can leave it at the old size
+         * until the next interaction, which is exactly the "title screen
+         * bottom gap" that disappears after switching to settings. */
         for(UIView *sub in contentView.subviews) {
             Class metalViewClass = NSClassFromString(@"SDL_uikitmetalview");
             Class openglViewClass = NSClassFromString(@"SDL_uikitopenglview");
             BOOL isRenderView = (metalViewClass && [sub isKindOfClass:metalViewClass])
                              || (openglViewClass && [sub isKindOfClass:openglViewClass]);
             if(isRenderView) {
-                sub.frame = contentView.bounds;
+                sub.frame = renderBounds;
                 [sub layoutIfNeeded];
             }
         }

@@ -276,7 +276,7 @@ jobs:
           if [[ -n "$INPUT_DATA_BASE_URL" ]]; then
             export ORG_GRADLE_PROJECT_defaultBaseUrl="$INPUT_DATA_BASE_URL"
           else
-            export ORG_GRADLE_PROJECT_defaultBaseUrl="https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/download/v1.0.6/"
+            export ORG_GRADLE_PROJECT_defaultBaseUrl="https://github.com/TsangAsuna/yosuga-no-sora-remake/releases/download/v1.0.8/"
           fi
           chmod +x gradlew
           ./gradlew --no-daemon --stacktrace :app:assembleRelease "-P$ABI"

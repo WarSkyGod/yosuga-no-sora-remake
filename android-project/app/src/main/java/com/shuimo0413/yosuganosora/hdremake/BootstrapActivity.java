@@ -889,12 +889,69 @@ public class BootstrapActivity extends Activity {
 
     /** The download root honoring the custom URL input; always ends with
      * "/". Shared by the download flow and the import completeness check. */
+    private static volatile String sLatestUpstreamBase = null;
+    private static volatile long sLatestUpstreamAt = 0;
+
+    /** Follows the upstream repo's newest release that actually carries data
+     *  assets, instead of pinning a version: the maintainer rebuilds data via
+     *  Actions into every new release tag, so the download root must track
+     *  the tag. Cached for 10 min (like the node list). On any failure the
+     *  caller falls back to FALLBACK_BASE_URL. */
+    private String resolveUpstreamLatestBase() {
+        long now = System.currentTimeMillis();
+        if (sLatestUpstreamBase != null && now - sLatestUpstreamAt < 10L * 60 * 1000) {
+            return sLatestUpstreamBase;
+        }
+        try {
+            HttpURLConnection conn = (HttpURLConnection)
+                    new URL("https://api.github.com/repos/WarSkyGod/yosuga-no-sora-remake/releases?per_page=30")
+                            .openConnection(systemProxy());
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setRequestProperty("User-Agent", "YosugaSoraHD/1.0");
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(
+                    conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line).append('\n');
+            } finally {
+                conn.disconnect();
+            }
+            JSONArray releases = new JSONArray(sb.toString());
+            String tag = null;
+            for (int i = 0; i < releases.length() && tag == null; i++) {
+                JSONObject rel = releases.optJSONObject(i);
+                if (rel == null) continue;
+                JSONArray assets = rel.optJSONArray("assets");
+                boolean hasManifest = false;
+                if (assets != null) {
+                    for (int j = 0; j < assets.length(); j++) {
+                        JSONObject a = assets.optJSONObject(j);
+                        if (a != null && "data-assets.json".equals(a.optString("name"))) {
+                            hasManifest = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasManifest) tag = rel.optString("tag_name");
+            }
+            if (tag == null || tag.isEmpty()) return null;
+            sLatestUpstreamBase = "https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/download/"
+                    + tag + "/";
+            sLatestUpstreamAt = now;
+            return sLatestUpstreamBase;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private String resolveBaseUrl() {
         String base = baseUrlInput.getText().toString().trim();
         if (base.isEmpty()) {
             base = DEFAULT_BASE_URL;
             if (base.isEmpty()) {
-                base = FALLBACK_BASE_URL;
+                String latest = resolveUpstreamLatestBase();
+                base = latest != null ? latest : FALLBACK_BASE_URL;
             }
         }
         if (!base.endsWith("/")) base += "/";
@@ -1238,10 +1295,14 @@ public class BootstrapActivity extends Activity {
         try {
             if (sCurrent != null) {
                 android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
-                        sCurrent.getSystemService(Context.CONNECTIVITY_SERVICE);
+                        sCurrent.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 if (cm != null) {
-                    java.net.Proxy p = cm.getDefaultProxy();
-                    if (p != null) return p;
+                    android.net.ProxyInfo pi = cm.getDefaultProxy();
+                    if (pi != null && pi.getHost() != null) {
+                        return new java.net.Proxy(java.net.Proxy.Type.HTTP,
+                                java.net.InetSocketAddress.createUnresolved(
+                                        pi.getHost(), pi.getPort()));
+                    }
                 }
             }
         } catch (Exception ignored) {

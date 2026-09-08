@@ -1,0 +1,687 @@
+// Voice favorite collection (persistent list under data/collect_voice/).
+// ADV favorite button calls AddFavoriteVoice(relativePath, extra).
+// Each favorite stores a mini-save (like load) for jump, plus face id for portrait.
+
+var VOICE_FAVORITES_FILE = DATA_PATH + "voice_favorites.tjs";
+var VOICE_FAVORITES_SLOT_A_FILE = DATA_PATH + "voice_favorites.slot_a.tjs";
+var VOICE_FAVORITES_SLOT_B_FILE = DATA_PATH + "voice_favorites.slot_b.tjs";
+var VOICE_FAVORITES_TMP_FILE = DATA_PATH + "voice_favorites.tjs.tmp";
+var VOICE_FAVORITES_BAK_FILE = DATA_PATH + "voice_favorites.tjs.bak";
+var VOICE_FAVORITES_MIGRATED_MARKER = DATA_PATH + "voice_favorites.migrated";
+var VOICE_FAVORITES_LEGACY_STATE_VERSION = 1;
+var VOICE_FAVORITES_STATE_VERSION = 2;
+var VOICE_FAVORITES_COMMIT_MARKER = "VOICE_FAVORITES_COMMITTED_V2";
+var VOICE_FAVORITES_LEGACY_FILES = [
+	"content-data/collect_voice/favorites.tjs",
+	"content-data/content-data/collect_voice/favorites.tjs"
+];
+var VOICE_FAVORITE_RESIDUAL_FILES = DATA_PATH + "voice_favorites_residuals.tjs";
+
+function NormalizeFavoriteVoicePath(voicePath)
+{
+	if(voicePath === void || voicePath === null) return "";
+	var path = ("" + voicePath);
+	while(path.length > 0 && (path[0] == " " || path[0] == "\t"))
+		path = path.substring(1, path.length);
+	while(path.length > 0 && (path[path.length - 1] == " " || path[path.length - 1] == "\t"))
+		path = path.substring(0, path.length - 1);
+	return path;
+}
+
+function FormatFavoriteVoiceDate()
+{
+	var date = new Date();
+	var text = "%04d/%02d/%02d %02d:%02d".sprintf(
+		date.getYear(), date.getMonth() + 1, date.getDate(),
+		date.getHours(), date.getMinutes()
+	);
+	invalidate date;
+	return text;
+}
+
+function MakeFavoriteVoiceSaveName()
+{
+	var date = new Date();
+	var name = "vsave_%04d%02d%02d_%02d%02d%02d_%03d.bmp".sprintf(
+		date.getYear(), date.getMonth() + 1, date.getDate(),
+		date.getHours(), date.getMinutes(), date.getSeconds(),
+		System.getTickCount() % 1000
+	);
+	invalidate date;
+	return name;
+}
+
+function LoadFavoriteVoiceFile(file)
+{
+	if(!Storages.isExistentStorage(file)) return null;
+	try
+	{
+		var list = Scripts.evalStorage(file);
+		if(list === void || list === null || typeof list.count == "undefined")
+			return null;
+		return list;
+	}
+	catch(e)
+	{
+		Debug.message("Voice favorites read failed: " + file + ": " + e);
+		return null;
+	}
+}
+
+function FavoriteVoiceKey(item)
+{
+	if(item === void || item === null) return "";
+	return NormalizeFavoriteVoicePath(GetElm(item.voiceFile, ""));
+}
+
+function AppendFavoriteVoiceList(result, keys, list, allowOverwrite)
+{
+	if(list === void || list === null) return;
+	var i, j;
+	for(i = 0; i < list.count; i++)
+	{
+		var item = list[i];
+		if(item === void || item === null) continue;
+		var key = FavoriteVoiceKey(item);
+		if(key == "") continue;
+		var idx = -1;
+		for(j = 0; j < keys.count; j++)
+		{
+			if(keys[j] == key){ idx = j; break; }
+		}
+		if(idx >= 0)
+		{
+			if(allowOverwrite) result[idx] = item;
+		}
+		else
+		{
+			keys.add(key);
+			result.add(item);
+		}
+	}
+}
+
+function MergeFavoriteVoiceLists(primary, secondary)
+{
+	// Canonical/primary wins on voiceFile conflicts. Secondary only contributes missing keys.
+	var result = [];
+	var keys = [];
+	AppendFavoriteVoiceList(result, keys, primary, true);
+	AppendFavoriteVoiceList(result, keys, secondary, false);
+	return result;
+}
+
+function ReadFavoriteVoiceStorage(path)
+{
+	if(!Storages.isExistentStorage(path))
+		return %[ status : "missing", value : null, path : path ];
+	try
+	{
+		var value = Scripts.evalStorage(path);
+		if(value === void || value === null)
+			return %[ status : "corrupt", value : null, path : path ];
+		return %[ status : "valid", value : value, path : path ];
+	}
+	catch(e)
+	{
+		Debug.message("Voice favorites read failed: " + path + ": " + e);
+		return %[ status : "corrupt", value : null, path : path ];
+	}
+}
+
+function FavoriteVoiceDigestField(value)
+{
+	var text = value === void || value === null ? "" : ("" + value);
+	return text.length + ":" + text;
+}
+
+function FavoriteVoiceContentDigest(list)
+{
+	if(list === void || list === null || typeof list.count == "undefined") return "";
+	var digest = "VOICE_FAVORITES_V2|" + list.count + "|";
+	for(var i = 0; i < list.count; i++)
+	{
+		var item = list[i];
+		if(item === void || item === null || FavoriteVoiceKey(item) == "") return "";
+		digest += FavoriteVoiceDigestField(GetElm(item.voiceFile, ""));
+		digest += FavoriteVoiceDigestField(GetElm(item.date, ""));
+		digest += FavoriteVoiceDigestField(GetElm(item.name, ""));
+		digest += FavoriteVoiceDigestField(GetElm(item.text, ""));
+		digest += FavoriteVoiceDigestField(GetElm(item.thumb, ""));
+		digest += FavoriteVoiceDigestField(GetElm(item.face, ""));
+		digest += FavoriteVoiceDigestField(GetElm(item.saveFile, ""));
+	}
+	return digest;
+}
+
+function FavoriteVoiceListsEqual(a, b)
+{
+	if(a === void || a === null || b === void || b === null) return false;
+	if(typeof a.count == "undefined" || typeof b.count == "undefined" || a.count != b.count) return false;
+	var digestA = FavoriteVoiceContentDigest(a);
+	var digestB = FavoriteVoiceContentDigest(b);
+	return digestA != "" && digestA == digestB;
+}
+
+function ParseFavoriteVoiceState(path)
+{
+	var read = ReadFavoriteVoiceStorage(path);
+	if(read.status != "valid") return null;
+	var value = read.value;
+	try
+	{
+		if(typeof value.count == "undefined") return null;
+		if(value[0] == VOICE_FAVORITES_LEGACY_STATE_VERSION)
+		{
+			if(value.count != 4 || typeof value[3].count == "undefined") return null;
+			var legacyDigest = FavoriteVoiceContentDigest(value[3]);
+			if(legacyDigest == "") return null;
+			return %[
+				path : path,
+				version : VOICE_FAVORITES_LEGACY_STATE_VERSION,
+				generation : int(value[1]),
+				migrationDone : (int(value[2]) != 0),
+				committed : true,
+				count : value[3].count,
+				digest : legacyDigest,
+				list : value[3]
+			];
+		}
+		if(value[0] != VOICE_FAVORITES_STATE_VERSION || value.count != 7 ||
+			value[3] != VOICE_FAVORITES_COMMIT_MARKER ||
+			typeof value[6].count == "undefined")
+			return null;
+		var count = int(value[4]);
+		var digest = FavoriteVoiceContentDigest(value[6]);
+		if(count != value[6].count || digest == "" || value[5] != digest) return null;
+		return %[
+			path : path,
+			version : VOICE_FAVORITES_STATE_VERSION,
+			generation : int(value[1]),
+			migrationDone : (int(value[2]) != 0),
+			committed : true,
+			count : count,
+			digest : digest,
+			list : value[6]
+		];
+	}
+	catch(e)
+	{
+		Debug.message("Voice favorites state invalid: " + path + ": " + e);
+		return null;
+	}
+}
+
+function LoadFavoriteVoiceState()
+{
+	var a = ParseFavoriteVoiceState(VOICE_FAVORITES_SLOT_A_FILE);
+	var b = ParseFavoriteVoiceState(VOICE_FAVORITES_SLOT_B_FILE);
+	if(a === null) return b;
+	if(b === null) return a;
+	if(b.generation > a.generation) return b;
+	return a;
+}
+
+function IsFavoriteVoiceMigrationDone()
+{
+	var state = LoadFavoriteVoiceState();
+	if(state !== null) return state.migrationDone;
+	return Storages.isExistentStorage(VOICE_FAVORITES_MIGRATED_MARKER);
+}
+
+function TryDeleteStoragePath(path)
+{
+	if(path === void || path === null || path == "") return true;
+	if(!Storages.isExistentStorage(path)) return true;
+	try
+	{
+		Storages.deleteFile(path);
+	}
+	catch(e)
+	{
+		Debug.message("Storage delete failed: " + path + ": " + e);
+		return false;
+	}
+	if(Storages.isExistentStorage(path))
+	{
+		Debug.message("Storage delete residual remains: " + path);
+		return false;
+	}
+	return true;
+}
+
+function WriteFavoriteStructToPath(list, path)
+{
+	try
+	{
+		list.saveStruct(path);
+		return true;
+	}
+	catch(e)
+	{
+		try
+		{
+			list.save(path);
+			return true;
+		}
+		catch(e2)
+		{
+			Debug.message("Voice favorites write failed: " + path + ": " + e2);
+			return false;
+		}
+	}
+}
+
+function SaveFavoriteVoiceState(list, migrationDone=true)
+{
+	if(list === void || list === null) list = [];
+	var current = LoadFavoriteVoiceState();
+	var generation = current === null ? 1 : current.generation + 1;
+	var target = VOICE_FAVORITES_SLOT_A_FILE;
+	if(current !== null && current.path == VOICE_FAVORITES_SLOT_A_FILE)
+		target = VOICE_FAVORITES_SLOT_B_FILE;
+
+	var digest = FavoriteVoiceContentDigest(list);
+	if(digest == "") return false;
+	var state = [
+		VOICE_FAVORITES_STATE_VERSION,
+		generation,
+		migrationDone,
+		VOICE_FAVORITES_COMMIT_MARKER,
+		list.count,
+		digest,
+		list
+	];
+	if(!WriteFavoriteStructToPath(state, target)) return false;
+
+	var verified = ParseFavoriteVoiceState(target);
+	if(verified === null || verified.version != VOICE_FAVORITES_STATE_VERSION ||
+		!verified.committed || verified.generation != generation ||
+		verified.migrationDone != migrationDone || verified.count != list.count ||
+		verified.digest != digest || !FavoriteVoiceListsEqual(verified.list, list))
+	{
+		Debug.message("Voice favorites generation verify failed: " + target);
+		return false;
+	}
+
+	// Old fixed-name transaction debris is no longer authoritative. Cleanup failure is harmless.
+	TryDeleteStoragePath(VOICE_FAVORITES_TMP_FILE);
+	TryDeleteStoragePath(VOICE_FAVORITES_BAK_FILE);
+	return true;
+}
+
+function MarkFavoriteVoiceMigrationDone()
+{
+	var state = LoadFavoriteVoiceState();
+	if(state !== null && state.migrationDone) return true;
+	var list = state === null ? [] : state.list;
+	return SaveFavoriteVoiceState(list, true);
+}
+
+function LoadFavoriteVoices()
+{
+	var state = LoadFavoriteVoiceState();
+	if(state !== null) return state.list;
+
+	var canonicalRead = ReadFavoriteVoiceStorage(VOICE_FAVORITES_FILE);
+	var canonical = null;
+	if(canonicalRead.status == "valid" && typeof canonicalRead.value.count != "undefined")
+		canonical = canonicalRead.value;
+	else if(canonicalRead.status == "corrupt")
+		Debug.message("Voice favorites canonical is corrupt; trying legacy sources");
+
+	var migrationDone = Storages.isExistentStorage(VOICE_FAVORITES_MIGRATED_MARKER);
+	var legacy = null;
+	var legacyPath = "";
+	if(!migrationDone)
+	{
+		for(var i = 0; i < VOICE_FAVORITES_LEGACY_FILES.count; i++)
+		{
+			var candidate = LoadFavoriteVoiceFile(VOICE_FAVORITES_LEGACY_FILES[i]);
+			if(candidate !== null)
+			{
+				legacy = candidate;
+				legacyPath = VOICE_FAVORITES_LEGACY_FILES[i];
+				break;
+			}
+		}
+	}
+
+	var result = [];
+	if(canonical !== null && legacy !== null)
+		result = MergeFavoriteVoiceLists(canonical, legacy);
+	else if(canonical !== null)
+		result = canonical;
+	else if(legacy !== null)
+		result = legacy;
+
+	if(canonical !== null || legacy !== null)
+	{
+		if(SaveFavoriteVoiceState(result, true))
+		{
+			if(legacyPath != "" && !TryDeleteStoragePath(legacyPath))
+				Debug.message("Voice favorites legacy residual retained: " + legacyPath);
+		}
+	}
+	return result;
+}
+
+function SaveFavoriteVoices(list)
+{
+	// Any explicit new-state save supersedes legacy data, including a legitimate empty list.
+	return SaveFavoriteVoiceState(list, true);
+}
+function IsFavoriteVoice(voicePath)
+{
+	var path = NormalizeFavoriteVoicePath(voicePath);
+	if(path == "") return false;
+
+	var list = LoadFavoriteVoices();
+	var i;
+	for(i = 0; i < list.count; i++)
+	{
+		if(list[i] !== void && list[i].voiceFile == path)
+			return true;
+	}
+	return false;
+}
+
+// Resolve dress id / face token to an existent image path (same idea as MessageFrame).
+function ResolveFavoriteVoiceFaceStorage(face)
+{
+	if(face === void || face === null) return "";
+	face = "" + face;
+	if(face == "" || face == "hide" || face == "show" || face == "hideonce") return "";
+
+	var faceUpper = face.toUpperCase();
+	var dressID = faceUpper;
+	var lastChar = faceUpper[faceUpper.length - 1];
+	if(lastChar == "L" || lastChar == "M" || lastChar == "S" || lastChar == "T" || lastChar == "F")
+		dressID = faceUpper.substring(0, faceUpper.length - 1);
+	if(dressID.length < 7) return "";
+
+	var suffixes = ["T", "L", "S", "M"];
+	var prefixes = ["", "character_1920/", "data/character_1920/"];
+	var i, j;
+	for(i = 0; i < suffixes.count; i++)
+	{
+		for(j = 0; j < prefixes.count; j++)
+		{
+			var file = prefixes[j] + dressID + suffixes[i] + ".png";
+			if(Storages.isExistentStorage(file)) return file;
+			var base = prefixes[j] + dressID + suffixes[i];
+			if(Storages.isExistentStorage(base)) return base;
+		}
+	}
+	return "";
+}
+
+// Infer face id from ADV scene + speaker name (MessageFrame bottom-left logic).
+function InferFavoriteVoiceFaceId(name, adv)
+{
+	if(adv !== void && adv !== null && adv._face !== void && adv._face != "" &&
+		adv._face != "hide" && adv._face != "show" && adv._face != "hideonce")
+		return adv._face;
+
+	if(name === void || name === null || name == "") return "";
+	var talkName = ("" + name).split("&")[0];
+	if(talkName.indexOf("/") != -1)
+		talkName = talkName.split("/")[0];
+
+	if(adv !== void && adv !== null)
+	{
+		try
+		{
+			var obj = adv.getADVObjectObject(talkName);
+			if(obj != -1 && obj !== void && obj !== null &&
+				obj.info !== void && obj.info.file !== void && obj.info.file != "")
+				return obj.info.file;
+		}
+		catch(e) {}
+	}
+	return "";
+}
+
+function FavoriteVoiceSaveExists(saveFile)
+{
+	if(saveFile === void || saveFile === null || saveFile == "") return false;
+	if(Storages.isExistentStorage(DATA_PATH + saveFile)) return true;
+	if(Storages.isExistentStorage("savedata/" + saveFile)) return true;
+	if(Storages.isExistentStorage(saveFile)) return true;
+	return false;
+}
+
+function RememberFavoriteResidualPath(path)
+{
+	if(path === void || path === null || path == "") return;
+	var residuals = [];
+	try
+	{
+		if(Storages.isExistentStorage(VOICE_FAVORITE_RESIDUAL_FILES))
+		{
+			var loaded = Scripts.evalStorage(VOICE_FAVORITE_RESIDUAL_FILES);
+			if(loaded !== void && loaded !== null && typeof loaded.count != "undefined")
+				residuals = loaded;
+		}
+	}
+	catch(eLoad) {}
+	var i;
+	for(i = 0; i < residuals.count; i++)
+	{
+		if(residuals[i] == path) return;
+	}
+	residuals.add(path);
+	try{ residuals.saveStruct(VOICE_FAVORITE_RESIDUAL_FILES); }catch(eSave){
+		Debug.message("Voice residual list save failed: " + eSave);
+	}
+}
+
+function DeleteFavoriteVoiceSaveFile(saveFile)
+{
+	if(saveFile === void || saveFile === null || saveFile == "") return true;
+
+	var candidates = [
+		DATA_PATH + saveFile,
+		"savedata/" + saveFile,
+		saveFile
+	];
+	var attempted = false;
+	var allGone = true;
+	var i;
+	for(i = 0; i < candidates.count; i++)
+	{
+		var path = candidates[i];
+		if(!Storages.isExistentStorage(path)) continue;
+		attempted = true;
+		if(!TryDeleteStoragePath(path))
+		{
+			allGone = false;
+			RememberFavoriteResidualPath(path);
+			Debug.message("Voice favorite residual path: " + path);
+		}
+	}
+	if(!attempted) return true;
+	return allGone;
+}
+
+// Capture current ADV progress as unmanaged save (index -3: no saveMan slot).
+function CaptureFavoriteVoiceSave(adv)
+{
+	if(adv === void || adv === null) return "";
+	var fname = "";
+	try
+	{
+		var save = new Savedata();
+		save.set(adv);
+		fname = MakeFavoriteVoiceSaveName();
+		save.save(fname, -3, adv);
+		invalidate save;
+		if(!FavoriteVoiceSaveExists(fname))
+			return "";
+		return fname;
+	}
+	catch(e)
+	{
+		try { dm("CaptureFavoriteVoiceSave failed: " + e); } catch(e2) {}
+		if(fname != "") DeleteFavoriteVoiceSaveFile(fname);
+		return "";
+	}
+}
+
+function ResolveFavoriteVoiceThumbPath(saveFile)
+{
+	if(saveFile === void || saveFile === null || saveFile == "") return "";
+	if(Storages.isExistentStorage(DATA_PATH + saveFile)) return DATA_PATH + saveFile;
+	if(Storages.isExistentStorage("savedata/" + saveFile)) return "savedata/" + saveFile;
+	if(Storages.isExistentStorage(saveFile)) return saveFile;
+	return "";
+}
+
+// Main API: relative path + optional extra (name/text/face/thumb/saveFile).
+// Auto-captures ADV mini-save and face when possible.
+// Returns true = newly added, false = invalid or already exists.
+function AddFavoriteVoice(voicePath, extra=%[])
+{
+	var path = NormalizeFavoriteVoicePath(voicePath);
+	if(path == "") return false;
+
+	var list = LoadFavoriteVoices();
+	var i;
+	for(i = 0; i < list.count; i++)
+	{
+		if(list[i] !== void && list[i].voiceFile == path)
+			return false;
+	}
+
+	var name = GetElm(extra.name, "");
+	var text = GetElm(extra.text, "");
+	var face = GetElm(extra.face, "");
+	var thumb = GetElm(extra.thumb, "");
+	var saveFile = GetElm(extra.saveFile, "");
+
+	var adv = null;
+	try { adv = GetAdvScene(); } catch(e) { adv = null; }
+
+	var capturedSave = false;
+	if(saveFile == "" && adv !== void && adv !== null){
+		saveFile = CaptureFavoriteVoiceSave(adv);
+		capturedSave = (saveFile != "");
+	}
+
+	if(face == "")
+		face = InferFavoriteVoiceFaceId(name, adv);
+
+	// Keep face as dress token; display resolves via ResolveFavoriteVoiceFaceStorage.
+	// If no image exists, store empty so UI stays blank.
+	if(face != "" && ResolveFavoriteVoiceFaceStorage(face) == "")
+		face = "";
+
+	if(thumb == "" && saveFile != "")
+		thumb = ResolveFavoriteVoiceThumbPath(saveFile);
+
+	var item = %[
+		voiceFile : path,
+		date : FormatFavoriteVoiceDate(),
+		name : name,
+		text : text,
+		thumb : thumb,
+		face : face,
+		saveFile : saveFile
+	];
+	list.add(item);
+	if(!SaveFavoriteVoices(list)){
+		if(capturedSave) DeleteFavoriteVoiceSaveFile(saveFile);
+		return false;
+	}
+	return true;
+}
+
+function RemoveFavoriteVoice(voicePath)
+{
+	var path = NormalizeFavoriteVoicePath(voicePath);
+	if(path == "") return false;
+
+	var list = LoadFavoriteVoices();
+	var i;
+	var removed = false;
+	var removedSaveFiles = [];
+	for(i = list.count - 1; i >= 0; i--)
+	{
+		if(list[i] !== void && list[i].voiceFile == path)
+		{
+			removedSaveFiles.add(GetElm(list[i].saveFile, ""));
+			list.remove(list[i]);
+			removed = true;
+		}
+	}
+	if(!removed) return false;
+
+	// Persist list first. Local list mutation is not durable until Save succeeds.
+	if(!SaveFavoriteVoices(list)) return false;
+
+	var deletesOk = true;
+	for(i = 0; i < removedSaveFiles.count; i++)
+	{
+		if(!DeleteFavoriteVoiceSaveFile(removedSaveFiles[i]))
+			deletesOk = false;
+	}
+	return deletesOk;
+}
+
+// Jump to favorite progress (same path as load). Returns false if no save.
+function JumpFavoriteVoice(item)
+{
+	if(item === void || item === null) return false;
+	var saveFile = GetElm(item.saveFile, "");
+	if(saveFile == "" || !FavoriteVoiceSaveExists(saveFile))
+		return false;
+	try
+	{
+		game.load(saveFile);
+		return true;
+	}
+	catch(e)
+	{
+		try { dm("JumpFavoriteVoice failed: " + e); } catch(e2) {}
+		return false;
+	}
+}
+
+// Fit bustup into layer; hide if missing.
+function ApplyFavoriteVoiceFaceToLayer(layer, face, maxW, maxH)
+{
+	if(layer === void || layer === null) return false;
+	layer.visible = false;
+	var file = ResolveFavoriteVoiceFaceStorage(face);
+	if(file == "") return false;
+
+	try
+	{
+		layer.loadImages(file);
+		layer.setSizeToImageSize();
+		var w = layer.width;
+		var h = layer.height;
+		if(w > 0 && h > 0 && (w > maxW || h > maxH))
+		{
+			var sw = maxW > 0 ? (maxW * 100) \ w : 100;
+			var sh = maxH > 0 ? (maxH * 100) \ h : 100;
+			var scale = sw < sh ? sw : sh;
+			if(scale > 100) scale = 100;
+			var nw = (w * scale) \ 100;
+			var nh = (h * scale) \ 100;
+			var src = new global.Layer(layer.window, layer.parent);
+			src.assignImages(layer);
+			layer.setImageSize(nw, nh);
+			layer.setSize(nw, nh);
+			layer.stretchCopy(0, 0, nw, nh, src, 0, 0, w, h, stFastLinear);
+			invalidate src;
+		}
+		layer.visible = true;
+		return true;
+	}
+	catch(e)
+	{
+		layer.visible = false;
+		return false;
+	}
+}

@@ -100,7 +100,7 @@ public class BootstrapActivity extends Activity {
     private static final int ACTION_DOWNLOAD = 1;
     private static final int ACTION_IMPORT = 2;
     private static final String FALLBACK_BASE_URL =
-            "https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/download/v1.0.6/";
+            "https://github.com/TsangAsuna/yosuga-no-sora-remake/releases/download/v1.0.8/";
 
     /** Keeps the bootstrap artwork and its hit regions in one fixed canvas. */
     private static final class FixedAspectLayout extends FrameLayout {
@@ -883,7 +883,7 @@ public class BootstrapActivity extends Activity {
             // gh-proxy.cn mirror (Fujian-reachable): the manifest fetch is
             // already accelerated, but this version lookup used to run
             // unaccelerated and could stall ~16s on a blocked api.github.com.
-            String apiDirect = "https://api.github.com/repos/WarSkyGod/yosuga-no-sora-remake/releases?per_page=30";
+            String apiDirect = "https://api.github.com/repos/TsangAsuna/yosuga-no-sora-remake/releases?per_page=30";
             String apiMirror = "https://gh-proxy.cn/" + apiDirect;
             String jsonText = null;
             for (String candidate : new String[]{apiDirect, apiMirror}) {
@@ -927,7 +927,7 @@ public class BootstrapActivity extends Activity {
                 if (hasManifest) tag = rel.optString("tag_name");
             }
             if (tag == null || tag.isEmpty()) return null;
-            sLatestUpstreamBase = "https://github.com/WarSkyGod/yosuga-no-sora-remake/releases/download/"
+            sLatestUpstreamBase = "https://github.com/TsangAsuna/yosuga-no-sora-remake/releases/download/"
                     + tag + "/";
             sLatestUpstreamAt = now;
             return sLatestUpstreamBase;

@@ -45,6 +45,14 @@ public class KirikiriSDL2Activity extends SDLActivity {
     private String pendingMoviePath;
     private boolean moviePrepared;
     private boolean playMovieWhenPrepared;
+    // True when a playing OP movie was paused because the app went to the
+    // background; restored (with a delay) when the app returns.
+    private boolean backgroundPausedMovie;
+    // Pending delayed audio/movie resume; cancelled in onPause so a
+    // quick background->foreground->background flip (or process teardown
+    // while the foreground DataExtractService keeps the process alive)
+    // never lets the 0.5s callback unpause audio after we already left.
+    private Runnable pendingResume;
     private float movieVolume = 1.0f;
     // Movie display rectangle in the SDL surface's coordinate space; the
     // engine reports it through setMovieBounds().  A zero-size rectangle
@@ -76,6 +84,11 @@ public class KirikiriSDL2Activity extends SDLActivity {
     // playback device when another app (alarm, call, ...) takes the focus
     // and when it comes back. See AndroidDataBridge.cpp.
     private static native void nativeOnAudioFocusChange(int change);
+    // App lifecycle: pause/resume the FAudio/SDL playback devices when the
+    // app itself leaves/enters the foreground (iOS parity: no background
+    // audio).  See AndroidDataBridge.cpp.
+    private static native void nativeOnAppBackground();
+    private static native void nativeOnAppForeground();
 
     // ---- Audio focus -------------------------------------------------------
     private AudioManager audioManager;
@@ -311,6 +324,27 @@ public class KirikiriSDL2Activity extends SDLActivity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        // Cancel any pending delayed resume first: a foreground<->background
+        // flip inside the 0.5s window (or an Activity teardown that keeps the
+        // process alive via the foreground DataExtractService) must not let
+        // the later callback unpause audio after we have already paused.
+        if (pendingResume != null) {
+            if (mSurface != null) mSurface.removeCallbacks(pendingResume);
+            pendingResume = null;
+        }
+        // iOS parity: no background audio.  Pause the SDL/FAudio devices
+        // and any playing OP movie, so BGM/SE stop when the app leaves the
+        // foreground instead of playing on in the background.
+        nativeOnAppBackground();
+        if (moviePlayer != null && moviePrepared && moviePlayer.isPlaying()) {
+            backgroundPausedMovie = true;
+            moviePlayer.pause();
+        }
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         // If the user returns from the system Settings screen (where they
@@ -324,6 +358,23 @@ public class KirikiriSDL2Activity extends SDLActivity {
         // and the only reliable recovery is a fresh focus grant (which
         // triggers AUDIOFOCUS_GAIN on the native side).
         requestAudioFocusInternal();
+        // Late resume: let the audio session + surface settle for 0.5s
+        // before unpausing the SDL devices, matching the iOS late
+        // relayout/resume timing and avoiding a pop on re-entry.
+        if (mSurface != null) {
+            pendingResume = () -> {
+                pendingResume = null;
+                nativeOnAppForeground();
+                if (backgroundPausedMovie) {
+                    backgroundPausedMovie = false;
+                    // Match playMovie() semantics so the engine-side movie
+                    // state stays consistent with the MediaPlayer.
+                    playMovieWhenPrepared = true;
+                    if (moviePlayer != null && moviePrepared) moviePlayer.start();
+                }
+            };
+            mSurface.postDelayed(pendingResume, 500);
+        }
     }
 
     /**

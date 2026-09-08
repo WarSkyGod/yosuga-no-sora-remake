@@ -1,5 +1,4 @@
 #import <AVFoundation/AVFoundation.h>
-#import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
@@ -52,12 +51,39 @@ static void TVPIOSRelayoutSDLWindow(UIWindowScene *scene)
     CGRect sceneBounds = scene.coordinateSpace.bounds;
     if(CGRectIsEmpty(sceneBounds)) return;
 
+    /* Round the scene size UP so the window always covers the whole scene:
+     * a fractional height (e.g. 1366.5 pt) must not shrink the window and
+     * expose a line at the bottom of the title screen. */
+    sceneBounds = CGRectMake(floor(sceneBounds.origin.x), floor(sceneBounds.origin.y),
+                             ceil(sceneBounds.size.width), ceil(sceneBounds.size.height));
+
     window.frame = sceneBounds;
     UIView *contentView = window.rootViewController.view;
     if(contentView) {
         contentView.frame = window.bounds;
         [contentView setNeedsLayout];
         [contentView layoutIfNeeded];
+        /* The engine title screen can leave a 1px line at the bottom edge
+         * (Metal drawable rounding, especially on the first layout pass).
+         * Overscan the render view by 2pt on every side: overflow is clipped
+         * by the window, but the bottom edge is guaranteed covered instead of
+         * depending on a later layout pass. */
+        CGRect renderBounds = CGRectInset(window.bounds, -2.0f, -2.0f);
+        contentView.frame = renderBounds;
+        /* Force the actual SDL rendering view (Metal/GL) to the overscanned
+         * bounds as well: layoutIfNeeded alone can leave it at the old size
+         * until the next interaction, which is exactly the "title screen
+         * bottom gap" that disappears after switching to settings. */
+        for(UIView *sub in contentView.subviews) {
+            Class metalViewClass = NSClassFromString(@"SDL_uikitmetalview");
+            Class openglViewClass = NSClassFromString(@"SDL_uikitopenglview");
+            BOOL isRenderView = (metalViewClass && [sub isKindOfClass:metalViewClass])
+                             || (openglViewClass && [sub isKindOfClass:openglViewClass]);
+            if(isRenderView) {
+                sub.frame = renderBounds;
+                [sub layoutIfNeeded];
+            }
+        }
     }
     [window setNeedsLayout];
     [window layoutIfNeeded];
@@ -77,74 +103,39 @@ static void TVPIOSScheduleSDLWindowRelayout(UIWindowScene *scene)
         (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         TVPIOSRelayoutSDLWindow(weakScene);
     });
+    /* Late pass: the engine's title screen can be laid out after the earlier
+       passes, leaving a sub-pixel gap at the bottom edge until the first
+       interaction triggers another layout.  A final pass covers it. */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
+    /* The title screen (and its background surface) can appear well after
+       the 0.5s pass; keep running late passes so the bottom edge is covered
+       even with a slow data mount or slow first frame. */
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+        (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        TVPIOSRelayoutSDLWindow(weakScene);
+    });
 }
 
 /* ------------------------------------------------------------------ *
- * Background keep-alive                                                *
- * The plist declares UIBackgroundModes=audio, so as long as the audio  *
- * session stays active and something is being rendered to it, iOS keeps*
- * the app running in the background instead of suspending it.  We play *
- * an inaudible looping buffer to hold the session open even when no    *
- * BGM is currently sounding.                                           *
+ * Background behaviour                                                 *
+ * No UIBackgroundModes=audio, no silent keep-alive queue: when the app *
+ * goes to the background the engine audio (FAudio) is suspended so     *
+ * BGM/SE stop instead of playing in the background, and any AVPlayer   *
+ * (OP movie) is paused too.  On return we resume both and reactivate   *
+ * the shared audio session, so the game carries on where it left off   *
+ * instead of freezing or coming back muted.                            *
  * ------------------------------------------------------------------ */
-static AudioQueueRef TVPIOSKeepAliveQueue = NULL;
-static AudioQueueBufferRef TVPIOSKeepAliveBuffers[2] = { NULL, NULL };
 
-static void TVPIOSKeepAliveCallback(void *userData, AudioQueueRef queue,
-                                    AudioQueueBufferRef buffer)
-{
-    (void)userData;
-    /* The buffer is already silence; simply re-enqueue it so the queue
-       keeps consuming/rendering and the audio session stays active. */
-    AudioQueueEnqueueBuffer(queue, buffer, 0, NULL);
-}
-
-static void TVPIOSStartKeepAliveAudio(void)
-{
-    if(TVPIOSKeepAliveQueue) return;
-
-    NSError *error = nil;
-    AVAudioSession *session = [AVAudioSession sharedInstance];
-    [session setCategory:AVAudioSessionCategoryPlayback withOptions:0 error:nil];
-    [session setActive:YES error:nil];
-
-    AudioStreamBasicDescription format = {0};
-    format.mSampleRate = 44100.0;
-    format.mFormatID = kAudioFormatLinearPCM;
-    format.mFormatFlags = kAudioFormatFlagIsSignedInteger |
-                          kAudioFormatFlagIsPacked;
-    format.mFramesPerPacket = 1;
-    format.mChannelsPerFrame = 1;
-    format.mBitsPerChannel = 16;
-    format.mBytesPerFrame = 2;
-    format.mBytesPerPacket = 2;
-
-    OSStatus status = AudioQueueNewOutput(&format, TVPIOSKeepAliveCallback,
-        NULL, NULL, NULL, 0, &TVPIOSKeepAliveQueue);
-    if(status != noErr || !TVPIOSKeepAliveQueue)
-    {
-        NSLog(@"krkrsdl2: background keep-alive queue failed: %d", (int)status);
-        TVPIOSKeepAliveQueue = NULL;
-        return;
-    }
-    for(int i = 0; i < 2; ++i)
-    {
-        status = AudioQueueAllocateBuffer(TVPIOSKeepAliveQueue, 44100 * 2,
-                                          &TVPIOSKeepAliveBuffers[i]);
-        if(status != noErr || !TVPIOSKeepAliveBuffers[i]) break;
-        memset(TVPIOSKeepAliveBuffers[i]->mAudioData, 0,
-               TVPIOSKeepAliveBuffers[i]->mAudioDataByteSize);
-    }
-    for(int i = 0; i < 2; ++i)
-    {
-        if(!TVPIOSKeepAliveBuffers[i]) break;
-        AudioQueueEnqueueBuffer(TVPIOSKeepAliveQueue,
-                                TVPIOSKeepAliveBuffers[i], 0, NULL);
-    }
-    status = AudioQueueStart(TVPIOSKeepAliveQueue, NULL);
-    if(status != noErr)
-        NSLog(@"krkrsdl2: background keep-alive start failed: %d", (int)status);
-}
+/* Implemented in FAudioDevice.cpp: freeze/unfreeze the FAudio engine. */
+extern "C" void TVPIOSAudioSuspend(void);
+extern "C" void TVPIOSAudioResume(void);
 
 static void TVPIOSReactivateAudioSession(void)
 {
@@ -158,28 +149,6 @@ static void TVPIOSReactivateAudioSession(void)
     AVAudioSession *session = [AVAudioSession sharedInstance];
     if(![session setActive:YES error:&error])
         NSLog(@"krkrsdl2: session reactivate failed: %@",
-              error.localizedDescription ?: @"unknown");
-}
-
-static void TVPIOSStopKeepAliveAudio(void)
-{
-    if(!TVPIOSKeepAliveQueue) return;
-    AudioQueueStop(TVPIOSKeepAliveQueue, true);
-    AudioQueueDispose(TVPIOSKeepAliveQueue, true);
-    TVPIOSKeepAliveQueue = NULL;
-    TVPIOSKeepAliveBuffers[0] = NULL;
-    TVPIOSKeepAliveBuffers[1] = NULL;
-    /* Do NOT deactivate the shared audio session here.  The SDL audio
-     * backend plays through the very same AVAudioSession: deactivating it
-     * when the keep-alive loop stops silences the whole app until some
-     * other event happens to reactivate the session - which is exactly
-     * the "BGM never comes back after returning from the background"
-     * report.  Re-activate the session instead so the engine audio picks
-     * up right where it was muted. */
-    NSError *error = nil;
-    AVAudioSession *session = [AVAudioSession sharedInstance];
-    if(![session setActive:YES error:&error])
-        NSLog(@"krkrsdl2: session reactivate after keep-alive stop failed: %@",
               error.localizedDescription ?: @"unknown");
 }
 
@@ -230,40 +199,45 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
     if([scene isKindOfClass:UIWindowScene.class]) {
         TVPIOSApplicationWindowScene = (UIWindowScene *)scene;
         TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
-        [self installKeepAliveLifecycleObservers];
+        [self installLifecycleObservers];
     }
 }
 
 - (void)sceneDidEnterBackground:(UIScene *)scene
 {
     (void)scene;
-    /* UIBackgroundModes=audio lets a started audio session keep the app
-       alive in the background.  Play an inaudible loop so the session
-       stays active (and BGM/auto-advance keeps running). */
-    TVPIOSStartKeepAliveAudio();
+    /* No background audio: suspend the FAudio engine (BGM/SE stop) and let
+       the OS suspend the app normally.  Active OP movies are paused by
+       TVPIOSMovieController's own observers. */
+    TVPIOSAudioSuspend();
 }
 
 - (void)sceneWillEnterForeground:(UIScene *)scene
 {
     if([scene isKindOfClass:UIWindowScene.class])
         TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
-    TVPIOSStopKeepAliveAudio();
+    /* Audio is resumed in sceneDidBecomeActive AFTER the audio session has
+       been reactivated: starting the FAudio engine earlier would leave the
+       mixer running against an inactive session, which adds a gap when the
+       session finally activates. */
 }
 
 - (void)sceneDidBecomeActive:(UIScene *)scene
 {
     if([scene isKindOfClass:UIWindowScene.class])
         TVPIOSScheduleSDLWindowRelayout((UIWindowScene *)scene);
-    TVPIOSStopKeepAliveAudio();
+    /* Reactivate the shared session first, then unfreeze FAudio so voice
+       playback resumes with the session already live (no first-frame gap). */
     TVPIOSReactivateAudioSession();
+    TVPIOSAudioResume();
 }
 
-- (void)installKeepAliveLifecycleObservers
+- (void)installLifecycleObservers
 {
     /* Belt-and-braces for older iOS versions / non-scene entry paths:
        listen to the application-level background/foreground notifications
-       as well, so the keep-alive loop is driven regardless of which
-       lifecycle path iOS uses. */
+       as well, so suspend/resume is driven regardless of which lifecycle
+       path iOS uses. */
     NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -271,20 +245,21 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
                         object:nil queue:NSOperationQueue.mainQueue
                     usingBlock:^(NSNotification *note) {
                         (void)note;
-                        TVPIOSStartKeepAliveAudio();
+                        TVPIOSAudioSuspend();
                     }];
         [nc addObserverForName:UIApplicationWillEnterForegroundNotification
                         object:nil queue:NSOperationQueue.mainQueue
                     usingBlock:^(NSNotification *note) {
                         (void)note;
-                        TVPIOSStopKeepAliveAudio();
+                        /* Audio resumes in DidBecomeActive after the session
+                           is reactivated (see sceneDidBecomeActive). */
                     }];
         [nc addObserverForName:UIApplicationDidBecomeActiveNotification
                         object:nil queue:NSOperationQueue.mainQueue
                     usingBlock:^(NSNotification *note) {
                         (void)note;
-                        TVPIOSStopKeepAliveAudio();
                         TVPIOSReactivateAudioSession();
+                        TVPIOSAudioResume();
                     }];
     });
 }
@@ -411,6 +386,11 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
     BOOL _hasBounds;
     BOOL _retriedOnce;
     BOOL _skipRequested;
+    /* True when we paused because the app went to the background; resume
+       automatically on return so the OP keeps playing. */
+    BOOL _resumeAfterForeground;
+    id _backgroundObserver;
+    id _activeObserver;
     UILongPressGestureRecognizer *_skipGesture;
 }
 
@@ -543,6 +523,37 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
                     strongSelf->_playing = NO;
                     if(strongSelf->_finished)
                         strongSelf->_finished(strongSelf->_context);
+                }];
+
+    /* Pause on background, resume on return: the OP must keep playing
+       (video and audio together) after coming back from another app,
+       instead of staying frozen at the last rendered frame. */
+    _backgroundObserver = [notifications
+        addObserverForName:UIApplicationDidEnterBackgroundNotification
+                    object:nil queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification *notification) {
+                    (void)notification;
+                    TVPIOSMovieController *strongSelf = weakSelf;
+                    if(!strongSelf) return;
+                    if(strongSelf->_playing && !strongSelf->_ended &&
+                       !strongSelf->_skipRequested) {
+                        strongSelf->_resumeAfterForeground = YES;
+                        [strongSelf->_player pause];
+                        strongSelf->_playing = NO;
+                    }
+                }];
+    _activeObserver = [notifications
+        addObserverForName:UIApplicationDidBecomeActiveNotification
+                    object:nil queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification *notification) {
+                    (void)notification;
+                    TVPIOSMovieController *strongSelf = weakSelf;
+                    if(!strongSelf || !strongSelf->_resumeAfterForeground) return;
+                    strongSelf->_resumeAfterForeground = NO;
+                    if(strongSelf->_ended || strongSelf->_skipRequested) return;
+                    strongSelf->_playing = YES;
+                    [strongSelf->_player play];
+                    strongSelf->_player.rate = strongSelf->_rate;
                 }];
     return self;
 }
@@ -738,8 +749,13 @@ extern "C" const char *TVPIOSGetDocumentsDirectory(void)
     NSNotificationCenter *notifications = NSNotificationCenter.defaultCenter;
     if(_endObserver) [notifications removeObserver:_endObserver];
     if(_failureObserver) [notifications removeObserver:_failureObserver];
+    if(_backgroundObserver) [notifications removeObserver:_backgroundObserver];
+    if(_activeObserver) [notifications removeObserver:_activeObserver];
     _endObserver = nil;
     _failureObserver = nil;
+    _backgroundObserver = nil;
+    _activeObserver = nil;
+    _resumeAfterForeground = NO;
     _playerLayer.player = nil;
     [_playerLayer removeFromSuperlayer];
     [_view removeFromSuperview];

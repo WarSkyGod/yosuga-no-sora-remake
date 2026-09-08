@@ -248,10 +248,16 @@ jobs:
           IOS_DEPLOYMENT_TARGET: '13.0'
         run: |
           set -euo pipefail
-          # Write the current repository's Release download root into the
-          # bundle so forks/renames track the right repo without editing code.
-          printf '{"baseUrl":"https://github.com/%s/releases/latest/download/","releaseTag":"%s"}\n' \
-            "${{ github.repository }}" "${{ steps.release.outputs.tag }}" \
+          # Write the current repository's data-source URL into the bundle
+          # so forks/renames track the right repo without editing code.
+          # /releases/latest/ skips prereleases and the data-vN releases are
+          # all prereleases, so resolve the newest data-vN tag explicitly.
+          data_tag=$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" \
+            | python3 -c "import json,sys; rels=json.load(sys.stdin); tags=[r['tag_name'] for r in rels if not r.get('draft') and str(r.get('tag_name','')).startswith('data-v')]; print(tags[0] if tags else '')")
+          base_url="https://github.com/${{ github.repository }}/releases/download/${data_tag:-latest}/"
+          printf '{"baseUrl":"%s","releaseTag":"%s"}\n' \
+            "$base_url" "${{ steps.release.outputs.tag }}" \
             > src/resources/ios/default-manifest.json
           cat src/resources/ios/default-manifest.json
           ./ios-project/generate.sh

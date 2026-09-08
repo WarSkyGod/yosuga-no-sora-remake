@@ -13,8 +13,18 @@
 
 #ifdef TVP_FAUDIO_IMPLEMENT
 #include <FAudio.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 class FAudioStream;
+class FAudioDevice;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+/* iOS lifecycle bridge target; assigned in Initialize/Uninitialize,
+ * consumed by TVPIOSAudioSuspend/Resume at the end of this file.
+ * ponytail: single-device assumption (iOS has one FAudioDevice). */
+static FAudioDevice *gTVPIOSFAudioDevice = nullptr;
+#endif
 class FAudioDevice : public iTVPAudioDevice
 {
 	FAudio* FAudioObj;
@@ -66,6 +76,9 @@ public:
 		{
 			TVPThrowExceptionMessage(TJS_W("Failed to call FAudioCreate"));
 		}
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+		gTVPIOSFAudioDevice = this;
+#endif
 		hr = FAudio_CreateMasteringVoice(
 			FAudioObj,
 			&MasteringVoiceObj,
@@ -88,6 +101,9 @@ public:
 
 	virtual void Uninitialize() override
 	{
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+		gTVPIOSFAudioDevice = nullptr;
+#endif
 		while (Children.size() != 0)
 		{
 			auto i = Children.begin();
@@ -467,3 +483,35 @@ iTVPAudioDevice* TVPCreateAudioDevice_FAudio()
 	return NULL;
 #endif
 }
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+/* Called from IOSVideoOverlay.mm on UIApplicationDidEnterBackground /
+ * sceneDidEnterBackground.  Stop the whole FAudio engine so no BGM/SE keeps
+ * playing in the background; voices freeze in place and resume on
+ * TVPIOSAudioResume. */
+extern "C" void TVPIOSAudioSuspend(void)
+{
+	if (gTVPIOSFAudioDevice)
+	{
+		FAudio *audio = gTVPIOSFAudioDevice->GetFAudio();
+		if (audio)
+		{
+			FAudio_StopEngine(audio);
+		}
+	}
+}
+
+/* Called from IOSVideoOverlay.mm on UIApplicationWillEnterForeground /
+ * sceneWillEnterForeground and DidBecomeActive (idempotent). */
+extern "C" void TVPIOSAudioResume(void)
+{
+	if (gTVPIOSFAudioDevice)
+	{
+		FAudio *audio = gTVPIOSFAudioDevice->GetFAudio();
+		if (audio)
+		{
+			FAudio_StartEngine(audio);
+		}
+	}
+}
+#endif

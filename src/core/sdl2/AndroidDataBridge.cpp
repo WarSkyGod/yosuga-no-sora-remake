@@ -168,6 +168,11 @@ Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeDetachExtra
 namespace {
 std::atomic<bool> gFocusMuted{false};
 std::atomic<bool> gFocusDevices[8] = {};
+/* App lifecycle mute (background): mirrors the focus-loss logic but with a
+ * separate flag set so a background pause never collides with a real
+ * audio-focus loss (alarm/call while the app is already in background). */
+std::atomic<bool> gAppMuted{false};
+std::atomic<bool> gAppDevices[8] = {};
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -206,4 +211,43 @@ Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnAudioFocu
 			}
 		}
 	}
-}
+	}
+
+	// ---- App lifecycle (background) -------------------------------------------
+	// iOS suspends the FAudio engine when the app leaves the foreground so no
+	// BGM/SE keeps playing in the background (see FAudioDevice.cpp
+	// TVPIOSAudioSuspend/Resume).  Android mirrors that here with the same
+	// device-pause trick as the focus path but on an independent flag set.
+	extern "C" JNIEXPORT void JNICALL
+	Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnAppBackground(
+		JNIEnv *env, jclass clazz)
+	{
+		(void)env;
+		(void)clazz;
+		if (gAppMuted.exchange(true)) return;
+		for (int slot = 0; slot < 8; ++slot)
+		{
+			SDL_AudioDeviceID id = (SDL_AudioDeviceID)(slot + 2);
+			if (SDL_GetAudioDeviceStatus(id) == SDL_AUDIO_PLAYING)
+			{
+				SDL_PauseAudioDevice(id, 1);
+				gAppDevices[slot] = true;
+			}
+		}
+	}
+
+	extern "C" JNIEXPORT void JNICALL
+	Java_com_shuimo0413_yosuganosora_hdremake_KirikiriSDL2Activity_nativeOnAppForeground(
+		JNIEnv *env, jclass clazz)
+	{
+		(void)env;
+		(void)clazz;
+		if (!gAppMuted.exchange(false)) return;
+		for (int slot = 0; slot < 8; ++slot)
+		{
+			if (gAppDevices[slot].exchange(false))
+			{
+				SDL_PauseAudioDevice((SDL_AudioDeviceID)(slot + 2), 0);
+			}
+		}
+	}

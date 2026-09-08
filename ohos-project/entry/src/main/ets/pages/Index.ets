@@ -197,6 +197,10 @@ struct Index {
   @State gameScale: number = 1;
   @State rootWpx: number = 0;
   @State rootHpx: number = 0;
+  // Last reported game-surface px size (dedup for the onAreaChange storm;
+  // plain fields on purpose - updating them must NOT re-run build).
+  private lastXcPxW: number = -1;
+  private lastXcPxH: number = -1;
 
   aboutToAppear(): void {
     this.hbStart = Date.now();
@@ -268,7 +272,30 @@ struct Index {
                 } catch (eDg2) {
                   // ignore
                 }
-                return mainWindow.setFullScreen(fsReq === 1);
+                return mainWindow.setFullScreen(fsReq === 1).then((): Promise<void> => {
+                  if (fsReq === 0) {
+                    // Leaving fullscreen: setFullScreen(false) only drops the
+                    // fullscreen flag - if the window is still MAXIMIZED the
+                    // user sees no visual change at all and reports "cannot
+                    // switch back to windowed". Shrink it to a proper
+                    // 16:9 floating window (1280x720 px). Safe now: the game
+                    // surface is a fixed virtual resolution, so a window
+                    // resize only changes the .scale transform and never
+                    // touches the XComponent surface (the v1.0.9 crash is
+                    // bypassed by design).
+                    return mainWindow.resize(px2vp(1280), px2vp(720)).then((): void => {
+                      try {
+                        entryNapi.diagLog('shell: windowed resize 1280x720px applied');
+                      } catch (eDg5) {
+                        // ignore
+                      }
+                    }).catch((): void => {
+                      // resize may be unsupported on some form factors; the
+                      // fullscreen flag was still dropped correctly.
+                    });
+                  }
+                  return Promise.resolve();
+                });
               }).then((): void => {
                 entryNapi.ackFullscreen(fsReq);
                 this.log('fullscreen request applied: ' + fsReq);
@@ -2794,6 +2821,22 @@ struct Index {
                 const w = newValue.width as number;
                 const h = newValue.height as number;
                 if (w > 0 && h > 0) {
+                  // Deduplicate no-change callbacks. v1.0.9 real-device diag
+                  // shows ArkUI firing this callback every ~8ms with CONSTANT
+                  // values after a fullscreen switch (hundreds of repeats);
+                  // each fire did a napi call + diag file IO on the UI thread
+                  // and starved input processing - the user-visible symptom
+                  // was "the resolution options won't respond". With the
+                  // fixed virtual-resolution surface the size genuinely never
+                  // changes, so identical values carry no information.
+                  const pxW = vp2px(w);
+                  const pxH = vp2px(h);
+                  if (Math.abs(pxW - this.lastXcPxW) < 0.5 &&
+                    Math.abs(pxH - this.lastXcPxH) < 0.5) {
+                    return;
+                  }
+                  this.lastXcPxW = pxW;
+                  this.lastXcPxH = pxH;
                   // Record the real component pixel size. This is used ONLY to
                   // scale touch coordinates from the physical XComponent space
                   // into the game's logical window space (1920x1080). The SDL
@@ -2809,11 +2852,11 @@ struct Index {
                   // caught exactly that stack on 37103/37105. The surface id
                   // is delivered once via onLoad; the SDL driver handles
                   // buffer resizes by reading the live buffer geometry.
-                  entryNapi.setSurfaceSize(vp2px(w), vp2px(h));
-                  this.log('XComponent size: ' + vp2px(w).toFixed(0) + 'x' + vp2px(h).toFixed(0) + ' px');
+                  entryNapi.setSurfaceSize(pxW, pxH);
+                  this.log('XComponent size: ' + pxW.toFixed(0) + 'x' + pxH.toFixed(0) + ' px');
                   try {
                     entryNapi.diagLog('xc: game area=' + w.toFixed(0) + 'x' + h.toFixed(0) +
-                      ' vp (' + vp2px(w).toFixed(0) + 'x' + vp2px(h).toFixed(0) + ' px)');
+                      ' vp (' + pxW.toFixed(0) + 'x' + pxH.toFixed(0) + ' px)');
                   } catch (eDg) {
                     // diag channel not ready yet
                   }
